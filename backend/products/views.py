@@ -1,10 +1,13 @@
 """
 제품 관련 뷰
 """
-from rest_framework import viewsets, filters, generics
+from rest_framework import viewsets, filters, generics, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
+from django.utils import timezone
 from .models import Category, Product, ProductView
 from .serializers import CategorySerializer, ProductSerializer, ProductDetailSerializer, ProductListSerializer
 
@@ -121,3 +124,72 @@ class ProductDetailView(generics.RetrieveAPIView):
         else:
             ip = request.META.get('REMOTE_ADDR')
         return ip
+
+
+class SellerProductViewSet(viewsets.ModelViewSet):
+    """판매자 상품 관리 ViewSet"""
+
+    serializer_class = ProductSerializer
+    pagination_class = StandardResultsSetPagination
+
+    def get_permissions(self):
+        """액션별 권한 설정"""
+        from sellers.permissions import IsSeller, IsSellerProduct
+
+        if self.action in ['list', 'retrieve']:
+            # 자신의 상품 목록은 조회 가능
+            permission_classes = [IsSeller]
+        else:
+            # 생성/수정/삭제는 판매자 권한 + 소유자 확인
+            permission_classes = [IsSellerProduct]
+
+        return [permission() for permission in permission_classes]
+
+    def get_queryset(self):
+        """자신의 상품만 조회"""
+        if hasattr(self.request.user, 'seller_profile'):
+            return Product.objects.filter(
+                seller=self.request.user.seller_profile
+            ).select_related('category').order_by('-created_at')
+        return Product.objects.none()
+
+    def perform_create(self, serializer):
+        """상품 생성 (판매자 상품)"""
+        serializer.save(
+            seller=self.request.user.seller_profile,
+            product_type='seller',
+            status='draft'  # 초기 상태는 임시저장
+        )
+
+    @action(detail=True, methods=['post'])
+    def publish(self, request, pk=None):
+        """상품 발행 (draft → active)"""
+        product = self.get_object()
+
+        # 필수 정보 검증
+        if not all([product.name, product.price, product.main_image_url, product.category]):
+            return Response(
+                {'error': '필수 정보를 모두 입력해주세요. (상품명, 가격, 이미지, 카테고리)'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        product.status = 'active'
+        product.published_at = timezone.now()
+        product.save()
+
+        return Response({
+            'message': '상품이 발행되었습니다.',
+            'product': self.get_serializer(product).data
+        })
+
+    @action(detail=True, methods=['post'])
+    def unpublish(self, request, pk=None):
+        """상품 비공개 (active → inactive)"""
+        product = self.get_object()
+        product.status = 'inactive'
+        product.save()
+
+        return Response({
+            'message': '상품이 비공개 처리되었습니다.',
+            'product': self.get_serializer(product).data
+        })

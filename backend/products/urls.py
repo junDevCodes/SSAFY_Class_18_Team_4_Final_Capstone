@@ -8,12 +8,14 @@ from .views import (
     ProductViewSet,
     ProductListView,
     ProductDetailView,
+    SellerProductViewSet,
 )
 
 # Router 설정
 router = DefaultRouter()
 router.register(r'categories', CategoryViewSet, basename='category')
 router.register(r'products-legacy', ProductViewSet, basename='product-legacy')
+router.register(r'seller-products', SellerProductViewSet, basename='seller-product')
 
 urlpatterns = [
     # 상품 API (새로운 버전)
