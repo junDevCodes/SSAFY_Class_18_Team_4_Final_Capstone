@@ -10,7 +10,9 @@
       <div class="bg-white w-full max-w-[400px] rounded-2xl shadow-2xl pointer-events-auto overflow-hidden flex flex-col max-h-[90vh]">
         <!-- Modal Header -->
         <div class="px-6 py-4 flex items-center justify-between border-b border-gray-100 shrink-0">
-          <div class="font-display font-bold text-xl text-brand-600">FreshPick</div>
+          <div class="font-display font-bold text-2xl text-brand-900">
+            Sel<span class="inline-block transform italic text-brand-500 ml-0.5">F</span>
+          </div>
           <button @click="uiStore.closeLogin" class="text-gray-400 hover:text-gray-900 transition-colors">
             <X :size="24" />
           </button>

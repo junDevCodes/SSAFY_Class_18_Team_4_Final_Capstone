@@ -1,5 +1,5 @@
 <template>
-  <section class="py-20 border-b border-gray-100">
+  <section v-if="timeDealProducts.length > 0" class="py-20 border-b border-gray-100">
     <div class="max-w-7xl mx-auto">
       <div class="px-4 sm:px-6 lg:px-8 mb-8 flex justify-between items-end">
         <div>
@@ -16,13 +16,13 @@
         <div class="flex gap-6 w-max">
           <div v-for="product in timeDealProducts" :key="product.id" class="w-[220px] group cursor-pointer">
             <div class="relative aspect-[4/5] rounded-xl overflow-hidden bg-gray-100 mb-4 shadow-sm">
-              <img :src="product.image" :alt="product.name" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+              <img :src="product.image_url" :alt="product.name" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
               <div class="absolute top-3 left-3 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">-{{ product.discount }}%</div>
             </div>
             <h4 class="text-base font-medium text-gray-900 mb-1 line-clamp-1 group-hover:text-brand-600 transition-colors">{{ product.name }}</h4>
             <div class="flex items-baseline gap-2">
               <span class="font-bold text-lg">{{ formatPrice(product.price) }}</span>
-              <span class="text-sm text-gray-400 line-through">{{ formatPrice(product.originalPrice) }}</span>
+              <span v-if="hasOriginalPrice(product)" class="text-sm text-gray-400 line-through">{{ formatOriginalPrice(product) }}</span>
             </div>
           </div>
         </div>
@@ -37,12 +37,30 @@ import { Timer } from 'lucide-vue-next'
 import { useTimer } from '@/composables/useTimer'
 import { useProductStore } from '@/stores/products'
 import { formatPrice } from '@/utils/formatters'
+import type { Product } from '@/types/product'
 
 const { timer } = useTimer()
 const productStore = useProductStore()
 
-const timeDealProducts = computed(() => {
-  return productStore.products.slice(4, 9)
-})
+const discountedProducts = computed(() => productStore.products.filter(p => p.discount > 0))
+const timeDealProducts = computed(() => discountedProducts.value.slice(0, 10))
+
+const getOriginalPrice = (p: Product): number | null => {
+  if (p.original_price !== null && p.original_price !== undefined) return p.original_price
+  if (p.discount > 0) {
+    const restored = Math.round(p.price / (1 - p.discount / 100))
+    return Number.isFinite(restored) ? restored : null
+  }
+  return null
+}
+
+const hasOriginalPrice = (p: Product): boolean => {
+  return getOriginalPrice(p) !== null
+}
+
+const formatOriginalPrice = (p: Product): string => {
+  const value = getOriginalPrice(p)
+  return value !== null ? formatPrice(value) : ''
+}
 </script>
 

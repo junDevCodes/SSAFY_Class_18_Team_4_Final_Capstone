@@ -23,7 +23,7 @@
         
         <div v-else class="space-y-3">
           <div v-for="item in cartStore.items" :key="item.id" class="bg-white p-4 rounded-lg border border-gray-100 shadow-sm flex gap-4 relative">
-            <img :src="item.image" :alt="item.name" class="w-20 h-24 object-cover rounded bg-gray-50">
+            <img :src="item.image_url" :alt="item.name" class="w-20 h-24 object-cover rounded bg-gray-50" @error="onImgError">
             <div class="flex-1 flex flex-col justify-between py-0.5">
               <div>
                 <div class="text-[10px] text-brand-600 font-bold mb-1">샛별배송</div>
@@ -70,5 +70,10 @@ import { formatPrice } from '@/utils/formatters'
 
 const uiStore = useUIStore()
 const cartStore = useCartStore()
+
+const onImgError = (e: Event) => {
+  const el = e.target as HTMLImageElement
+  el.src = 'https://via.placeholder.com/80x96.png?text=No+Image'
+}
 </script>
 

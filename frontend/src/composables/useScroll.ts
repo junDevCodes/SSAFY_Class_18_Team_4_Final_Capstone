@@ -17,7 +17,11 @@ export function useScroll() {
     const nav = document.getElementById('sticky-nav')
     if (nav) {
       nav.scrollIntoView({ behavior: 'smooth' })
+      return
     }
+    // 폴백: 화면 하단으로 한 화면 정도 스크롤
+    const target = window.innerHeight - 80
+    window.scrollTo({ top: target > 0 ? target : 0, behavior: 'smooth' })
   }
 
   onMounted(() => {

@@ -47,10 +47,12 @@ INSTALLED_APPS = [
     'corsheaders',  # CORS 헤더 앱 추가
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
+    'django_filters',  # 필터링 지원
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
     'authentication',
+    'products',  # 제품 관리 앱
 ]
 
 MIDDLEWARE = [

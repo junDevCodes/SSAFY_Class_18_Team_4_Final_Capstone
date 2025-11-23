@@ -1,14 +1,7 @@
 <template>
   <div class="relative min-h-screen flex flex-col">
     <AppHeader />
-    <main class="flex-grow">
-      <HeroSection />
-      <CategoryNav />
-      <QuickCategories />
-      <BrandPromise />
-      <TimeDeal />
-      <ProductList />
-    </main>
+    <router-view />
     <AppFooter />
     <LoginModal />
     <CartDrawer />
@@ -20,12 +13,6 @@
 import { onMounted, onUnmounted } from 'vue'
 import AppHeader from './components/layout/AppHeader.vue'
 import AppFooter from './components/layout/AppFooter.vue'
-import HeroSection from './components/sections/HeroSection.vue'
-import CategoryNav from './components/sections/CategoryNav.vue'
-import QuickCategories from './components/sections/QuickCategories.vue'
-import BrandPromise from './components/sections/BrandPromise.vue'
-import TimeDeal from './components/sections/TimeDeal.vue'
-import ProductList from './components/sections/ProductList.vue'
 import LoginModal from './components/ui/LoginModal.vue'
 import CartDrawer from './components/ui/CartDrawer.vue'
 import Toast from './components/ui/Toast.vue'

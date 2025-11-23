@@ -3,7 +3,9 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex flex-col md:flex-row justify-between gap-12 mb-16">
         <div class="max-w-xs">
-          <div class="font-display font-bold text-2xl text-gray-900 mb-6">FreshPick</div>
+          <div class="font-display font-bold text-2xl text-gray-900 mb-6">
+            Sel<span class="inline-block transform italic text-brand-500 ml-0.5">F</span>
+          </div>
           <p class="text-sm text-gray-500 leading-relaxed mb-6">
             자연의 시간을 존중하며, <br>
             가장 정직한 먹거리를 전합니다.
@@ -40,7 +42,7 @@
         </div>
       </div>
       <div class="border-t border-gray-200 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-gray-400">
-        <p>&copy; 2024 FreshPick Corp. All rights reserved.</p>
+        <p>&copy; 2024 SelF Corp. All rights reserved.</p>
         <div class="flex gap-6">
           <span>개인정보처리방침</span>
           <span>이용약관</span>
