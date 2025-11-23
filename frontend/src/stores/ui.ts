@@ -10,6 +10,7 @@ export const useUIStore = defineStore('ui', () => {
   const authMode = ref<'login' | 'signup'>('login')
   const showVerification = ref(false)
   const toast = ref({ show: false, message: '' })
+  const redirectPath = ref<string | null>(null)
 
   let toastTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -36,6 +37,11 @@ export const useUIStore = defineStore('ui', () => {
   const closeLogin = () => {
     isLoginOpen.value = false
     showVerification.value = false
+  }
+
+  // 로그인 후 리다이렉트 경로 설정/초기화
+  const setRedirectPath = (path: string | null) => {
+    redirectPath.value = path
   }
 
   // 인증 모드 변경
@@ -73,6 +79,7 @@ export const useUIStore = defineStore('ui', () => {
     authMode,
     showVerification,
     toast,
+    redirectPath,
     setScrolled,
     openCart,
     closeCart,
@@ -81,7 +88,8 @@ export const useUIStore = defineStore('ui', () => {
     setAuthMode,
     setShowVerification,
     showToast,
-    setActiveTab
+    setActiveTab,
+    setRedirectPath
   }
 })
 

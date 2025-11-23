@@ -7,7 +7,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 
 class Category(models.Model):
     """카테고리 모델 (계층 구조 지원)"""
-    name = models.CharField(max_length=100, verbose_name="카테고리명")
+    name = models.CharField(max_length=100, unique=True, verbose_name="카테고리명")
     slug = models.SlugField(max_length=100, verbose_name="슬러그")
 
     # 계층 구조 필드
@@ -190,6 +190,7 @@ class Product(models.Model):
     product_url = models.TextField(null=True, blank=True, verbose_name="[DEPRECATED] 제품 URL")
     detail_info = models.TextField(null=True, blank=True, verbose_name="[DEPRECATED] 상세정보")
     discount = models.IntegerField(
+        default=0,
         null=True,
         blank=True,
         validators=[MinValueValidator(0), MaxValueValidator(100)],

@@ -222,12 +222,11 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useOrdersStore } from '@/stores/orders'
 import { formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 
 const route = useRoute()
-const router = useRouter()
 const ordersStore = useOrdersStore()
 
 const loading = ref(true)

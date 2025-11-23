@@ -7,19 +7,20 @@ import type {
   LoginRequest,
   RegisterRequest,
   LoginResponse,
-  User
+  User,
+  RegisterResponse
 } from '@/types/auth'
-import type { Product } from '@/types/product'
+import type { Product, ProductDetail } from '@/types/product'
 
 // ==================== Auth API ====================
 export const authAPI = {
   // 회원가입
   register: (data: RegisterRequest) =>
-    apiClient.post<{ user: User; message: string }>('/auth/register/', data),
+    apiClient.post<RegisterResponse>('/auth/register/', data),
 
   // 이메일 인증
-  verifyEmail: (key: string) =>
-    apiClient.post('/auth/register/verify/', { key }),
+  verifyEmail: (payload: { email: string; code: string }) =>
+    apiClient.post('/auth/register/verify/', payload),
 
   // 로그인
   login: (data: LoginRequest) =>
@@ -78,7 +79,7 @@ export const productsAPI = {
 
   // 상품 상세
   getProduct: (slug: string) =>
-    apiClient.get<Product>(`/api/products/${slug}/`),
+    apiClient.get<ProductDetail>(`/api/products/${slug}/`),
 
   // 카테고리 목록
   getCategories: () =>

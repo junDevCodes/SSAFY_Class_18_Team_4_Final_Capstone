@@ -17,10 +17,21 @@ import LoginModal from './components/ui/LoginModal.vue'
 import CartDrawer from './components/ui/CartDrawer.vue'
 import Toast from './components/ui/Toast.vue'
 import { useAuthStore } from './stores/auth'
+import { useWishlistStore } from './stores/wishlist'
 import { useUIStore } from './stores/ui'
 
 const authStore = useAuthStore()
+const wishlistStore = useWishlistStore()
 const uiStore = useUIStore()
+
+// 인증 필요 시 로그인 모달 열고 리다이렉트 경로 저장
+const handleAuthRequired = (e: Event) => {
+  const detail = (e as CustomEvent).detail as { to?: string } | undefined
+  if (detail?.to) {
+    uiStore.setRedirectPath(detail.to)
+  }
+  uiStore.openLogin()
+}
 
 // OAuth 성공 시 사용자 정보를 다시 불러오고 모달을 닫는 핸들러
 const handleOAuthSuccess = async () => {
@@ -48,6 +59,9 @@ const handleAuthLogout = async () => {
 onMounted(async () => {
   try {
     await authStore.loadUser()
+    if (authStore.isAuthenticated) {
+      await wishlistStore.loadWishlist()
+    }
   } catch (error) {
     console.error('초기 사용자 정보 로드 실패:', error)
   }
@@ -55,11 +69,13 @@ onMounted(async () => {
 
 // 전역 인증 관련 이벤트 리스너 등록/해제
 onMounted(() => {
+  window.addEventListener('auth:required', handleAuthRequired as EventListener)
   window.addEventListener('oauth:success', handleOAuthSuccess)
   window.addEventListener('auth:logout', handleAuthLogout)
 })
 
 onUnmounted(() => {
+  window.removeEventListener('auth:required', handleAuthRequired as EventListener)
   window.removeEventListener('oauth:success', handleOAuthSuccess)
   window.removeEventListener('auth:logout', handleAuthLogout)
 })

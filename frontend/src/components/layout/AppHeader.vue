@@ -45,13 +45,44 @@
 
     <!-- Right: Actions -->
     <div class="flex items-center gap-3 shrink-0">
-      <!-- Login Button -->
-      <button @click="uiStore.openLogin" class="hidden md:block text-sm font-medium hover:opacity-70 transition-opacity mr-2" :class="isLight ? 'text-gray-600' : 'text-white'">
-        로그인
-      </button>
-      <button class="md:hidden p-2" :class="isLight ? 'text-gray-600' : 'text-white'" @click="uiStore.openLogin">
-        <User :size="24" />
-      </button>
+      <!-- Authenticated actions -->
+      <template v-if="authStore.isAuthenticated">
+        <button
+          v-if="authStore.isSeller"
+          @click="goTo('/seller/dashboard')"
+          class="hidden md:block text-sm font-medium hover:opacity-70 transition-opacity mr-2"
+          :class="isLight ? 'text-gray-600' : 'text-white'"
+        >
+          판매자센터
+        </button>
+        <button
+          @click="goTo('/mypage/profile')"
+          class="hidden md:block text-sm font-medium hover:opacity-70 transition-opacity mr-2"
+          :class="isLight ? 'text-gray-600' : 'text-white'"
+        >
+          마이페이지
+        </button>
+        <button
+          @click="handleLogout"
+          class="hidden md:block text-sm font-medium hover:opacity-70 transition-opacity mr-2"
+          :class="isLight ? 'text-gray-600' : 'text-white'"
+        >
+          로그아웃
+        </button>
+        <button class="md:hidden p-2" :class="isLight ? 'text-gray-600' : 'text-white'" @click="goTo('/mypage/profile')">
+          <User :size="24" />
+        </button>
+      </template>
+
+      <!-- Guest actions -->
+      <template v-else>
+        <button @click="uiStore.openLogin" class="hidden md:block text-sm font-medium hover:opacity-70 transition-opacity mr-2" :class="isLight ? 'text-gray-600' : 'text-white'">
+          로그인
+        </button>
+        <button class="md:hidden p-2" :class="isLight ? 'text-gray-600' : 'text-white'" @click="uiStore.openLogin">
+          <User :size="24" />
+        </button>
+      </template>
       
       <button @click="uiStore.openCart" :class="['relative p-2 rounded-full transition-colors', isLight ? 'text-gray-900 hover:bg-gray-100' : 'text-white hover:bg-white/10']">
         <ShoppingCart :size="24" />
@@ -69,10 +100,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { Search, User, ShoppingCart } from 'lucide-vue-next'
 import { useUIStore } from '@/stores/ui'
 import { useCartStore } from '@/stores/cart'
+import { useAuthStore } from '@/stores/auth'
 import { useScroll } from '@/composables/useScroll'
 
 const uiStore = useUIStore()
 const cartStore = useCartStore()
+const authStore = useAuthStore()
 const { scrollToTop } = useScroll()
 const router = useRouter()
 const route = useRoute()
@@ -92,6 +125,14 @@ const handleLogoClick = () => {
   } else {
     router.push({ name: 'home' })
   }
+}
+
+const goTo = (path: string) => {
+  router.push(path)
+}
+
+const handleLogout = async () => {
+  await authStore.logout()
 }
 </script>
 

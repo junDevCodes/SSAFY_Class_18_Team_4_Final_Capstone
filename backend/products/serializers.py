@@ -62,8 +62,10 @@ class ProductImageSerializer(serializers.ModelSerializer):
 class ProductListSerializer(serializers.ModelSerializer):
     """상품 목록용 Serializer (간소화)"""
 
+    category = CategorySerializer(read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
     main_image = serializers.SerializerMethodField()
+    wishlist_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -74,8 +76,10 @@ class ProductListSerializer(serializers.ModelSerializer):
             'price',
             'original_price',
             'discount_rate',
+            'discount',
             'unit',
             'main_image',
+            'category',
             'category_name',
             'is_featured',
             'is_best',
@@ -85,11 +89,16 @@ class ProductListSerializer(serializers.ModelSerializer):
             'view_count',
             'average_rating',
             'review_count',
+            'wishlist_count',
         ]
 
     def get_main_image(self, obj):
         """메인 이미지 URL 반환"""
         return obj.main_image_url or obj.image_url
+
+    def get_wishlist_count(self, obj):
+        """해당 상품을 찜한 수"""
+        return obj.wishlisted_by.count()
 
 
 class SellerBriefSerializer(serializers.Serializer):
@@ -112,6 +121,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     is_wishlist = serializers.SerializerMethodField()
     related_products = serializers.SerializerMethodField()
     final_price = serializers.IntegerField(read_only=True)
+    wishlist_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -132,6 +142,10 @@ class ProductDetailSerializer(serializers.ModelSerializer):
         ).exclude(id=obj.id).order_by('-quality_score')[:6]
 
         return ProductListSerializer(related, many=True, context=self.context).data
+
+    def get_wishlist_count(self, obj):
+        """해당 상품을 찜한 수"""
+        return obj.wishlisted_by.count()
 
 
 class WishlistSerializer(serializers.ModelSerializer):

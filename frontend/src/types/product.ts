@@ -49,6 +49,7 @@ export interface Product {
   view_count: number
   average_rating: number
   review_count: number
+  wishlist_count?: number
 
   // 레거시 필드 (호환성)
   image_url?: string
@@ -58,7 +59,7 @@ export interface Product {
   product_url?: string | null
   detail_info?: string | null
   crawled_at?: string | null
-  discount?: number
+  discount: number
   created_at?: string
   updated_at?: string
 }
@@ -124,6 +125,7 @@ export interface ProductDetail {
 
   // 추가 정보
   is_wishlist: boolean
+  wishlist_count: number
   related_products: Product[]
 
   // 상세 정보

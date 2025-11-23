@@ -66,7 +66,7 @@
               @click="toggleWishlist"
               :class="{ active: product.is_wishlist }"
             >
-              {{ product.is_wishlist ? '♥' : '♡' }} 찜
+              {{ product.is_wishlist ? '♥' : '♡' }} 찜 {{ product.wishlist_count ?? 0 }}
             </button>
 
             <button class="btn-cart" @click="addToCart">
@@ -220,6 +220,15 @@ async function toggleWishlist() {
   try {
     const isWishlisted = await wishlistStore.toggleWishlist(product.value as any)
     product.value.is_wishlist = isWishlisted
+    // Update local count
+    if (typeof product.value.wishlist_count !== 'number') {
+      product.value.wishlist_count = 0 as any
+    }
+    if (isWishlisted) {
+      product.value.wishlist_count = (product.value.wishlist_count || 0) + 1
+    } else {
+      product.value.wishlist_count = Math.max(0, (product.value.wishlist_count || 0) - 1)
+    }
   } catch (err) {
     alert('찜 처리에 실패했습니다.')
   }

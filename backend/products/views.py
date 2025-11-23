@@ -93,7 +93,6 @@ class ProductDetailView(generics.RetrieveAPIView):
 
     queryset = Product.objects.select_related('category', 'seller').prefetch_related('images')
     serializer_class = ProductDetailSerializer
-    lookup_field = 'slug'
 
     def retrieve(self, request, *args, **kwargs):
         """조회수 증가 및 로그 기록"""
@@ -129,6 +128,19 @@ class ProductDetailView(generics.RetrieveAPIView):
         else:
             ip = request.META.get('REMOTE_ADDR')
         return ip
+
+    def get_object(self):
+        """
+        PK와 slug 모두 지원
+        - /products/<int:pk>/
+        - /products/<slug:slug>/
+        """
+        queryset = self.get_queryset()
+        pk = self.kwargs.get('pk')
+        if pk is not None:
+            return queryset.get(pk=pk)
+        slug = self.kwargs.get('slug')
+        return queryset.get(slug=slug)
 
 
 class SellerProductViewSet(viewsets.ModelViewSet):

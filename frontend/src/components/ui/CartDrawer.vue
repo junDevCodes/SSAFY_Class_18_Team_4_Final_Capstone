@@ -23,19 +23,19 @@
         
         <div v-else class="space-y-3">
           <div v-for="item in cartStore.items" :key="item.id" class="bg-white p-4 rounded-lg border border-gray-100 shadow-sm flex gap-4 relative">
-            <img :src="item.image_url" :alt="item.name" class="w-20 h-24 object-cover rounded bg-gray-50" @error="onImgError">
+            <img :src="getProductImage(item.product)" :alt="item.product.name" class="w-20 h-24 object-cover rounded bg-gray-50" @error="onImgError">
             <div class="flex-1 flex flex-col justify-between py-0.5">
               <div>
                 <div class="text-[10px] text-brand-600 font-bold mb-1">샛별배송</div>
-                <h4 class="text-sm text-gray-800 font-medium line-clamp-2 leading-tight">{{ item.name }}</h4>
+                <h4 class="text-sm text-gray-800 font-medium line-clamp-2 leading-tight">{{ item.product.name }}</h4>
               </div>
               <div class="flex items-center justify-between mt-2">
                 <div class="flex items-center border border-gray-200 rounded bg-white h-7">
                   <button @click="cartStore.decreaseQty(item.id)" class="w-7 h-full flex items-center justify-center text-gray-500 hover:bg-gray-50">-</button>
-                  <span class="w-8 text-center text-xs font-bold">{{ item.qty }}</span>
+                  <span class="w-8 text-center text-xs font-bold">{{ item.quantity }}</span>
                   <button @click="cartStore.increaseQty(item.id)" class="w-7 h-full flex items-center justify-center text-gray-500 hover:bg-gray-50">+</button>
                 </div>
-                <span class="font-bold text-sm">{{ formatPrice(item.price * item.qty) }}</span>
+                <span class="font-bold text-sm">{{ formatPrice(item.subtotal) }}</span>
               </div>
             </div>
             <button @click="cartStore.removeItem(item.id)" class="absolute top-3 right-3 text-gray-300 hover:text-gray-500">
@@ -67,6 +67,7 @@ import { X, ShoppingBag } from 'lucide-vue-next'
 import { useUIStore } from '@/stores/ui'
 import { useCartStore } from '@/stores/cart'
 import { formatPrice } from '@/utils/formatters'
+import { getProductImage } from '@/types/product'
 
 const uiStore = useUIStore()
 const cartStore = useCartStore()

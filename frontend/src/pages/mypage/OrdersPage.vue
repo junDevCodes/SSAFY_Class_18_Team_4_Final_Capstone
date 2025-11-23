@@ -70,7 +70,7 @@
             </div>
             <div class="item-info">
               <h4 class="item-name">{{ item.product_name }}</h4>
-              <p class="item-quantity">{{ item.quantity }}개 × {{ formatPrice(item.price) }}</p>
+              <p class="item-quantity">{{ item.quantity }}개 × {{ formatPrice(item.price || 0) }}</p>
             </div>
             <div class="item-total">
               {{ formatPrice(item.total_price) }}
@@ -324,21 +324,23 @@ onMounted(() => {
 }
 
 .page-header {
-  margin-bottom: 2rem;
-  padding-bottom: 1rem;
-  border-bottom: 2px solid #f0f0f0;
+  margin-bottom: 2.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(95, 0, 128, 0.1);
 }
 
 .page-title {
-  font-size: 1.75rem;
+  font-size: 1.875rem;
   font-weight: 700;
   color: #1a1a1a;
   margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
 }
 
 .page-description {
   color: #666;
   font-size: 0.9375rem;
+  line-height: 1.6;
 }
 
 /* Loading & Error States */
@@ -353,7 +355,7 @@ onMounted(() => {
   width: 40px;
   height: 40px;
   border: 4px solid #f3f3f3;
-  border-top: 4px solid #00a86b;
+  border-top: 4px solid #5f0080;
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 1rem;
@@ -371,18 +373,22 @@ onMounted(() => {
 }
 
 .btn-retry {
-  padding: 0.75rem 1.5rem;
-  background: #00a86b;
+  padding: 0.875rem 1.75rem;
+  background: #5f0080;
   color: white;
   border: none;
-  border-radius: 6px;
-  font-size: 1rem;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .btn-retry:hover {
-  background: #008c5a;
+  background: #4c0066;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 /* Empty State */
@@ -412,16 +418,19 @@ onMounted(() => {
 .btn-primary {
   display: inline-block;
   padding: 0.875rem 2rem;
-  background: #00a86b;
+  background: #5f0080;
   color: white;
   text-decoration: none;
-  border-radius: 6px;
+  border-radius: 8px;
   font-weight: 600;
-  transition: background 0.2s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .btn-primary:hover {
-  background: #008c5a;
+  background: #4c0066;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 /* Orders List */
@@ -433,9 +442,16 @@ onMounted(() => {
 
 .order-card {
   background: white;
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
   overflow: hidden;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.order-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: rgba(95, 0, 128, 0.2);
 }
 
 /* Order Header */
@@ -443,9 +459,9 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.25rem 1.5rem;
-  background: #f8f9fa;
-  border-bottom: 1px solid #e9ecef;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .order-info {
@@ -459,10 +475,11 @@ onMounted(() => {
   font-weight: 700;
   color: #1a1a1a;
   text-decoration: none;
+  transition: color 0.2s;
 }
 
 .order-number:hover {
-  color: #00a86b;
+  color: #5f0080;
 }
 
 .order-date {
@@ -476,19 +493,20 @@ onMounted(() => {
 }
 
 .status-badge {
-  padding: 0.375rem 0.875rem;
+  padding: 0.5rem 1rem;
   border-radius: 12px;
   font-size: 0.8125rem;
   font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
-.status-pending { background: #ffc107; color: #000; }
-.status-paid { background: #28a745; color: white; }
-.status-processing { background: #007bff; color: white; }
-.status-shipped { background: #17a2b8; color: white; }
-.status-delivered { background: #6c757d; color: white; }
-.status-cancelled { background: #dc3545; color: white; }
-.status-refunded { background: #e83e8c; color: white; }
+.status-pending { background: #fef3c7; color: #92400e; }
+.status-paid { background: #d1fae5; color: #065f46; }
+.status-processing { background: #dbeafe; color: #1e40af; }
+.status-shipped { background: #cffafe; color: #164e63; }
+.status-delivered { background: #e5e7eb; color: #374151; }
+.status-cancelled { background: #fee2e2; color: #991b1b; }
+.status-refunded { background: #fce7f3; color: #9f1239; }
 
 /* Order Items */
 .order-items {
@@ -593,7 +611,7 @@ onMounted(() => {
 
 .total-amount {
   font-size: 1.25rem;
-  color: #00a86b;
+  color: #5f0080;
 }
 
 .order-actions {
@@ -616,12 +634,12 @@ onMounted(() => {
 }
 
 .btn-detail {
-  background: #00a86b;
+  background: #5f0080;
   color: white;
 }
 
 .btn-detail:hover {
-  background: #008c5a;
+  background: #4c0066;
 }
 
 .btn-cancel {
@@ -676,9 +694,9 @@ onMounted(() => {
 
 .btn-page:hover:not(:disabled),
 .btn-page-number:hover:not(:disabled) {
-  background: #f8f9fa;
-  border-color: #00a86b;
-  color: #00a86b;
+  background: #f9fafb;
+  border-color: #5f0080;
+  color: #5f0080;
 }
 
 .btn-page:disabled {
@@ -687,9 +705,9 @@ onMounted(() => {
 }
 
 .btn-page-number.active {
-  background: #00a86b;
+  background: #5f0080;
   color: white;
-  border-color: #00a86b;
+  border-color: #5f0080;
 }
 
 .page-numbers {
@@ -700,7 +718,7 @@ onMounted(() => {
 /* Responsive */
 @media (max-width: 768px) {
   .page-title {
-    font-size: 1.5rem;
+    font-size: 1.625rem;
   }
 
   .order-header {

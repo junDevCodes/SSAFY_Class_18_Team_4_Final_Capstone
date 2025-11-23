@@ -166,13 +166,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { useWishlistStore } from '@/stores/wishlist'
 import { useCartStore } from '@/stores/cart'
 import type { WishlistItem } from '@/types/product'
 import { getProductImage, formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 
-const router = useRouter()
 const wishlistStore = useWishlistStore()
 const cartStore = useCartStore()
 

@@ -169,7 +169,7 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior(to, from, savedPosition) {
+  scrollBehavior(to, _from, savedPosition) {
     if (savedPosition) {
       return savedPosition
     }
@@ -181,7 +181,7 @@ const router = createRouter({
 })
 
 // Navigation Guard
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
 
   // 페이지 타이틀 설정
@@ -192,7 +192,7 @@ router.beforeEach(async (to, from, next) => {
   // 인증이 필요한 페이지
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     // 로그인 모달 열기 이벤트 발생
-    window.dispatchEvent(new CustomEvent('auth:required'))
+    window.dispatchEvent(new CustomEvent('auth:required', { detail: { to: to.fullPath } }))
     return next(false)
   }
 

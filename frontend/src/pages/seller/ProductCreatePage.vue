@@ -80,8 +80,16 @@
             v-model="formData.main_image_url"
             type="url"
             placeholder="https://example.com/image.jpg"
+            @input="handleImageUrlChange"
           />
           <p class="field-hint">MVP: 이미지 URL을 직접 입력해주세요</p>
+          <div v-if="formData.main_image_url && imagePreview" class="image-preview">
+            <img :src="formData.main_image_url" alt="이미지 미리보기" @error="handleImageError" />
+            <button type="button" @click="clearImage" class="btn-remove-image">이미지 제거</button>
+          </div>
+          <div v-else-if="formData.main_image_url && !imagePreview" class="image-error">
+            <p>이미지를 불러올 수 없습니다. URL을 확인해주세요.</p>
+          </div>
         </div>
 
         <div v-if="error" class="error-message">{{ error }}</div>
@@ -106,6 +114,7 @@ import { sellerProductsAPI } from '@/services/api'
 const router = useRouter()
 const submitting = ref(false)
 const error = ref<string | null>(null)
+const imagePreview = ref(false)
 
 const formData = reactive({
   name: '',
@@ -116,6 +125,40 @@ const formData = reactive({
   description: '',
   main_image_url: ''
 })
+
+// Handle image URL change
+const handleImageUrlChange = () => {
+  if (formData.main_image_url) {
+    // Validate URL format
+    try {
+      new URL(formData.main_image_url)
+      // Test if image loads
+      const img = new Image()
+      img.onload = () => {
+        imagePreview.value = true
+      }
+      img.onerror = () => {
+        imagePreview.value = false
+      }
+      img.src = formData.main_image_url
+    } catch {
+      imagePreview.value = false
+    }
+  } else {
+    imagePreview.value = false
+  }
+}
+
+// Handle image error
+const handleImageError = () => {
+  imagePreview.value = false
+}
+
+// Clear image
+const clearImage = () => {
+  formData.main_image_url = ''
+  imagePreview.value = false
+}
 
 const handleSubmit = async () => {
   error.value = null
@@ -146,9 +189,10 @@ const handleSubmit = async () => {
 
 <style scoped>
 .product-create-page {
-  min-height: 100vh;
-  background: #f8f9fa;
-  padding: 2rem 0;
+  min-height: calc(100vh - 4rem);
+  background: linear-gradient(to bottom, #fafafa 0%, #ffffff 100%);
+  padding-top: 5rem; /* 헤더 높이(64px) + 여백 */
+  padding-bottom: 4rem;
 }
 
 .container {
@@ -217,6 +261,49 @@ const handleSubmit = async () => {
   font-size: 0.8125rem;
   color: #999;
   margin-top: 0.375rem;
+}
+
+.image-preview {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.image-preview img {
+  width: 100%;
+  max-width: 400px;
+  height: auto;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  display: block;
+}
+
+.btn-remove-image {
+  padding: 0.5rem 1rem;
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-remove-image:hover {
+  background: #b91c1c;
+}
+
+.image-error {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #dc2626;
+  font-size: 0.875rem;
 }
 
 .error-message {

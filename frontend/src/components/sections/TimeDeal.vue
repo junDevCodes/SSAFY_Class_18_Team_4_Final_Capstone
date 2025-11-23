@@ -16,7 +16,7 @@
         <div class="flex gap-6 w-max">
           <div v-for="product in timeDealProducts" :key="product.id" class="w-[220px] group cursor-pointer">
             <div class="relative aspect-[4/5] rounded-xl overflow-hidden bg-gray-100 mb-4 shadow-sm">
-              <img :src="product.image_url" :alt="product.name" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+              <img :src="getProductImage(product)" :alt="product.name" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
               <div class="absolute top-3 left-3 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">-{{ product.discount }}%</div>
             </div>
             <h4 class="text-base font-medium text-gray-900 mb-1 line-clamp-1 group-hover:text-brand-600 transition-colors">{{ product.name }}</h4>
@@ -37,6 +37,7 @@ import { Timer } from 'lucide-vue-next'
 import { useTimer } from '@/composables/useTimer'
 import { useProductStore } from '@/stores/products'
 import { formatPrice } from '@/utils/formatters'
+import { getProductImage } from '@/types/product'
 import type { Product } from '@/types/product'
 
 const { timer } = useTimer()

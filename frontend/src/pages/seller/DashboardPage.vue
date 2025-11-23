@@ -135,7 +135,7 @@
             >
               <div class="product-image">
                 <img
-                  :src="product.main_image || DEFAULT_PRODUCT_IMAGE"
+                  :src="product.main_image_url || product.main_image || DEFAULT_PRODUCT_IMAGE"
                   :alt="product.name"
                   @error="handleImageError"
                 />
@@ -190,6 +190,19 @@ const loadDashboard = async () => {
   error.value = null
 
   try {
+    // Ensure user is loaded first
+    const { useAuthStore } = await import('@/stores/auth')
+    const authStore = useAuthStore()
+    
+    // Reload user to ensure token is valid
+    await authStore.loadUser()
+    
+    if (!authStore.isAuthenticated) {
+      error.value = '로그인이 필요합니다.'
+      loading.value = false
+      return
+    }
+
     // Load dashboard stats
     const dashboardResponse = await sellersAPI.getDashboard()
     dashboard.value = dashboardResponse.data
@@ -202,7 +215,11 @@ const loadDashboard = async () => {
     recentProducts.value = productsResponse.data.results || []
   } catch (err: any) {
     console.error('대시보드 로드 실패:', err)
-    error.value = '대시보드 정보를 불러오는데 실패했습니다.'
+    if (err.response?.status === 401) {
+      error.value = '로그인이 만료되었습니다. 다시 로그인해주세요.'
+    } else {
+      error.value = err.response?.data?.detail || '대시보드 정보를 불러오는데 실패했습니다.'
+    }
   } finally {
     loading.value = false
   }
@@ -233,9 +250,10 @@ onMounted(() => {
 
 <style scoped>
 .seller-dashboard-page {
-  min-height: 100vh;
-  background: #f8f9fa;
-  padding: 2rem 0;
+  min-height: calc(100vh - 4rem);
+  background: linear-gradient(to bottom, #fafafa 0%, #ffffff 100%);
+  padding-top: 5rem; /* 헤더 높이(64px) + 여백 */
+  padding-bottom: 4rem;
 }
 
 .container {

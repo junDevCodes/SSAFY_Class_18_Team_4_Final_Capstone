@@ -24,7 +24,7 @@ export function handleOAuthCallback(): boolean {
     // 사용자 정보가 있으면 저장
     if (userParam) {
       try {
-        const userData = JSON.parse(userParam)
+        JSON.parse(userParam)
         // 사용자 정보는 나중에 API로 다시 가져올 수 있으므로 선택적 저장
         sessionStorage.setItem('oauth_user', userParam)
       } catch (e) {

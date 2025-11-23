@@ -63,7 +63,7 @@
                   <div class="product-info">
                     <div class="product-image">
                       <img
-                        :src="product.main_image || DEFAULT_PRODUCT_IMAGE"
+                        :src="product.main_image_url || product.main_image || DEFAULT_PRODUCT_IMAGE"
                         :alt="product.name"
                         @error="handleImageError"
                       />
@@ -248,14 +248,19 @@ const goToPage = (page: number) => {
 
 // Publish product
 const handlePublish = async (productId: number) => {
+  const confirmed = confirm('이 상품을 판매 시작하시겠습니까?')
+  if (!confirmed) return
+
   updating.value = productId
 
   try {
     await sellerProductsAPI.publishProduct(productId)
+    alert('상품 판매가 시작되었습니다.')
     await loadProducts()
   } catch (err: any) {
     console.error('상품 판매 시작 실패:', err)
-    alert('상품 판매 시작에 실패했습니다.')
+    const errorMsg = err.response?.data?.detail || err.response?.data?.message || '상품 판매 시작에 실패했습니다.'
+    alert(errorMsg)
   } finally {
     updating.value = null
   }
@@ -263,14 +268,19 @@ const handlePublish = async (productId: number) => {
 
 // Unpublish product
 const handleUnpublish = async (productId: number) => {
+  const confirmed = confirm('이 상품의 판매를 중지하시겠습니까?')
+  if (!confirmed) return
+
   updating.value = productId
 
   try {
     await sellerProductsAPI.unpublishProduct(productId)
+    alert('상품 판매가 중지되었습니다.')
     await loadProducts()
   } catch (err: any) {
     console.error('상품 판매 중지 실패:', err)
-    alert('상품 판매 중지에 실패했습니다.')
+    const errorMsg = err.response?.data?.detail || err.response?.data?.message || '상품 판매 중지에 실패했습니다.'
+    alert(errorMsg)
   } finally {
     updating.value = null
   }
@@ -329,9 +339,10 @@ onMounted(() => {
 
 <style scoped>
 .seller-products-page {
-  min-height: 100vh;
-  background: #f8f9fa;
-  padding: 2rem 0;
+  min-height: calc(100vh - 4rem);
+  background: linear-gradient(to bottom, #fafafa 0%, #ffffff 100%);
+  padding-top: 5rem; /* 헤더 높이(64px) + 여백 */
+  padding-bottom: 4rem;
 }
 
 .container {

@@ -40,6 +40,9 @@ export interface User {
   last_name: string | null
   name?: string
   phone?: string
+  postal_code?: string | null
+  address?: string | null
+  address_detail?: string | null
   profile_image_url: string | null
   provider: string
   role: 'guest' | 'user' | 'seller' | 'admin'  // Role: guest(비회원) > user(일반회원) > seller(판매자) > admin(관리자)

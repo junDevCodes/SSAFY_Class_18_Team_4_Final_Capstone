@@ -25,7 +25,8 @@ router.register(r'cart', CartViewSet, basename='cart')
 urlpatterns = [
     # 상품 API (새로운 버전)
     path('products/', ProductListView.as_view(), name='product-list'),
-    path('products/<slug:slug>/', ProductDetailView.as_view(), name='product-detail'),
+    path('products/<int:pk>/', ProductDetailView.as_view(), name='product-detail'),
+    path('products/<slug:slug>/', ProductDetailView.as_view(), name='product-detail-slug'),
 
     # 판매자 상품 이미지 관리
     path('seller-products/<int:product_id>/images/', ProductImageManageView.as_view(), name='product-image-add'),

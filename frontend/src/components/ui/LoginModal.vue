@@ -183,12 +183,14 @@
 
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { X, MessageCircle } from 'lucide-vue-next'
 import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 
 const uiStore = useUIStore()
 const authStore = useAuthStore()
+const router = useRouter()
 
 const loginForm = reactive({
   email: '',
@@ -215,9 +217,25 @@ const handleLogin = async () => {
 
   isSubmitting.value = true
   try {
-    await authStore.login(loginForm.email, loginForm.password)
+    const result = await authStore.login(loginForm.email, loginForm.password)
     uiStore.showToast('로그인되었습니다.')
     uiStore.closeLogin()
+
+    // 로그인 후 리다이렉트 처리
+    const target = uiStore.redirectPath
+    // 권한 기반 기본 경로
+    const fallback =
+      authStore.isSeller ? '/seller/dashboard' :
+      '/mypage/profile'
+
+    // 리다이렉트 경로가 있으면 우선 이동
+    if (target) {
+      router.push(target)
+      uiStore.setRedirectPath(null)
+    } else {
+      router.push(fallback)
+    }
+
     // 폼 초기화
     loginForm.email = ''
     loginForm.password = ''

@@ -1,4 +1,4 @@
-import axios, { AxiosError } from 'axios'
+import axios from 'axios'
 
 // Axios 인스턴스 생성
 const apiClient = axios.create({

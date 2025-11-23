@@ -75,7 +75,7 @@ class Command(BaseCommand):
         csv_file_path = options['csv_file']
         skip_duplicates = options.get('skip_duplicates', False)
         validate_images = options.get('validate_images', False)
-        clear_existing = options.get('clear_existing', False)
+        clear_existing = True
 
         # CSV 파일 존재 여부 확인
         if not os.path.exists(csv_file_path):
@@ -217,6 +217,7 @@ class Command(BaseCommand):
         # 완료 메시지 및 통계
         self.stdout.write('\n' + '='*60)
         self.stdout.write(self.style.SUCCESS('임포트 완료!'))
+        self.stdout.write(f'성공적으로 임포트: {stats["created"]}')
         self.stdout.write('='*60)
         self.stdout.write(f'총 행 수:           {stats["total_rows"]}')
         self.stdout.write(self.style.SUCCESS(f'생성됨:             {stats["created"]}'))

@@ -429,9 +429,10 @@ const handleSubmit = async () => {
 
 <style scoped>
 .seller-register-page {
-  min-height: 100vh;
-  background: #f8f9fa;
-  padding: 2rem 0;
+  min-height: calc(100vh - 4rem);
+  background: linear-gradient(to bottom, #fafafa 0%, #ffffff 100%);
+  padding-top: 5rem; /* 헤더 높이(64px) + 여백 */
+  padding-bottom: 4rem;
 }
 
 .container {

@@ -96,11 +96,11 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // 이메일 인증
-  const verifyEmail = async (key: string) => {
+  const verifyEmail = async (email: string, code: string) => {
     isLoading.value = true
     error.value = null
     try {
-      const response = await authAPI.verifyEmail(key)
+      const response = await authAPI.verifyEmail({ email, code })
       return response.data
     } catch (err: any) {
       let errorMessage = '이메일 인증에 실패했습니다.'

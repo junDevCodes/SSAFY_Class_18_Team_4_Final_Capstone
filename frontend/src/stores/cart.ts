@@ -113,7 +113,10 @@ export const useCartStore = defineStore('cart', () => {
       const item = items.value.find(i => i.id === id)
       if (item) {
         item.quantity = quantity
-        item.subtotal = item.product.final_price * quantity
+        const unitPrice = item.product.discount_rate > 0
+          ? Math.round(item.product.price * (100 - item.product.discount_rate) / 100)
+          : item.product.price
+        item.subtotal = unitPrice * quantity
       }
 
       // 요약 정보 다시 로드
