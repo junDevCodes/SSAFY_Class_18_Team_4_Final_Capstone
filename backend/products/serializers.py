@@ -2,7 +2,7 @@
 제품 관련 Serializer
 """
 from rest_framework import serializers
-from .models import Category, Product, ProductImage
+from .models import Category, Product, ProductImage, Wishlist, Cart
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -121,9 +121,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
         """찜 여부 확인"""
         request = self.context.get('request')
         if request and request.user.is_authenticated:
-            # Wishlist 모델은 Phase 2에서 구현 예정
-            # 지금은 False 반환
-            return False
+            return Wishlist.objects.filter(user=request.user, product=obj).exists()
         return False
 
     def get_related_products(self, obj):
@@ -134,3 +132,44 @@ class ProductDetailSerializer(serializers.ModelSerializer):
         ).exclude(id=obj.id).order_by('-quality_score')[:6]
 
         return ProductListSerializer(related, many=True, context=self.context).data
+
+
+class WishlistSerializer(serializers.ModelSerializer):
+    """찜 목록 Serializer"""
+
+    product = ProductListSerializer(read_only=True)
+    product_id = serializers.PrimaryKeyRelatedField(
+        queryset=Product.objects.all(),
+        source='product',
+        write_only=True
+    )
+
+    class Meta:
+        model = Wishlist
+        fields = ['id', 'product', 'product_id', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class CartSerializer(serializers.ModelSerializer):
+    """장바구니 Serializer"""
+
+    product = ProductListSerializer(read_only=True)
+    product_id = serializers.PrimaryKeyRelatedField(
+        queryset=Product.objects.all(),
+        source='product',
+        write_only=True
+    )
+    subtotal = serializers.ReadOnlyField()
+
+    class Meta:
+        model = Cart
+        fields = ['id', 'product', 'product_id', 'quantity', 'subtotal', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_quantity(self, value):
+        """수량 검증"""
+        if value < 1:
+            raise serializers.ValidationError('수량은 1 이상이어야 합니다.')
+        if value > 999:
+            raise serializers.ValidationError('수량은 999 이하여야 합니다.')
+        return value

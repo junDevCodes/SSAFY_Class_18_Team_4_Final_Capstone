@@ -411,3 +411,72 @@ class ProductView(models.Model):
     def __str__(self):
         user_info = self.user.username if self.user else f"세션:{self.session_id[:8]}"
         return f"{self.product.name} - {user_info}"
+
+
+class Wishlist(models.Model):
+    """찜 목록"""
+
+    user = models.ForeignKey(
+        'authentication.User',
+        on_delete=models.CASCADE,
+        related_name='wishlists',
+        verbose_name="사용자"
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='wishlisted_by',
+        verbose_name="상품"
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="추가일시")
+
+    class Meta:
+        db_table = 'wishlists'
+        verbose_name = '찜 목록'
+        verbose_name_plural = '찜 목록'
+        unique_together = [['user', 'product']]
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.product.name}"
+
+
+class Cart(models.Model):
+    """장바구니"""
+
+    user = models.ForeignKey(
+        'authentication.User',
+        on_delete=models.CASCADE,
+        related_name='cart_items',
+        verbose_name="사용자"
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='in_carts',
+        verbose_name="상품"
+    )
+    quantity = models.PositiveIntegerField(default=1, verbose_name="수량")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="추가일시")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
+
+    class Meta:
+        db_table = 'carts'
+        verbose_name = '장바구니'
+        verbose_name_plural = '장바구니'
+        unique_together = [['user', 'product']]
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.product.name} x {self.quantity}"
+
+    @property
+    def subtotal(self):
+        """소계 (할인 적용)"""
+        return self.product.final_price * self.quantity

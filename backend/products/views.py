@@ -10,8 +10,11 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
-from .models import Category, Product, ProductView, ProductImage
-from .serializers import CategorySerializer, ProductSerializer, ProductDetailSerializer, ProductListSerializer, ProductImageSerializer
+from .models import Category, Product, ProductView, ProductImage, Wishlist, Cart
+from .serializers import (
+    CategorySerializer, ProductSerializer, ProductDetailSerializer,
+    ProductListSerializer, ProductImageSerializer, WishlistSerializer, CartSerializer
+)
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -259,3 +262,114 @@ class ProductImageManageView(APIView):
         return Response({
             'message': '이미지가 삭제되었습니다.'
         }, status=status.HTTP_204_NO_CONTENT)
+
+
+class WishlistViewSet(viewsets.ModelViewSet):
+    """찜 목록 ViewSet"""
+
+    serializer_class = WishlistSerializer
+    pagination_class = StandardResultsSetPagination
+
+    def get_permissions(self):
+        """로그인 사용자만 접근"""
+        from rest_framework.permissions import IsAuthenticated
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        """자신의 찜 목록만 조회"""
+        return Wishlist.objects.filter(user=self.request.user).select_related('product', 'product__category')
+
+    def perform_create(self, serializer):
+        """찜 추가"""
+        serializer.save(user=self.request.user)
+
+    @action(detail=False, methods=['post'])
+    def toggle(self, request):
+        """찜하기 토글 (있으면 삭제, 없으면 추가)"""
+        product_id = request.data.get('product_id')
+        if not product_id:
+            return Response(
+                {'error': 'product_id가 필요합니다.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 상품 존재 확인
+        product = get_object_or_404(Product, id=product_id)
+
+        # 찜 토글
+        wishlist, created = Wishlist.objects.get_or_create(
+            user=request.user,
+            product=product
+        )
+
+        if not created:
+            # 이미 존재하면 삭제
+            wishlist.delete()
+            return Response({
+                'message': '찜 목록에서 제거되었습니다.',
+                'is_wishlist': False
+            })
+        else:
+            # 새로 생성
+            return Response({
+                'message': '찜 목록에 추가되었습니다.',
+                'is_wishlist': True,
+                'wishlist': self.get_serializer(wishlist).data
+            }, status=status.HTTP_201_CREATED)
+
+
+class CartViewSet(viewsets.ModelViewSet):
+    """장바구니 ViewSet"""
+
+    serializer_class = CartSerializer
+    pagination_class = StandardResultsSetPagination
+
+    def get_permissions(self):
+        """로그인 사용자만 접근"""
+        from rest_framework.permissions import IsAuthenticated
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        """자신의 장바구니만 조회"""
+        return Cart.objects.filter(user=self.request.user).select_related('product', 'product__category')
+
+    def perform_create(self, serializer):
+        """장바구니 추가 (이미 있으면 수량 증가)"""
+        product = serializer.validated_data['product']
+        quantity = serializer.validated_data.get('quantity', 1)
+
+        # 이미 장바구니에 있는지 확인
+        cart_item, created = Cart.objects.get_or_create(
+            user=self.request.user,
+            product=product,
+            defaults={'quantity': quantity}
+        )
+
+        if not created:
+            # 이미 있으면 수량 증가
+            cart_item.quantity += quantity
+            cart_item.save()
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """장바구니 요약 (총 금액 등)"""
+        cart_items = self.get_queryset()
+
+        total = sum(item.subtotal for item in cart_items)
+        count = cart_items.count()
+        total_quantity = sum(item.quantity for item in cart_items)
+
+        return Response({
+            'total': total,
+            'count': count,
+            'total_quantity': total_quantity,
+            'items': self.get_serializer(cart_items, many=True).data
+        })
+
+    @action(detail=False, methods=['post'])
+    def clear(self, request):
+        """장바구니 비우기"""
+        deleted_count, _ = self.get_queryset().delete()
+        return Response({
+            'message': f'{deleted_count}개 상품이 장바구니에서 제거되었습니다.'
+        })

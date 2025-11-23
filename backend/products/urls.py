@@ -10,6 +10,8 @@ from .views import (
     ProductDetailView,
     SellerProductViewSet,
     ProductImageManageView,
+    WishlistViewSet,
+    CartViewSet,
 )
 
 # Router 설정
@@ -17,6 +19,8 @@ router = DefaultRouter()
 router.register(r'categories', CategoryViewSet, basename='category')
 router.register(r'products-legacy', ProductViewSet, basename='product-legacy')
 router.register(r'seller-products', SellerProductViewSet, basename='seller-product')
+router.register(r'wishlist', WishlistViewSet, basename='wishlist')
+router.register(r'cart', CartViewSet, basename='cart')
 
 urlpatterns = [
     # 상품 API (새로운 버전)
