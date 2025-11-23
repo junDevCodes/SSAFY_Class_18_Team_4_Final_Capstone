@@ -353,8 +353,10 @@ const handlePlaceOrder = async () => {
 
     // Create order
     const orderData = {
-      ...shippingInfo.value,
-      delivery_request: deliveryRequest
+      recipient_name: shippingInfo.value.recipient_name,
+      recipient_phone: shippingInfo.value.phone,
+      shipping_address: `(${shippingInfo.value.postal_code}) ${shippingInfo.value.address} ${shippingInfo.value.address_detail}`.trim(),
+      shipping_memo: deliveryRequest
     }
 
     const response = await ordersStore.createOrder(orderData)

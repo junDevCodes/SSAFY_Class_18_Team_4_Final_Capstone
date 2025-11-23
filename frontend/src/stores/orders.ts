@@ -10,6 +10,8 @@ export interface OrderItem {
   product: any
   product_name: string
   product_image_url: string
+  image_url?: string // 별칭
+  price?: number // 별칭
   quantity: number
   unit_price: number
   discount_amount: number
@@ -49,6 +51,7 @@ export const useOrdersStore = defineStore('orders', () => {
   const currentOrder = ref<Order | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const total = ref(0)
 
   // Computed
   const count = computed(() => orders.value.length)
@@ -61,6 +64,7 @@ export const useOrdersStore = defineStore('orders', () => {
     try {
       const response = await ordersAPI.getOrders(params)
       orders.value = response.data.results || response.data
+      total.value = response.data.count || orders.value.length
     } catch (err: any) {
       error.value = err.response?.data?.message || '주문 목록을 불러오는데 실패했습니다.'
       console.error('주문 목록 로드 실패:', err)
@@ -191,6 +195,7 @@ export const useOrdersStore = defineStore('orders', () => {
     loading,
     error,
     count,
+    total,
     loadOrders,
     loadOrder,
     createOrder,

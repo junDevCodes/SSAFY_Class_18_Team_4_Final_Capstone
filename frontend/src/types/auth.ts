@@ -38,9 +38,23 @@ export interface User {
   username: string | null
   first_name: string | null
   last_name: string | null
+  name?: string
+  phone?: string
   profile_image_url: string | null
   provider: string
   role: 'guest' | 'user' | 'seller' | 'admin'  // Role: guest(비회원) > user(일반회원) > seller(판매자) > admin(관리자)
   timezone: string | null
+  created_at?: string
+  last_login?: string
+}
+
+// 별칭 추가 (호환성)
+export type RegisterRequest = SignupRequest
+export interface LoginResponse {
+  access: string
+  refresh: string
+  user: User
+  verification_code?: string
+  message?: string
 }
 

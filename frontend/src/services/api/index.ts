@@ -44,6 +44,14 @@ export const authAPI = {
   // 토큰 갱신
   refreshToken: (refresh: string) =>
     apiClient.post<{ access: string }>('/auth/token/refresh/', { refresh }),
+
+  // 프로필 조회 (별칭)
+  getProfile: () =>
+    apiClient.get<User>('/auth/user/'),
+
+  // 프로필 수정 (별칭)
+  updateProfile: (data: Partial<User>) =>
+    apiClient.patch<User>('/auth/user/', data),
 }
 
 // ==================== Products API ====================
