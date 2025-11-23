@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'authentication',
     'products',  # 제품 관리 앱
     'sellers',  # 판매자 관리 앱
+    'orders',  # 주문 관리 앱
 ]
 
 MIDDLEWARE = [
