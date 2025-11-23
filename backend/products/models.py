@@ -367,3 +367,47 @@ class ProductImage(models.Model):
 
     def __str__(self):
         return f"{self.product.name} - 이미지 {self.display_order}"
+
+
+class ProductView(models.Model):
+    """상품 조회 로그 (추천 알고리즘용)"""
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='views',
+        verbose_name="상품"
+    )
+    user = models.ForeignKey(
+        'authentication.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='product_views',
+        verbose_name="사용자"
+    )
+
+    # 세션 기반 추적 (비로그인 사용자)
+    session_id = models.CharField(max_length=255, null=True, blank=True, verbose_name="세션 ID")
+
+    # 메타데이터
+    ip_address = models.GenericIPAddressField(null=True, blank=True, verbose_name="IP 주소")
+    user_agent = models.TextField(null=True, blank=True, verbose_name="User Agent")
+    referrer = models.TextField(null=True, blank=True, verbose_name="Referrer")
+
+    # 시간
+    viewed_at = models.DateTimeField(auto_now_add=True, verbose_name="조회 시간")
+
+    class Meta:
+        db_table = 'product_views'
+        verbose_name = '상품 조회 로그'
+        verbose_name_plural = '상품 조회 로그'
+        indexes = [
+            models.Index(fields=['product', '-viewed_at']),
+            models.Index(fields=['user', '-viewed_at']),
+            models.Index(fields=['session_id', '-viewed_at']),
+        ]
+
+    def __str__(self):
+        user_info = self.user.username if self.user else f"세션:{self.session_id[:8]}"
+        return f"{self.product.name} - {user_info}"
