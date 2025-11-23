@@ -333,3 +333,37 @@ class Product(models.Model):
     def is_low_stock(self):
         """재고 부족 여부"""
         return self.stock_quantity <= self.low_stock_threshold
+
+
+class ProductImage(models.Model):
+    """상품 이미지 모델"""
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='images',
+        verbose_name="상품"
+    )
+    image_url = models.TextField(verbose_name="이미지 URL")
+    alt_text = models.CharField(max_length=255, null=True, blank=True, verbose_name="대체 텍스트")
+    display_order = models.IntegerField(default=0, verbose_name="표시 순서")
+
+    # 이미지 메타데이터
+    width = models.IntegerField(null=True, blank=True, verbose_name="너비")
+    height = models.IntegerField(null=True, blank=True, verbose_name="높이")
+    file_size = models.IntegerField(null=True, blank=True, verbose_name="파일 크기 (bytes)")
+    format = models.CharField(max_length=10, null=True, blank=True, verbose_name="형식")  # 'jpg', 'png', 'webp'
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
+
+    class Meta:
+        db_table = 'product_images'
+        verbose_name = '상품 이미지'
+        verbose_name_plural = '상품 이미지'
+        ordering = ['product', 'display_order']
+        indexes = [
+            models.Index(fields=['product', 'display_order']),
+        ]
+
+    def __str__(self):
+        return f"{self.product.name} - 이미지 {self.display_order}"
