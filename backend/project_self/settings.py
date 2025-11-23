@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'authentication',
     'products',  # 제품 관리 앱
+    'sellers',  # 판매자 관리 앱
 ]
 
 MIDDLEWARE = [

@@ -94,7 +94,30 @@ class Category(models.Model):
 
 
 class Product(models.Model):
-    """제품 모델"""
+    """제품 모델 (메인 상품 + 판매자 상품 통합)"""
+
+    PRODUCT_TYPE_CHOICES = [
+        ('main', '메인 상품'),      # 크롤링/관리자 등록
+        ('seller', '판매자 상품'),   # 판매자 등록
+    ]
+
+    STATUS_CHOICES = [
+        ('draft', '임시저장'),
+        ('active', '판매중'),
+        ('inactive', '판매중지'),
+        ('out_of_stock', '품절'),
+        ('discontinued', '단종'),
+    ]
+
+    # 상품 유형
+    product_type = models.CharField(
+        max_length=20,
+        choices=PRODUCT_TYPE_CHOICES,
+        default='main',
+        verbose_name="상품 유형"
+    )
+
+    # 관계
     category = models.ForeignKey(
         Category,
         on_delete=models.SET_NULL,
@@ -103,38 +126,156 @@ class Product(models.Model):
         related_name='products',
         verbose_name="카테고리"
     )
-
-    # CSV 필드
-    site_name = models.CharField(max_length=100, null=True, blank=True, verbose_name="출처")
-    name = models.CharField(max_length=500, verbose_name="제품명")
-    price = models.IntegerField(
-        validators=[MinValueValidator(0)],
-        verbose_name="가격"
+    seller = models.ForeignKey(
+        'sellers.Seller',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='products',
+        verbose_name="판매자",
+        help_text="product_type='seller'일 때만 필수"
     )
-    unit = models.CharField(max_length=50, null=True, blank=True, verbose_name="단위")
-    description = models.TextField(null=True, blank=True, verbose_name="설명")
-    product_url = models.TextField(null=True, blank=True, verbose_name="제품 URL")
-    image_url = models.TextField(verbose_name="이미지 URL")
-    detail_info = models.TextField(null=True, blank=True, verbose_name="상세정보")
+
+    # 크롤링 메타데이터 (main 상품용)
+    source_site = models.CharField(max_length=100, null=True, blank=True, verbose_name="출처 사이트")
+    source_url = models.TextField(null=True, blank=True, verbose_name="출처 URL")
     crawled_at = models.DateTimeField(null=True, blank=True, verbose_name="크롤링 시간")
 
-    # 추가 필드
+    # 기본 정보
+    name = models.CharField(max_length=500, verbose_name="제품명")
+    slug = models.SlugField(max_length=500, null=True, blank=True, unique=True, verbose_name="슬러그")
+    short_description = models.TextField(null=True, blank=True, verbose_name="간단 설명")
+    description = models.TextField(null=True, blank=True, verbose_name="상세 설명")
+
+    # 가격 정보
+    price = models.IntegerField(validators=[MinValueValidator(0)], verbose_name="가격")
     original_price = models.IntegerField(
         null=True,
         blank=True,
         validators=[MinValueValidator(0)],
         verbose_name="원가"
     )
-    discount = models.IntegerField(
+    discount_rate = models.SmallIntegerField(
         default=0,
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         verbose_name="할인율"
     )
-    is_best = models.BooleanField(default=False, verbose_name="베스트")
+    cost_price = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        verbose_name="원가 (판매자용)"
+    )
+
+    # 단위
+    unit = models.CharField(max_length=50, null=True, blank=True, verbose_name="단위")
+    unit_quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=1.00,
+        verbose_name="단위 수량"
+    )
+
+    # 재고 (판매자 상품만 사용)
+    stock_quantity = models.IntegerField(default=0, verbose_name="재고 수량")
+    low_stock_threshold = models.IntegerField(default=10, verbose_name="낮은 재고 기준")
+    is_in_stock = models.BooleanField(default=True, verbose_name="재고 있음")
+
+    # 이미지
+    main_image_url = models.TextField(null=True, blank=True, verbose_name="메인 이미지 URL")
+
+    # DEPRECATED: 이전 CSV 필드 (마이그레이션 후 삭제 예정)
+    image_url = models.TextField(null=True, blank=True, verbose_name="[DEPRECATED] 이미지 URL")
+    site_name = models.CharField(max_length=100, null=True, blank=True, verbose_name="[DEPRECATED] 출처")
+    product_url = models.TextField(null=True, blank=True, verbose_name="[DEPRECATED] 제품 URL")
+    detail_info = models.TextField(null=True, blank=True, verbose_name="[DEPRECATED] 상세정보")
+    discount = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name="[DEPRECATED] 할인율"
+    )
+
+    # 상품 품질 점수 (추천 알고리즘용)
+    quality_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=50.00,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name="품질 점수",
+        help_text="이미지 품질, 설명 완성도, CTR 등을 종합"
+    )
+    image_quality_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=50.00,
+        verbose_name="이미지 품질 점수"
+    )
+    content_quality_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=50.00,
+        verbose_name="콘텐츠 품질 점수"
+    )
+
+    # 통계 (비정규화 - 성능 최적화)
+    view_count = models.IntegerField(default=0, verbose_name="조회수")
+    click_count = models.IntegerField(default=0, verbose_name="클릭수")
+    cart_count = models.IntegerField(default=0, verbose_name="장바구니 추가수")
+    wishlist_count = models.IntegerField(default=0, verbose_name="찜 수")
+    purchase_count = models.IntegerField(default=0, verbose_name="구매수")
+    review_count = models.IntegerField(default=0, verbose_name="리뷰수")
+    average_rating = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        default=0.00,
+        verbose_name="평균 평점"
+    )
+
+    # CTR (Click-Through Rate)
+    ctr = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        default=0.0000,
+        verbose_name="CTR",
+        help_text="click_count / view_count"
+    )
+
+    # 배송 정보
+    shipping_required = models.BooleanField(default=True, verbose_name="배송 필요")
+    shipping_fee = models.IntegerField(default=0, verbose_name="배송비")
+    free_shipping_threshold = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="무료 배송 기준 금액"
+    )
+    estimated_delivery_days = models.SmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="예상 배송 일수"
+    )
+
+    # 상태
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='active',
+        verbose_name="상태"
+    )
+    is_featured = models.BooleanField(default=False, verbose_name="추천 상품")
+    is_best = models.BooleanField(default=False, verbose_name="베스트 상품")
+    is_new = models.BooleanField(default=False, verbose_name="신상품")
+    is_on_sale = models.BooleanField(default=False, verbose_name="할인 중")
 
     # 메타데이터
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
+    published_at = models.DateTimeField(null=True, blank=True, verbose_name="게시일시")
+
+    # SEO
+    meta_title = models.CharField(max_length=200, null=True, blank=True, verbose_name="SEO 제목")
+    meta_description = models.TextField(null=True, blank=True, verbose_name="SEO 설명")
+    meta_keywords = models.CharField(max_length=500, null=True, blank=True, verbose_name="SEO 키워드")
 
     class Meta:
         db_table = 'products'
@@ -142,10 +283,53 @@ class Product(models.Model):
         verbose_name_plural = '제품'
         ordering = ['-created_at']
         indexes = [
+            models.Index(fields=['product_type']),
             models.Index(fields=['category']),
-            models.Index(fields=['price']),
-            models.Index(fields=['name']),
+            models.Index(fields=['seller']),
+            models.Index(fields=['status']),
+            models.Index(fields=['-quality_score']),
+            models.Index(fields=['-view_count']),
+            models.Index(fields=['-ctr']),
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['is_featured', 'status']),
+            models.Index(fields=['is_best', 'status']),
+            models.Index(fields=['slug']),
+            # 복합 인덱스 (추천 알고리즘용)
+            models.Index(fields=['product_type', 'status', '-quality_score', '-ctr']),
+            models.Index(fields=['category', 'status', '-quality_score']),
         ]
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        """CTR 자동 계산"""
+        if self.view_count > 0:
+            self.ctr = round(self.click_count / self.view_count, 4)
+        else:
+            self.ctr = 0.0000
+        super().save(*args, **kwargs)
+
+    def update_quality_score(self):
+        """품질 점수 재계산 (이미지 품질 + 콘텐츠 품질 + CTR)"""
+        # 가중 평균: 이미지 30%, 콘텐츠 30%, CTR 40%
+        ctr_score = min(float(self.ctr) * 100, 100.00)  # CTR을 0-100 스케일로 변환
+        self.quality_score = round(
+            (self.image_quality_score * 0.3 +
+             self.content_quality_score * 0.3 +
+             ctr_score * 0.4),
+            2
+        )
+        self.save(update_fields=['quality_score'])
+
+    @property
+    def final_price(self):
+        """할인 적용된 최종 가격"""
+        if self.discount_rate > 0:
+            return int(self.price * (100 - self.discount_rate) / 100)
+        return self.price
+
+    @property
+    def is_low_stock(self):
+        """재고 부족 여부"""
+        return self.stock_quantity <= self.low_stock_threshold
