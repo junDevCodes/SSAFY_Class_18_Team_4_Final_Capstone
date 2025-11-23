@@ -1,5 +1,76 @@
 # 농산물 직거래 플랫폼 - 상세 구현 계획
 
+## ⚡ 개발 우선순위 및 원칙
+
+### 🎯 핵심 원칙
+1. **기능 동작 우선**: 모든 기능이 동작하는 것을 1차 목표로 함
+2. **혼자서 테스트 가능**: 복잡한 외부 인증 없이 개발자가 모든 기능을 테스트 가능해야 함
+3. **선택적 필드**: 실제 서비스에서도 필수가 아닌 필드는 모두 nullable 처리
+4. **간소화된 인증**: 초기 단계에서는 복잡한 인증 프로세스 생략, 나중에 강화
+
+### 📝 개발 단계별 접근
+
+#### Phase 1-3: MVP (최소 기능 제품)
+- ✅ **모든 필드는 선택 사항**: phone_number, date_of_birth 등 모두 nullable
+- ✅ **결제 수단**: 저장만 가능, 실제 결제 연동은 나중
+- ✅ **판매자 인증**: 사업자번호 입력만으로 즉시 등록 가능
+- ✅ **이미지 업로드**: URL만 저장, 실제 파일 업로드는 나중
+- ✅ **실시간 알림**: 나중 구현, 지금은 DB에만 저장
+- ✅ **복잡한 검증**: 최소화, 기본 동작에 집중
+
+#### Phase 4-5: 프로덕션 준비
+- 🔒 **인증 강화**: 사업자번호 실제 검증 (국세청 API)
+- 🔒 **결제 연동**: PG사 연동 (아임포트, 토스페이먼츠)
+- 🔒 **이미지 처리**: S3 업로드, 리사이징, CDN
+- 🔒 **실시간 기능**: WebSocket, 알림 푸시
+- 🔒 **보안 강화**: Rate limiting, CAPTCHA 등
+
+### 🚀 현재 구현 방식
+
+**예시 1: 판매자 등록**
+```python
+# 현재 (MVP): 간단하게
+seller = Seller.objects.create(
+    user=user,
+    brand_name="농부마트",
+    business_registration_number="123-45-67890",  # 그냥 저장만
+    status="active"  # 즉시 활성화
+)
+
+# 나중 (프로덕션): 엄격하게
+seller = Seller.objects.create(
+    user=user,
+    brand_name="농부마트",
+    business_registration_number="123-45-67890",
+    status="pending"  # 관리자 승인 대기
+)
+# + 국세청 API 검증
+# + 서류 업로드 필수
+# + 관리자 승인 프로세스
+```
+
+**예시 2: 결제 수단**
+```python
+# 현재 (MVP): 저장만
+payment_method = UserPaymentMethod.objects.create(
+    user=user,
+    type="credit_card",
+    card_number_last4="1234"  # 그냥 저장
+)
+
+# 나중 (프로덕션): 실제 연동
+payment_method = UserPaymentMethod.objects.create(
+    user=user,
+    type="credit_card",
+    payment_gateway_token=encrypted_token,  # PG사 빌링키
+)
+# + PG사 연동
+# + 카드 유효성 검증
+# + 암호화 처리
+```
+
+---
+
 ## 목차
 1. [Phase 1: 데이터베이스 및 백엔드 기반 구축](#phase-1)
 2. [Phase 2: 판매자 시스템 구현](#phase-2)

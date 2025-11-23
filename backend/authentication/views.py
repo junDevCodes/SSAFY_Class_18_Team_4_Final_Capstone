@@ -47,7 +47,7 @@ from .providers import (
     exchange_google_token,
     exchange_kakao_token,
 )
-from .models import UserAddress
+from .models import UserAddress, UserPaymentMethod
 from .serializers import (
     LoginSerializer,
     PasswordChangeSerializer,
@@ -57,6 +57,7 @@ from .serializers import (
     UserSerializer,
     EmailVerificationConfirmSerializer,
     UserAddressSerializer,
+    UserPaymentMethodSerializer,
 )
 from .services import (
     finalize_pending_registration,
@@ -647,4 +648,34 @@ class UserAddressViewSet(viewsets.ModelViewSet):
         address.save()
 
         serializer = self.get_serializer(address)
+        return Response(serializer.data)
+
+
+class UserPaymentMethodViewSet(viewsets.ModelViewSet):
+    """사용자 결제 수단 관리 ViewSet (MVP: 저장만, 실제 결제 연동은 나중)"""
+
+    serializer_class = UserPaymentMethodSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        """현재 사용자의 결제 수단만 조회"""
+        return UserPaymentMethod.objects.filter(user=self.request.user).order_by('-is_default', '-created_at')
+
+    def perform_create(self, serializer):
+        """결제 수단 생성 시 현재 사용자 자동 설정"""
+        serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def set_default(self, request, pk=None):
+        """결제 수단을 기본 결제 수단으로 설정"""
+        payment_method = self.get_object()
+
+        # 기존 기본 결제 수단 해제
+        UserPaymentMethod.objects.filter(user=request.user).update(is_default=False)
+
+        # 선택한 결제 수단을 기본으로 설정
+        payment_method.is_default = True
+        payment_method.save()
+
+        serializer = self.get_serializer(payment_method)
         return Response(serializer.data)

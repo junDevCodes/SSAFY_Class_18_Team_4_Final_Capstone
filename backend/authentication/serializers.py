@@ -15,7 +15,7 @@ from django.core import exceptions
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
-from .models import User, UserAddress
+from .models import User, UserAddress, UserPaymentMethod
 from .services import EmailDeliveryError, send_email_verification_email, upsert_pending_registration
 
 logger = logging.getLogger(__name__)
@@ -204,5 +204,35 @@ class UserAddressSerializer(serializers.ModelSerializer):
         if not attrs.get('is_default'):
             user = self.context.get('request').user
             if not UserAddress.objects.filter(user=user).exists():
+                attrs['is_default'] = True
+        return attrs
+
+
+class UserPaymentMethodSerializer(serializers.ModelSerializer):
+    """사용자 결제 수단 시리얼라이저 (MVP: 저장만)"""
+
+    class Meta:
+        model = UserPaymentMethod
+        fields = [
+            'id',
+            'type',
+            'provider',
+            'card_number_last4',
+            'card_issuer',
+            'card_type',
+            'bank_name',
+            'account_number_last4',
+            'is_default',
+            'expires_at',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        # 기본 결제 수단이 아닌 경우, 사용자에게 기본 결제 수단이 없으면 자동으로 설정
+        if not attrs.get('is_default'):
+            user = self.context.get('request').user
+            if not UserPaymentMethod.objects.filter(user=user).exists():
                 attrs['is_default'] = True
         return attrs

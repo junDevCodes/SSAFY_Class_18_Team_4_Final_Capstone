@@ -257,3 +257,106 @@ class UserAddress(models.Model):
         if self.is_default:
             UserAddress.objects.filter(user=self.user).exclude(pk=self.pk).update(is_default=False)
         super().save(*args, **kwargs)
+
+
+class UserPaymentMethod(models.Model):
+    """사용자 결제 수단 정보 (MVP: 저장만, 실제 결제 연동은 Phase 4-5)"""
+
+    PAYMENT_TYPE_CHOICES = [
+        ("credit_card", "신용카드"),
+        ("debit_card", "체크카드"),
+        ("bank_account", "계좌이체"),
+        ("virtual_account", "가상계좌"),
+        ("mobile", "간편결제"),
+    ]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="payment_methods",
+        help_text="결제 수단 소유자",
+    )
+
+    # 결제 수단 정보
+    type = models.CharField(
+        max_length=20,
+        choices=PAYMENT_TYPE_CHOICES,
+        help_text="결제 수단 유형",
+    )
+    provider = models.CharField(
+        max_length=50,
+        help_text="결제 제공자 (kakaopay, tosspay, card 등)",
+    )
+
+    # 카드 정보 (마지막 4자리만 저장 - MVP에서는 검증 없이 저장만)
+    card_number_last4 = models.CharField(
+        max_length=4,
+        null=True,
+        blank=True,
+        help_text="카드 번호 마지막 4자리",
+    )
+    card_issuer = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        help_text="카드 발급사",
+    )
+    card_type = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        help_text="카드 종류 (credit, debit, prepaid)",
+    )
+
+    # 계좌 정보
+    bank_name = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        help_text="은행명",
+    )
+    account_number_last4 = models.CharField(
+        max_length=4,
+        null=True,
+        blank=True,
+        help_text="계좌번호 마지막 4자리",
+    )
+
+    # PG사 토큰 (Phase 4-5에서 암호화 처리)
+    payment_gateway_token = models.TextField(
+        null=True,
+        blank=True,
+        help_text="PG사 빌링키 (나중에 암호화 필요)",
+    )
+
+    # 설정
+    is_default = models.BooleanField(
+        default=False,
+        help_text="기본 결제 수단 여부",
+    )
+
+    # 메타데이터
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="카드 유효기간",
+    )
+
+    class Meta:
+        db_table = "user_payment_methods"
+        verbose_name = "결제 수단"
+        verbose_name_plural = "결제 수단"
+        indexes = [
+            models.Index(fields=["user", "is_default"], name="ix_user_payment_user_default"),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"{self.user.username} - {self.get_type_display()}"
+
+    def save(self, *args, **kwargs):
+        # is_default=True일 때 다른 결제 수단의 is_default를 False로 변경
+        if self.is_default:
+            UserPaymentMethod.objects.filter(user=self.user).exclude(pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)

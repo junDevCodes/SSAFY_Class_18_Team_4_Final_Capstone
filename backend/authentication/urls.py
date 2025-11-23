@@ -24,6 +24,7 @@ from .views import (
     UserMeView,
     EmailVerificationConfirmView,
     UserAddressViewSet,
+    UserPaymentMethodViewSet,
 )
 
 app_name = "authentication"
@@ -31,6 +32,7 @@ app_name = "authentication"
 # Router for ViewSets
 router = DefaultRouter()
 router.register(r'addresses', UserAddressViewSet, basename='address')
+router.register(r'payment-methods', UserPaymentMethodViewSet, basename='payment-method')
 
 urlpatterns = [
     # 기본 인증
