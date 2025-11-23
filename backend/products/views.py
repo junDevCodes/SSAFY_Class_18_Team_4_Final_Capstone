@@ -5,11 +5,13 @@ from rest_framework import viewsets, filters, generics, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
 from django.utils import timezone
-from .models import Category, Product, ProductView
-from .serializers import CategorySerializer, ProductSerializer, ProductDetailSerializer, ProductListSerializer
+from django.shortcuts import get_object_or_404
+from .models import Category, Product, ProductView, ProductImage
+from .serializers import CategorySerializer, ProductSerializer, ProductDetailSerializer, ProductListSerializer, ProductImageSerializer
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -193,3 +195,67 @@ class SellerProductViewSet(viewsets.ModelViewSet):
             'message': '상품이 비공개 처리되었습니다.',
             'product': self.get_serializer(product).data
         })
+
+
+class ProductImageManageView(APIView):
+    """상품 이미지 추가/삭제 API (판매자용)"""
+
+    def get_permissions(self):
+        """판매자만 접근 가능"""
+        from sellers.permissions import IsSeller
+        return [IsSeller()]
+
+    def post(self, request, product_id):
+        """이미지 추가 (URL 기반 - MVP)"""
+        # 자신의 상품인지 확인
+        product = get_object_or_404(
+            Product,
+            id=product_id,
+            seller=request.user.seller_profile
+        )
+
+        # 이미지 URL 리스트 받기
+        images_data = request.data.get('images', [])
+        if not isinstance(images_data, list):
+            return Response(
+                {'error': 'images 필드는 배열이어야 합니다.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        created_images = []
+        for img_data in images_data:
+            image_url = img_data.get('image_url')
+            if not image_url:
+                continue
+
+            # ProductImage 생성
+            image = ProductImage.objects.create(
+                product=product,
+                image_url=image_url,
+                alt_text=img_data.get('alt_text', product.name),
+                display_order=img_data.get('display_order', 0),
+            )
+            created_images.append(image)
+
+        serializer = ProductImageSerializer(created_images, many=True)
+        return Response({
+            'message': f'{len(created_images)}개의 이미지가 추가되었습니다.',
+            'images': serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, product_id, image_id):
+        """이미지 삭제"""
+        # 자신의 상품인지 확인
+        product = get_object_or_404(
+            Product,
+            id=product_id,
+            seller=request.user.seller_profile
+        )
+
+        # 이미지 삭제
+        image = get_object_or_404(ProductImage, id=image_id, product=product)
+        image.delete()
+
+        return Response({
+            'message': '이미지가 삭제되었습니다.'
+        }, status=status.HTTP_204_NO_CONTENT)

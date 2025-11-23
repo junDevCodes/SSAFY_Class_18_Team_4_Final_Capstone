@@ -9,6 +9,7 @@ from .views import (
     ProductListView,
     ProductDetailView,
     SellerProductViewSet,
+    ProductImageManageView,
 )
 
 # Router 설정
@@ -21,6 +22,10 @@ urlpatterns = [
     # 상품 API (새로운 버전)
     path('products/', ProductListView.as_view(), name='product-list'),
     path('products/<slug:slug>/', ProductDetailView.as_view(), name='product-detail'),
+
+    # 판매자 상품 이미지 관리
+    path('seller-products/<int:product_id>/images/', ProductImageManageView.as_view(), name='product-image-add'),
+    path('seller-products/<int:product_id>/images/<int:image_id>/', ProductImageManageView.as_view(), name='product-image-delete'),
 
     # ViewSet URLs
     path('', include(router.urls)),
