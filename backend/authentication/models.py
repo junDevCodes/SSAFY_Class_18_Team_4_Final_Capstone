@@ -17,6 +17,8 @@ class Provider(models.TextChoices):
     EMAIL = "email", _("이메일")
     GOOGLE = "google", _("구글")
     KAKAO = "kakao", _("카카오")
+    NAVER = "naver", _("네이버")
+    APPLE = "apple", _("애플")
 
 
 class User(AbstractUser):
@@ -73,6 +75,53 @@ class User(AbstractUser):
         help_text="사용자 타임존 (IANA 포맷)",
     )
 
+    # 추가 프로필 정보
+    phone_number = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        help_text="전화번호 (향후 인증용)",
+    )
+    date_of_birth = models.DateField(
+        null=True,
+        blank=True,
+        help_text="생년월일",
+    )
+    gender = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        choices=[
+            ("male", "남성"),
+            ("female", "여성"),
+            ("other", "기타"),
+            ("prefer_not_to_say", "선택 안함"),
+        ],
+        help_text="성별",
+    )
+
+    # 설정
+    language = models.CharField(
+        max_length=10,
+        default="ko",
+        help_text="선호 언어 (ko, en 등)",
+    )
+    notification_enabled = models.BooleanField(
+        default=True,
+        help_text="알림 수신 여부",
+    )
+    marketing_agreed = models.BooleanField(
+        default=False,
+        help_text="마케팅 정보 수신 동의",
+    )
+
+    # 소프트 삭제
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="회원 탈퇴 일시 (소프트 삭제)",
+    )
+
     class Meta:
         verbose_name = "사용자"
         verbose_name_plural = "사용자들"
@@ -111,3 +160,100 @@ class PendingRegistration(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover
         return f"{self.email} (대기)"
+
+
+class UserAddress(models.Model):
+    """사용자 배송지 정보"""
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="addresses",
+        help_text="배송지 소유자",
+    )
+
+    # 배송지 정보
+    name = models.CharField(
+        max_length=100,
+        help_text="배송지명 (예: 집, 회사)",
+    )
+    recipient_name = models.CharField(
+        max_length=100,
+        help_text="수령인 이름",
+    )
+    recipient_phone = models.CharField(
+        max_length=20,
+        help_text="수령인 전화번호",
+    )
+
+    # 주소
+    postal_code = models.CharField(
+        max_length=10,
+        help_text="우편번호",
+    )
+    address_line1 = models.CharField(
+        max_length=255,
+        help_text="기본 주소",
+    )
+    address_line2 = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="상세 주소",
+    )
+    city = models.CharField(
+        max_length=100,
+        help_text="시/도",
+    )
+    state = models.CharField(
+        max_length=100,
+        help_text="구/군",
+    )
+    country = models.CharField(
+        max_length=2,
+        default="KR",
+        help_text="국가 코드 (ISO 3166-1 alpha-2)",
+    )
+
+    # 위치 정보 (향후 거리 기반 추천용)
+    latitude = models.DecimalField(
+        max_digits=10,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text="위도",
+    )
+    longitude = models.DecimalField(
+        max_digits=11,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text="경도",
+    )
+
+    # 설정
+    is_default = models.BooleanField(
+        default=False,
+        help_text="기본 배송지 여부",
+    )
+
+    # 메타데이터
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "user_addresses"
+        verbose_name = "배송지"
+        verbose_name_plural = "배송지"
+        indexes = [
+            models.Index(fields=["user", "is_default"], name="ix_user_addr_user_default"),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"{self.user.username} - {self.name}"
+
+    def save(self, *args, **kwargs):
+        # is_default=True일 때 다른 주소의 is_default를 False로 변경
+        if self.is_default:
+            UserAddress.objects.filter(user=self.user).exclude(pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)

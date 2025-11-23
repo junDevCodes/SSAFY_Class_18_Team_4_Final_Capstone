@@ -6,7 +6,8 @@
 
 from __future__ import annotations
 
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 
 from .views import (
     GoogleCallbackView,
@@ -22,9 +23,14 @@ from .views import (
     TokenRefreshView,
     UserMeView,
     EmailVerificationConfirmView,
+    UserAddressViewSet,
 )
 
 app_name = "authentication"
+
+# Router for ViewSets
+router = DefaultRouter()
+router.register(r'addresses', UserAddressViewSet, basename='address')
 
 urlpatterns = [
     # 기본 인증
@@ -47,5 +53,7 @@ urlpatterns = [
     # OAuth2 - Kakao
     path("auth/kakao/", KakaoLoginRedirectView.as_view(), name="kakao_login"),
     path("auth/kakao/callback/", KakaoCallbackView.as_view(), name="kakao_callback"),
+    # ViewSet URLs (배송지 관리)
+    path("auth/", include(router.urls)),
 ]
 

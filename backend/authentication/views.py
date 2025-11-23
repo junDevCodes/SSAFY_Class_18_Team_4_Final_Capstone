@@ -28,6 +28,8 @@ from django.utils.http import (
     urlsafe_base64_encode,
 )
 from django.utils.translation import gettext_lazy as _
+from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework import generics, permissions, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -45,6 +47,7 @@ from .providers import (
     exchange_google_token,
     exchange_kakao_token,
 )
+from .models import UserAddress
 from .serializers import (
     LoginSerializer,
     PasswordChangeSerializer,
@@ -53,6 +56,7 @@ from .serializers import (
     RegisterSerializer,
     UserSerializer,
     EmailVerificationConfirmSerializer,
+    UserAddressSerializer,
 )
 from .services import (
     finalize_pending_registration,
@@ -613,3 +617,34 @@ class KakaoCallbackView(APIView):
 
         tokens = issue_tokens_with_claims(user)
         return _oauth_response(request, user, tokens, ui_mode, next_url)
+
+
+class UserAddressViewSet(viewsets.ModelViewSet):
+    """사용자 배송지 관리 ViewSet"""
+
+
+    serializer_class = UserAddressSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        """현재 사용자의 배송지만 조회"""
+        return UserAddress.objects.filter(user=self.request.user).order_by('-is_default', '-created_at')
+
+    def perform_create(self, serializer):
+        """배송지 생성 시 현재 사용자 자동 설정"""
+        serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def set_default(self, request, pk=None):
+        """배송지를 기본 배송지로 설정"""
+        address = self.get_object()
+
+        # 기존 기본 배송지 해제
+        UserAddress.objects.filter(user=request.user).update(is_default=False)
+
+        # 선택한 배송지를 기본으로 설정
+        address.is_default = True
+        address.save()
+
+        serializer = self.get_serializer(address)
+        return Response(serializer.data)

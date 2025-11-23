@@ -15,7 +15,7 @@ from django.core import exceptions
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
-from .models import User
+from .models import User, UserAddress
 from .services import EmailDeliveryError, send_email_verification_email, upsert_pending_registration
 
 logger = logging.getLogger(__name__)
@@ -173,3 +173,36 @@ class EmailVerificationConfirmSerializer(serializers.Serializer):
 
     email = serializers.EmailField()
     code = serializers.CharField()
+
+
+class UserAddressSerializer(serializers.ModelSerializer):
+    """사용자 배송지 시리얼라이저"""
+
+    class Meta:
+        model = UserAddress
+        fields = [
+            'id',
+            'name',
+            'recipient_name',
+            'recipient_phone',
+            'postal_code',
+            'address_line1',
+            'address_line2',
+            'city',
+            'state',
+            'country',
+            'latitude',
+            'longitude',
+            'is_default',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        # 기본 배송지가 아닌 경우, 사용자에게 기본 배송지가 없으면 자동으로 설정
+        if not attrs.get('is_default'):
+            user = self.context.get('request').user
+            if not UserAddress.objects.filter(user=user).exists():
+                attrs['is_default'] = True
+        return attrs
