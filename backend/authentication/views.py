@@ -80,29 +80,41 @@ def _normalize_ui_mode(raw: str | None) -> str:
 
 
 def _resolve_next_url(request: Request, raw: str | None) -> str:
-    # 허용 도메인 기준으로 next URL 정제
-    # 프론트엔드 URL도 허용하도록 수정
-    default = "http://localhost:3000/"  # 프론트엔드 기본 URL
+    """
+    OAuth redirect URL 검증 및 정제
+    Django의 url_has_allowed_host_and_scheme를 사용하여 open-redirect 방지
+    """
+    from django.conf import settings
+
+    # 환경변수에서 프론트엔드 URL 가져오기 (기본값: localhost:5173)
+    default = os.getenv('FRONTEND_BASE_URL', 'http://localhost:5173')
+
     if not raw:
         return default
-    
-    # 절대 URL인 경우 (프론트엔드 URL 포함)
-    if raw.startswith("http://") or raw.startswith("https://"):
-        # localhost나 허용된 도메인인지 확인
-        from django.conf import settings
-        allowed_hosts = getattr(settings, "CORS_ALLOWED_ORIGINS", [])
-        for origin in allowed_hosts:
-            if raw.startswith(origin) or origin.replace("http://", "").replace("https://", "") in raw:
-                return raw
-        # 프론트엔드 도메인인 경우 허용
-        if "localhost:3000" in raw or "localhost:5173" in raw:
-            return raw
-        return default
-    
-    # 상대 경로인 경우
-    if raw.startswith("/"):
+
+    # 허용된 호스트 목록 (CORS + ALLOWED_HOSTS)
+    allowed_hosts = set()
+
+    # CORS_ALLOWED_ORIGINS에서 호스트 추출
+    cors_origins = getattr(settings, 'CORS_ALLOWED_ORIGINS', [])
+    for origin in cors_origins:
+        # http://localhost:5173 -> localhost:5173
+        host = origin.replace('http://', '').replace('https://', '')
+        allowed_hosts.add(host)
+
+    # ALLOWED_HOSTS 추가
+    allowed_hosts.update(settings.ALLOWED_HOSTS)
+
+    # 개발 환경용 추가 호스트
+    if settings.DEBUG:
+        allowed_hosts.update(['localhost:3000', 'localhost:5173', '127.0.0.1:3000', '127.0.0.1:5173'])
+
+    # url_has_allowed_host_and_scheme로 검증
+    if url_has_allowed_host_and_scheme(raw, allowed_hosts=allowed_hosts, require_https=False if settings.DEBUG else True):
         return raw
-    
+
+    # 검증 실패 시 기본 URL 반환
+    logger.warning(f"OAuth redirect URL rejected: {raw}")
     return default
 
 
@@ -459,7 +471,7 @@ class GoogleCallbackView(APIView):
         state = request.GET.get("state")
         code = request.GET.get("code")
         if not state or not code:
-            return error_response("?�청 매개변?��? 부족합?�다.", "missing_params", status.HTTP_400_BAD_REQUEST)
+            return error_response("요청 매개변수가 부족합니다.", "missing_params", status.HTTP_400_BAD_REQUEST)
 
         stored_meta = request.session.pop("oauth_state_google", None)
         saved_state = None
@@ -472,7 +484,7 @@ class GoogleCallbackView(APIView):
         else:
             saved_state = stored_meta
         if saved_state != state:
-            return error_response("state 검증에 ?�패?�습?�다.", "invalid_state", status.HTTP_400_BAD_REQUEST)
+            return error_response("state 검증에 실패했습니다.", "invalid_state", status.HTTP_400_BAD_REQUEST)
 
         next_url = _resolve_next_url(request, next_url)
 
@@ -484,7 +496,7 @@ class GoogleCallbackView(APIView):
         name = profile.get("name")
 
         if not email:
-            return error_response("?�메?�을 ?�인?????�습?�다.", "email_required", status.HTTP_400_BAD_REQUEST)
+            return error_response("이메일을 확인할 수 없습니다.", "email_required", status.HTTP_400_BAD_REQUEST)
 
         User = get_user_model()
         user, created = User.objects.get_or_create(
@@ -551,7 +563,7 @@ class KakaoCallbackView(APIView):
         state = request.GET.get("state")
         code = request.GET.get("code")
         if not state or not code:
-            return error_response("?�청 매개변?��? 부족합?�다.", "missing_params", status.HTTP_400_BAD_REQUEST)
+            return error_response("요청 매개변수가 부족합니다.", "missing_params", status.HTTP_400_BAD_REQUEST)
 
         stored_meta = request.session.pop("oauth_state_kakao", None)
         saved_state = None
@@ -564,7 +576,7 @@ class KakaoCallbackView(APIView):
         else:
             saved_state = stored_meta
         if saved_state != state:
-            return error_response("state 검증에 ?�패?�습?�다.", "invalid_state", status.HTTP_400_BAD_REQUEST)
+            return error_response("state 검증에 실패했습니다.", "invalid_state", status.HTTP_400_BAD_REQUEST)
 
         next_url = _resolve_next_url(request, next_url)
 
