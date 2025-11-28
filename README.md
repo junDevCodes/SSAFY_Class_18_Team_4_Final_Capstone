@@ -1,16 +1,9 @@
-<<<<<<< HEAD
-﻿# 프로젝트명
 
-> 프로젝트에 대한 간단한 한 줄 소개를 작성하세요.
-
-![프로젝트 대표 이미지 또는 로고](이미지_URL)
-=======
 ﻿# SelF
 
 > 소비자가 원하는 상품을 추천하고, 가장 저렴하게 찾을 수 있는 전자상거래 플랫폼.
 
 <img src="https://i.postimg.cc/FsR1X5cv/Self_로고.png" alt="SelF-Logo" width="200">
->>>>>>> main
 
 ## 📌 프로젝트 소개
 
@@ -31,23 +24,6 @@
 ## 🛠 기술 스택
 
 ### Frontend
-<<<<<<< HEAD
-![VUE](https://img.shields.io/badge/Vue.js-35495E?style=for-the-badge&logo=vuedotjs&logoColor=4FC08D)
-![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white)
-![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=flat-square&logo=css3&logoColor=white)
-![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)
-
-### Backend
-![Django](https://img.shields.io/badge/Django-092E20?style=for-the-badge&logo=django&logoColor=green)
-
-### Database
-![SQLite](https://img.shields.io/badge/SQLite-4169E1?logo=sqlite&logoColor=fff&style=plastic)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?logo=postgresql&logoColor=white)
-
-### Tools
-![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
-![Kafka](https://img.shields.io/badge/Apache_Kafka-231F20?style=for-the-badge&logo=apache-kafka&logoColor=white)
-=======
 ![VUE](https://img.shields.io/badge/Vue.js-35495E?&logo=vuedotjs&logoColor=FFF&style=flat-square)
 ![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white)
 ![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=flat-square&logo=css3&logoColor=white)
@@ -90,17 +66,12 @@
 <!-- ### Tools
 ![REDIS](https://img.shields.io/badge/Redis-DC382D?style=flat-square&logo=redis&logoColor=white)
 ![Kafka](https://img.shields.io/badge/Apache_Kafka-231F20?style=for-the-badge&logo=apache-kafka&logoColor=white) -->
->>>>>>> main
 
 ### Communicate
 ![Git](https://img.shields.io/badge/Git-F05032?style=flat-square&logo=git&logoColor=white)
 ![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white)
-<<<<<<< HEAD
-![Slack](https://img.shields.io/badge/Slack-Join%20%23vineyard-purple?logo=Slack)
-=======
 ![Slack](https://img.shields.io/badge/Slack-Join?logo=Slack&style=flat-square)
 ![Discord](https://shields.io/discord/1442794136955654144?style=flat-square&label=discord&logo=discord&labelColor=black&color=5865F2)
->>>>>>> main
 
 
 ## ✨ 주요 기능
@@ -126,18 +97,12 @@ project-root/
 ├── backend/            # Django 백엔드 (REST API)
 ├── frontend/           # Vue.js 프론트엔드
 ├── data/               # 데이터 분석, Jupyter Notebook, 인사이트
-<<<<<<< HEAD
-=======
 ├── storage/            # 데이터 저장 및 DB
->>>>>>> main
 ├── docs/               # 프로젝트 문서
 │   ├── GIT_CONVENTION.md
 │   ├── CODE_CONVENTION.md
 │   ├── BRANCH_STRATEGY.md
-<<<<<<< HEAD
-=======
 │   ├── CODE_REVIEW.md
->>>>>>> main
 │   └── CONTRIBUTING.md
 └── README.md
 ```
