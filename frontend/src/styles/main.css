@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-main: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+  --font-display: "GmarketSans", sans-serif;
+  --primary: #5f0080; 
+  --primary-dark: #4c0066;
+}
+
+body {
+  font-family: var(--font-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { 
+    display: none; 
+  }
+  .no-scrollbar { 
+    -ms-overflow-style: none; 
+    scrollbar-width: none; 
+  }
+}
+
+/* Smooth Transitions */
+.fade-enter-active, .fade-leave-active { 
+  transition: opacity 0.5s ease; 
+}
+.fade-enter-from, .fade-leave-to { 
+  opacity: 0; 
+}
+
+/* Header Transition */
+.header-transition {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Hero Animation */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+.animate-float { 
+  animation: float 6s ease-in-out infinite; 
+}
+
+/* Fade In Up Animation */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.8s ease-out forwards;
+  opacity: 0;
+}
+
+/* Custom Drawer & Toast & Modal Animations */
+.drawer-slide-enter-active, .drawer-slide-leave-active { 
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); 
+}
+.drawer-slide-enter-from, .drawer-slide-leave-to { 
+  transform: translateX(100%); 
+}
+
+.toast-enter-active, .toast-leave-active { 
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); 
+}
+.toast-enter-from, .toast-leave-to { 
+  opacity: 0; 
+  transform: translateY(20px) scale(0.95); 
+}
+
+.modal-enter-active, .modal-leave-active { 
+  transition: all 0.3s ease; 
+}
+.modal-enter-from, .modal-leave-to { 
+  opacity: 0; 
+  transform: scale(0.95); 
+}
+
+.drawer-backdrop-enter-active, .drawer-backdrop-leave-active {
+  transition: opacity 0.3s ease;
+}
+.drawer-backdrop-enter-from, .drawer-backdrop-leave-to {
+  opacity: 0;
+}
+
