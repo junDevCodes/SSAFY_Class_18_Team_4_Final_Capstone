@@ -1,6 +1,8 @@
-﻿# SelF - 농산물 전자상거래 플랫폼
+# SelF
 
-> 신선한 농산물을 생산자와 소비자를 직접 연결하는 온라인 마켓플레이스
+> 소비자가 원하는 상품을 추천하고, 가장 저렴하게 찾을 수 있는 전자상거래 플랫폼.
+
+<img src="https://i.postimg.cc/FsR1X5cv/Self_로고.png" alt="SelF-Logo" width="200">
 
 ## 📌 프로젝트 소개
 
@@ -29,26 +31,54 @@ SelF은 농산물 전자상거래 플랫폼으로, 신선한 농산물을 합리
 ## 🛠 기술 스택
 
 ### Frontend
-![VUE](https://img.shields.io/badge/Vue.js-35495E?style=for-the-badge&logo=vuedotjs&logoColor=4FC08D)
+![VUE](https://img.shields.io/badge/Vue.js-35495E?&logo=vuedotjs&logoColor=FFF&style=flat-square)
 ![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white)
 ![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=flat-square&logo=css3&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)
+![TypeScript](https://shields.io/badge/TypeScript-3178C6?logo=TypeScript&logoColor=FFF&style=flat-square)
 
 ### Backend
-![Django](https://img.shields.io/badge/Django-092E20?style=for-the-badge&logo=django&logoColor=green)
+![Django](https://img.shields.io/badge/Django-092E20?&style=flat-square&logo=django&logoColor=green)
+![DRF](https://img.shields.io/badge/django--rest--framework-3.12.4-blue?style=flat-square&labelColor=333333&logo=django&logoColor=white&color=blue)
 
 ### Database
-![SQLite](https://img.shields.io/badge/SQLite-4169E1?logo=sqlite&logoColor=fff&style=plastic)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?logo=postgresql&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?logo=postgresql&logoColor=white&style=flat-square)![Redis:Database](https://img.shields.io/badge/Database-Redis-informational?style=flat-square&logo=redis&logoColor=white&color=red)
 
-### Tools
-![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
-![Kafka](https://img.shields.io/badge/Apache_Kafka-231F20?style=for-the-badge&logo=apache-kafka&logoColor=white)
+### Crawling / Scraping
+![Playwright]()
+
+### Data Processing & ML/DL
+![Pandas](https://img.shields.io/badge/-Pandas-333333?style=flat-square&logo=pandas)
+![Numpy](https://img.shields.io/badge/-Numpy-013243?&logo=NumPy&style=flat-square)
+![Scikit-Learn](https://img.shields.io/badge/scikit--learn-F7931E?style=flat-square&logo=scikit-learn&logoColor=white)
+![Keras](https://img.shields.io/badge/-Keras-D00000?style=flat-sqaure&logo=Keras)
+![Prophet]()
+![Sentence-Transformers]()
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat-square&logo=fastapi)
+
+### Cloud & Infra
+![Docker](https://img.shields.io/badge/docker-257bd6?style=flat-square&logo=docker&logoColor=white)
+![Docker-compose](https://img.shields.io/badge/Docker%20Compose-061D2F?logo=docker&style=flat-square)
+![AWS-Lightsail-Container]()
+![Nginx](https://img.shields.io/badge/Nginx-009639?logo=nginx&logoColor=white&style=flat-square)
+![Github-Actions](https://img.shields.io/badge/-GitHub%20Actions-333333?style=flat-square&logo=github-actions)
+
+### Storage
+![AWS-S3]()
+![Nginx](https://img.shields.io/badge/Nginx-009639?logo=nginx&logoColor=white&style=flat-square)
+
+
+### Authentication
+![OAuth2](https://img.shields.io/badge/OAuth_2.0-Bearer-000000?style=flat-square)
+<!-- ### Tools
+![REDIS](https://img.shields.io/badge/Redis-DC382D?style=flat-square&logo=redis&logoColor=white)
+![Kafka](https://img.shields.io/badge/Apache_Kafka-231F20?style=for-the-badge&logo=apache-kafka&logoColor=white) -->
 
 ### Communicate
 ![Git](https://img.shields.io/badge/Git-F05032?style=flat-square&logo=git&logoColor=white)
 ![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white)
-![Slack](https://img.shields.io/badge/Slack-Join%20%23vineyard-purple?logo=Slack)
+![Slack](https://img.shields.io/badge/Slack-Join?logo=Slack&style=flat-square)
+![Discord](https://shields.io/discord/1442794136955654144?style=flat-square&label=discord&logo=discord&labelColor=black&color=5865F2)
 
 
 ## ✨ 주요 기능
@@ -107,11 +137,13 @@ SSAFY_Class_18_Team_4_Final_Capstone/
 │   │   └── utils/                # 유틸리티 함수
 │   └── package.json
 │
-├── data/                         # 데이터 분석, Jupyter Notebook, 크롤링
+├── crawler/
+├── data/                         # 크롤링 날짜별 데이터(JSON)
 ├── docs/                         # 프로젝트 문서
 │   ├── GIT_CONVENTION.md
 │   ├── CODE_CONVENTION.md
 │   ├── BRANCH_STRATEGY.md
+│   ├── CODE_REVIEW.md
 │   └── CONTRIBUTING.md
 ├── CLAUDE.md                     # AI 개발 가이드
 └── README.md
@@ -228,68 +260,13 @@ npm run preview
 - [Git Convention](docs/GIT_CONVENTION.md)
 - [Code Convention](docs/CODE_CONVENTION.md)
 - [Branch Strategy](docs/BRANCH_STRATEGY.md)
-
-## 📊 ERD
-
-### 주요 테이블
-**Authentication (인증)**
-- `User`: 사용자 (이메일, 역할, OAuth 정보, 소프트 삭제)
-- `PendingRegistration`: 이메일 인증 대기
-- `UserAddress`: 배송지 (기본 배송지 자동 관리)
-- `UserPaymentMethod`: 결제 수단
-
-**Products (상품)**
-- `Category`: 계층형 카테고리 (path, level 자동 계산)
-- `Product`: 상품 (메인/판매자 통합, 품질 점수, 통계 비정규화)
-- `ProductImage`: 상품 이미지 (다중 이미지)
-- `ProductView`: 조회 로그 (추천 알고리즘용)
-- `Wishlist`: 찜 목록
-- `Cart`: 장바구니
-
-**Sellers (판매자)**
-- `Seller`: 판매자 프로필 (브랜드 정보, 사업자 정보, 정산 정보)
-- `SellerOperatingHours`: 영업시간
-
-**Orders (주문)**
-- `Order`: 주문 (주문번호 자동 생성, 배송/결제/취소 정보)
-- `OrderItem`: 주문 상품 (스냅샷 패턴)
-
-### 관계
-```
-User (1) ←→ (1) Seller
-User (1) ←→ (N) Wishlist ←→ (1) Product
-User (1) ←→ (N) Cart ←→ (1) Product
-User (1) ←→ (N) Order
-Order (1) ←→ (N) OrderItem ←→ (1) Product
-Seller (1) ←→ (N) Product
-Category (1) ←→ (N) Product
-Product (1) ←→ (N) ProductImage
-Product (1) ←→ (N) ProductView
-```
-
-## 🎨 와이어프레임 / 디자인
-
-### 구현 완료된 페이지
-- ✅ 홈페이지 (Hero, Categories, TimeDeal, ProductList)
-- ✅ 상품 상세 페이지
-- ✅ 장바구니 페이지
-- ✅ 찜 목록 페이지
-- ✅ 주문/결제 페이지
-- ✅ 마이페이지 (프로필, 주문내역, 주문상세)
-- ✅ 판매자 센터 (등록, 대시보드, 상품관리, 상품등록/수정)
-- ✅ 브랜드몰 (목록, 상세)
-
-### 디자인 시스템
-- **색상**: Tailwind CSS 기본 팔레트 + 커스텀 브랜드 컬러
-- **타이포그래피**: 시스템 폰트 스택
-- **컴포넌트**: Headless UI 기반 커스텀 컴포넌트
-- **반응형**: Mobile-first 디자인
+- [Code Review](docs/CODE_REVIEW.md)
 
 ## 🔗 링크
 
-- [배포 URL](https://example.com)
-- [API 문서](https://api.example.com/docs)
-- [노션 페이지](https://www.notion.so/SSAFY-SEOUL-CLASS-18-TEAM-4-FINAL-CAPSTONE-PROJECT-2a67359b60688023991cef2fa72846f1?source=copy_link)
+- [프로젝트 기획 노션 페이지](https://www.notion.so/SSAFY-SEOUL-CLASS-18-TEAM-4-FINAL-CAPSTONE-PROJECT-2a67359b60688023991cef2fa72846f1?source=copy_link)
+- [배포 URL](https://sellfresh.shop)
+- [API 문서](https://api.sellfresh.shop/docs)
 
 ## 📄 라이센스
 
