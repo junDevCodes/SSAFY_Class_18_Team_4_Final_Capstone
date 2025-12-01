@@ -413,3 +413,7 @@ test/
 
 
 ### CUSTOM ###
+AGENTS.md
+storage/
+CLAUDE.md
+.claude/
