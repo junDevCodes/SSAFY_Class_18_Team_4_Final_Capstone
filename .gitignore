@@ -413,7 +413,7 @@ test/
 
 
 ### CUSTOM ###
+data/
 AGENTS.md
-storage/
 CLAUDE.md
 .claude/

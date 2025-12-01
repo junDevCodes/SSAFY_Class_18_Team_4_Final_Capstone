@@ -1,0 +1,639 @@
+/////////////////////////////////////////////////
+// Enums
+/////////////////////////////////////////////////
+
+Enum user_role {
+  guest
+  user
+  seller
+  admin
+}
+
+Enum business_type {
+  individual
+  corporate
+  cooperative
+}
+
+Enum seller_status {
+  pending
+  active
+  suspended
+  inactive
+}
+
+Enum product_status {
+  draft
+  active
+  inactive
+  out_of_stock
+  discontinued
+}
+
+Enum product_type {
+  main
+  seller
+}
+
+Enum order_status {
+  pending
+  paid
+  processing
+  shipped
+  delivered
+  cancelled
+  refunded
+}
+
+Enum order_item_status {
+  pending
+  paid
+  shipping
+  delivered
+  cancelled
+  refunded
+}
+
+Enum payment_status {
+  pending
+  success
+  failed
+  cancelled
+}
+
+Enum payment_method_type {
+  card
+  bank_transfer
+  virtual_account
+  mobile
+  other
+}
+
+Enum gender_type {
+  male
+  female
+  other
+  prefer_not_to_say
+}
+
+/////////////////////////////////////////////////
+// Group 1. Users & Auth (JWT 기반)
+/////////////////////////////////////////////////
+
+Table users {
+  id          bigint       [pk, increment]
+
+  email       varchar(254) [not null, unique]
+  username    varchar(150) [not null, unique]
+
+  role        user_role    [not null, default: 'guest']
+  is_active   boolean      [not null, default: true]
+
+  last_login  timestamp    [null]
+
+  created_at  timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at  timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+  deleted_at  timestamp    [null]
+
+  indexes {
+    email
+    role
+    created_at
+  }
+
+  Note: 'JWT 기반 계정. 휴면 계정은 last_login 기준으로 식별하고, 토큰은 DB에 저장하지 않음.'
+}
+
+Table user_profiles {
+  user_id             bigint       [pk, ref: - users.id]
+
+  profile_image_url   text         [null]
+  phone_number        varchar(20)  [null, unique]
+  date_of_birth       date         [null]
+  gender              gender_type  [null]
+
+  timezone            varchar(64)  [not null, default: 'Asia/Seoul']
+  language            varchar(10)  [not null, default: 'ko']
+  notification_enabled boolean     [not null, default: true]
+  marketing_agreed    boolean      [not null, default: false]
+
+  updated_at          timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+
+  Note: '사용자 프로필 및 알림/마케팅 설정.'
+}
+
+Table user_addresses {
+  id               bigint       [pk, increment]
+  user_id          bigint       [not null, ref: > users.id]
+
+  address_name     varchar(100) [not null]
+  recipient_name   varchar(100) [not null]
+  recipient_phone  varchar(20)  [not null]
+
+  postal_code      varchar(10)  [not null]
+  address_line1    varchar(255) [not null]
+  address_line2    varchar(255) [null]
+
+  is_default       boolean      [not null, default: false]
+
+  created_at       timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at       timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    user_id
+    (user_id, is_default)
+  }
+
+  Note: '사용자 배송지 주소록.'
+}
+
+Table pending_registrations {
+  id                bigint       [pk, increment]
+  email             varchar(254) [not null, unique]
+  username          varchar(150) [not null]
+  password_hash     varchar(128) [not null]
+  verification_code varchar(64)  [not null]
+  expires_at        timestamp    [not null]
+
+  created_at        timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at        timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    expires_at
+  }
+
+  Note: '회원가입 이메일 인증 대기 상태.'
+}
+
+Table auth_email_credentials {
+  user_id         bigint       [pk, ref: - users.id]
+
+  password_hash   varchar(128) [not null]
+  is_email_verified boolean    [not null, default: false]
+  fail_count      int          [not null, default: 0]
+  last_changed_at timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+
+  Note: '이메일/비밀번호 로그인 자격 정보.'
+}
+
+Table auth_google_accounts {
+  id             bigint       [pk, increment]
+  user_id        bigint       [not null, ref: > users.id]
+
+  google_user_id varchar(255) [not null, unique]
+  email          varchar(254) [not null]
+
+  connected_at   timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    user_id
+  }
+
+  Note: 'Google 계정과 사용자 매핑. OAuth 토큰은 DB에 저장하지 않고 JWT 발급에만 사용.'
+}
+
+Table auth_kakao_accounts {
+  id            bigint       [pk, increment]
+  user_id       bigint       [not null, ref: > users.id]
+
+  kakao_user_id varchar(255) [not null, unique]
+  email         varchar(254) [not null]
+
+  connected_at  timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    user_id
+  }
+
+  Note: 'Kakao 계정과 사용자 매핑. OAuth 토큰은 DB에 저장하지 않고 JWT 발급에만 사용.'
+}
+
+/////////////////////////////////////////////////
+// Group 2. Seller Domain
+/////////////////////////////////////////////////
+
+Table sellers {
+  id          bigint        [pk, increment]
+  user_id     bigint        [not null, unique, ref: - users.id]
+
+  brand_name  varchar(200)  [not null, unique]
+  brand_slug  varchar(200)  [not null, unique]
+  brand_logo_url text       [null]
+  brand_description text    [null]
+
+  status      seller_status [not null, default: 'pending']
+
+  created_at  timestamp     [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at  timestamp     [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    user_id
+    brand_slug
+    status
+  }
+
+  Note: '판매자 브랜드 공개 정보.'
+}
+
+Table seller_businesses {
+  seller_id           bigint        [pk, ref: - sellers.id]
+
+  registration_number varchar(20)   [null, unique]
+  business_type       business_type [null]
+  company_name        varchar(200)  [null]
+  ceo_name            varchar(100)  [null]
+
+  business_address    text          [null]
+  cs_phone            varchar(20)   [null]
+
+  verification_doc_url text         [null]
+  verified_at         timestamp     [null]
+
+  Note: '판매자의 사업자 등록 및 인증 정보.'
+}
+
+Table seller_settlements {
+  seller_id      bigint       [pk, ref: - sellers.id]
+
+  bank_name      varchar(50)  [not null]
+  account_number varchar(50)  [not null]
+  account_holder varchar(100) [not null]
+
+  Note: '정산 계좌 정보.'
+}
+
+Table seller_schedules {
+  id          bigint    [pk, increment]
+  seller_id   bigint    [not null, ref: > sellers.id]
+
+  day_of_week smallint  [not null]
+  open_time   time      [not null]
+  close_time  time      [not null]
+  is_holiday  boolean   [not null, default: false]
+
+  created_at  timestamp [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at  timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (seller_id, day_of_week) [unique]
+  }
+
+  Note: '영업 요일/시간 및 휴무일.'
+}
+
+/////////////////////////////////////////////////
+// Group 3. Product Domain
+/////////////////////////////////////////////////
+
+Table categories {
+  id        bigint       [pk, increment]
+  parent_id bigint       [null, ref: > categories.id]
+
+  name      varchar(100) [not null]
+  slug      varchar(100) [not null, unique]
+
+  created_at timestamp   [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp   [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    parent_id
+  }
+
+  Note: '계층형 카테고리.'
+}
+
+Table products {
+  id          bigint         [pk, increment]
+  seller_id   bigint         [not null, ref: > sellers.id]
+  category_id bigint         [null, ref: > categories.id]
+
+  source_site varchar(100)   [null, note: '초기 CSV/크롤링 출처 사이트 이름']
+  source_url  text           [null, note: '초기 CSV/크롤링 원본 상품 URL']
+  crawled_at  timestamp      [null, note: '원본 데이터를 가져온 시각']
+
+  name        varchar(500)   [not null]
+  slug        varchar(500)   [not null, unique]
+
+  price       int            [not null]
+  original_price int         [null]
+
+  status      product_status [not null, default: 'active']
+  product_type product_type  [not null, default: 'main']
+
+  unit        varchar(50)    [null]
+  unit_quantity decimal(10,2) [not null, default: 1.00]
+
+  shipping_required boolean  [not null, default: true]
+  shipping_fee     int       [not null, default: 0]
+  free_shipping_threshold int [null]
+  estimated_delivery_days smallint [null]
+
+  created_at   timestamp     [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at   timestamp     [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    seller_id
+    category_id
+    status
+    product_type
+    slug
+    created_at
+  }
+
+  Note: '상품 기본 스펙/가격/단위/배송 정보.'
+}
+
+Table product_details {
+  product_id       bigint       [pk, ref: - products.id]
+
+  short_description text        [null]
+  full_description  text        [null]
+
+  meta_title       varchar(200) [null]
+  meta_keywords    varchar(500) [null]
+
+  Note: '상품 상세 설명 및 SEO 메타 정보.'
+}
+
+Table product_inventories {
+  product_id        bigint    [pk, ref: - products.id]
+
+  stock_quantity    int       [not null, default: 0]
+  safe_stock_level  int       [not null, default: 10]
+
+  updated_at        timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  Note: '상품 재고 정보. 재고 부족 여부는 stock_quantity와 safe_stock_level로 계산.'
+}
+
+Table product_images {
+  id            bigint    [pk, increment]
+  product_id    bigint    [not null, ref: > products.id]
+
+  image_url     text      [not null]
+  display_order int       [not null, default: 0]
+
+  created_at    timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (product_id, display_order)
+  }
+
+  Note: '상품 이미지. 가장 낮은 display_order를 대표 이미지로 사용.'
+}
+
+/////////////////////////////////////////////////
+// Group 4. Orders & Payments (정규화)
+/////////////////////////////////////////////////
+
+Table orders {
+  id          bigint        [pk, increment]
+  order_no    varchar(50)   [not null, unique]
+  user_id     bigint        [not null, ref: > users.id]
+
+  status      order_status  [not null, default: 'pending']
+
+  cancelled_at timestamp    [null]
+  cancel_reason text        [null]
+  refunded_at timestamp     [null]
+
+  created_at  timestamp     [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at  timestamp     [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    user_id
+    status
+    created_at
+  }
+
+  Note: '주문 헤더. 금액/배송지/배송비/결제는 하위 테이블에서 관리.'
+}
+
+Table order_items {
+  id                     bigint            [pk, increment]
+  order_id               bigint            [not null, ref: > orders.id]
+  product_id             bigint            [not null, ref: > products.id]
+
+  product_name_snapshot  varchar(500)      [not null]
+  unit_price_snapshot    int               [not null]
+
+  quantity               int               [not null]
+  discount_amount        int               [not null, default: 0]
+
+  status                 order_item_status [not null, default: 'pending']
+
+  created_at             timestamp         [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    order_id
+    product_id
+  }
+
+  Note: '주문 시점의 상품명/단가/수량/할인만 저장. 판매자는 products를 통해 계산.'
+}
+
+Table shipments {
+  id               bigint       [pk, increment]
+  order_id         bigint       [not null, ref: > orders.id]
+
+  recipient_name   varchar(100) [not null]
+  recipient_phone  varchar(20)  [not null]
+  address_full     varchar(500) [not null]
+  shipping_memo    text         [null]
+
+  courier          varchar(50)  [null]
+  tracking_no      varchar(100) [null]
+
+  shipping_fee     int          [not null, default: 0]
+
+  shipped_at       timestamp    [null]
+  delivered_at     timestamp    [null]
+
+  created_at       timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at       timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    order_id
+    tracking_no
+  }
+
+  Note: '배송 단위. 한 주문에 여러 배송(부분배송) 가능하며, 배송지/배송비/송장은 여기서만 관리.'
+}
+
+Table payments {
+  id              bigint               [pk, increment]
+  order_id        bigint               [not null, ref: > orders.id]
+
+  method_type     payment_method_type  [not null, default: 'card']
+
+  amount          int                  [not null]
+  status          payment_status       [not null, default: 'pending']
+
+  is_simulation   boolean              [not null, default: true]
+  simulation_note text                 [null]
+
+  pg_provider     varchar(50)          [null]
+  pg_tid          varchar(100)         [null, unique]
+
+  created_at      timestamp            [not null, default: `CURRENT_TIMESTAMP`]
+  processed_at    timestamp            [null]
+  failure_reason  text                 [null]
+
+  indexes {
+    order_id
+    status
+  }
+
+  Note: '결제 트랜잭션. 현재는 모의 결제, 추후 PG 연동 시 그대로 사용.'
+}
+
+/////////////////////////////////////////////////
+// Group 5. Interactions (Cart, Wishlist, Follow)
+/////////////////////////////////////////////////
+
+Table carts {
+  id         bigint    [pk, increment]
+  user_id    bigint    [not null, ref: > users.id]
+  product_id bigint    [not null, ref: > products.id]
+
+  quantity   int       [not null, default: 1]
+
+  created_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (user_id, product_id) [unique]
+  }
+
+  Note: '장바구니. 가격은 order_items 스냅샷으로만 관리.'
+}
+
+Table wishlists {
+  id         bigint    [pk, increment]
+  user_id    bigint    [not null, ref: > users.id]
+  product_id bigint    [not null, ref: > products.id]
+
+  created_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (user_id, product_id) [unique]
+  }
+
+  Note: '찜 목록.'
+}
+
+Table seller_follows {
+  id         bigint    [pk, increment]
+  user_id    bigint    [not null, ref: > users.id]
+  seller_id  bigint    [not null, ref: > sellers.id]
+
+  created_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (user_id, seller_id) [unique]
+    user_id
+    seller_id
+  }
+
+  Note: '소비자(user)가 판매자(seller)를 팔로우하는 관계. 셀러가 유저를 팔로우하는 기능은 제공하지 않으며, 애플리케이션에서 user.role이 일반 사용자일 때만 생성 허용.'
+}
+
+/////////////////////////////////////////////////
+// Group 6. Reviews (상품 리뷰 + 사진 리뷰)
+/////////////////////////////////////////////////
+
+Table reviews {
+  id           bigint       [pk, increment]
+
+  product_id   bigint       [not null, ref: > products.id]
+  user_id      bigint       [not null, ref: > users.id]
+  order_item_id bigint      [null, ref: > order_items.id]
+
+  rating       smallint     [not null]              // 1~5 점
+  content      text         [not null]
+
+  has_photos   boolean      [not null, default: false]
+
+  status       varchar(20)  [not null, default: 'visible']  // visible/hidden/reported/deleted 등
+
+  created_at   timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at   timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    product_id
+    user_id
+    order_item_id
+  }
+
+  Note: '상품 리뷰. order_item_id를 통해 실제 구매 기반 리뷰인지 검증할 수 있고, 사진 리뷰 여부(has_photos)로 사진 후기 비율 계산 가능.'
+}
+
+Table review_images {
+  id          bigint    [pk, increment]
+  review_id   bigint    [not null, ref: > reviews.id]
+
+  image_url   text      [not null]
+  display_order int     [not null, default: 0]
+
+  created_at  timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (review_id, display_order)
+  }
+
+  Note: '사진 리뷰용 이미지. 한 리뷰에 여러 장의 사진을 연결할 수 있음.'
+}
+
+
+/////////////////////////////////////////////////
+// Group 7. Recommendation & Analytics
+/////////////////////////////////////////////////
+
+Table product_stats {
+  product_id            bigint       [pk, ref: - products.id]
+
+  // 1단계: 기본 집계 카운트 (로그/비율 피처의 재료)
+  view_count            bigint          [not null, default: 0]    // 상세 조회 수
+  recommend_clicked_count bigint          [not null, default: 0]    // 리스트/배너에서 카드 클릭 수
+  cart_event_count      bigint          [not null, default: 0]    // 장바구니 담기 횟수
+  order_event_count     bigint          [not null, default: 0]    // 구매(주문 품목) 발생 횟수
+  wishlist_count        bigint          [not null, default: 0]    // 찜 수
+
+  // 리뷰 기반 집계
+  review_count          bigint          [not null, default: 0]    // 전체 리뷰 수
+  average_rating        decimal(3,2) [not null, default: 0.00] // 평균 평점 (1~5)
+  photo_review_count    bigint          [not null, default: 0]    // 사진 리뷰 개수
+
+  // 선택: 리뷰 감성/타이밍 피처의 베이스
+  sentiment_score_avg   decimal(5,2) [not null, default: 0.00] // 감성 점수 평균 (예: 0~1 스케일)
+  first_review_at       timestamp    [null]                    // 첫 리뷰가 달린 시각
+
+  // 품질 점수 (이미지/콘텐츠/CTR 종합)
+  quality_score         decimal(5,2) [not null, default: 50.00]
+  image_quality_score   decimal(5,2) [not null, default: 50.00]
+  content_quality_score decimal(5,2) [not null, default: 50.00]
+
+  last_updated          timestamp    [not null, default: `CURRENT_TIMESTAMP`]
+
+  Note: '상품별 집계/품질 피처. view/cart/order/wishlist/review 로그를 배치/스트림으로 모아 정기적으로 갱신하고, 추천/정렬/대시보드 피처의 재료로 사용.'
+}
+
+Table user_product_stats {
+  id              bigint    [pk, increment]
+  user_id         bigint    [not null, ref: > users.id]
+  product_id      bigint    [not null, ref: > products.id]
+
+  view_count      bigint       [not null, default: 0]  // 해당 유저가 이 상품을 본 횟수
+  cart_event_count bigint      [not null, default: 0]  // 장바구니에 담은 횟수
+  order_event_count bigint     [not null, default: 0]  // 구매한 횟수
+
+  last_interacted_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (user_id, product_id) [unique]
+    user_id
+    product_id
+  }
+
+  Note: '유저 × 상품별 집계 피처. 개인화 추천/재방문 리마인드 등에 사용 (선택적으로 운영 가능).'
+}
