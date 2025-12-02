@@ -15,8 +15,8 @@ services:
       DB_PORT: "5432"
       REDIS_URL: redis://redis:6379/0
     volumes:
-      # data 폴더 마운트 (CSV 파일 접근용)
-      - ./data:/app/data:ro
+      # data 폴더 마운트 (CSV/JSON 파일 접근 및 파이프라인 처리용)
+      - ./data:/app/data
     depends_on:
       db:
         condition: service_healthy
