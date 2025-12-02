@@ -3,7 +3,7 @@
     <!-- Loading State -->
     <div v-if="loading" class="loading-state">
       <div class="spinner"></div>
-      <p>주문 정보를 불러오는 중...</p>
+      <p>주문 정보를 불러오는 중입니다...</p>
     </div>
 
     <!-- Error State -->
@@ -26,8 +26,8 @@
           <h2 class="page-title">주문 상세</h2>
         </div>
         <div class="header-right">
-          <span class="status-badge" :class="`status-${order.order_status}`">
-            {{ getOrderStatusText(order.order_status) }}
+          <span class="status-badge" :class="`status-${order.status}`">
+            {{ getOrderStatusText(order.status) }}
           </span>
         </div>
       </div>
@@ -36,7 +36,7 @@
       <div class="info-card">
         <div class="info-row">
           <span class="label">주문번호</span>
-          <span class="value">{{ order.order_number }}</span>
+          <span class="value">{{ order.order_no }}</span>
         </div>
         <div class="info-row">
           <span class="label">주문일시</span>
@@ -70,7 +70,9 @@
             </div>
             <div class="item-info">
               <h4 class="item-name">{{ item.product_name }}</h4>
-              <p class="item-price">{{ formatPrice(item.price) }} × {{ item.quantity }}개</p>
+              <p class="item-price">
+                {{ formatPrice(item.unit_price) }} × {{ item.quantity }}개
+              </p>
             </div>
             <div class="item-total">
               {{ formatPrice(item.total_price) }}
@@ -82,27 +84,27 @@
       <!-- Shipping Info Section -->
       <section class="section">
         <h3 class="section-title">배송 정보</h3>
-        <div class="shipping-info">
+        <div class="shipping-info" v-if="order.shipment">
           <div class="info-row">
             <span class="label">받는 사람</span>
-            <span class="value">{{ order.recipient_name }}</span>
+            <span class="value">{{ order.shipment.recipient_name }}</span>
           </div>
           <div class="info-row">
             <span class="label">연락처</span>
-            <span class="value">{{ order.phone }}</span>
+            <span class="value">{{ order.shipment.recipient_phone }}</span>
           </div>
           <div class="info-row">
             <span class="label">배송 주소</span>
             <span class="value">
-              ({{ order.postal_code }}) {{ order.address }}<br>
-              {{ order.address_detail }}
+              {{ order.shipment.address_full }}
             </span>
           </div>
-          <div v-if="order.delivery_request" class="info-row">
+          <div v-if="order.shipment.shipping_memo" class="info-row">
             <span class="label">배송 요청사항</span>
-            <span class="value">{{ order.delivery_request }}</span>
+            <span class="value">{{ order.shipment.shipping_memo }}</span>
           </div>
         </div>
+        <p v-else class="no-shipping">배송 정보가 없습니다.</p>
       </section>
 
       <!-- Payment Summary Section -->
@@ -128,7 +130,14 @@
           </div>
           <div class="payment-method">
             <span class="label">결제 수단</span>
-            <span class="value">즉시 결제 (MVP)</span>
+            <span class="value">
+              <template v-if="order.payment">
+                {{ order.payment.method_type }} ({{ getPaymentStatusText(order.payment_status) }})
+              </template>
+              <template v-else>
+                정보 없음
+              </template>
+            </span>
           </div>
         </div>
       </section>
@@ -141,7 +150,7 @@
           class="btn-cancel"
           :disabled="cancelling"
         >
-          <span v-if="cancelling">취소 중...</span>
+          <span v-if="cancelling">취소 처리 중...</span>
           <span v-else>주문 취소</span>
         </button>
 
@@ -151,8 +160,8 @@
           class="btn-confirm"
           :disabled="confirming"
         >
-          <span v-if="confirming">확인 중...</span>
-          <span v-else>배송 확인</span>
+          <span v-if="confirming">확인 처리 중...</span>
+          <span v-else>배송 완료 확인</span>
         </button>
       </div>
 
@@ -189,7 +198,7 @@
             <div class="timeline-marker"></div>
             <div class="timeline-content">
               <h4>상품 준비중</h4>
-              <p v-if="order.order_status === 'processing'">처리 중</p>
+              <p v-if="order.status === 'processing'">처리 중</p>
             </div>
           </div>
 
@@ -200,7 +209,7 @@
             <div class="timeline-marker"></div>
             <div class="timeline-content">
               <h4>배송 시작</h4>
-              <p v-if="order.order_status === 'shipped'">배송 중</p>
+              <p v-if="order.status === 'shipped'">배송 중</p>
             </div>
           </div>
 
@@ -211,7 +220,7 @@
             <div class="timeline-marker"></div>
             <div class="timeline-content">
               <h4>배송 완료</h4>
-              <p v-if="order.order_status === 'delivered'">배송 완료</p>
+              <p v-if="order.status === 'delivered'">배송 완료</p>
             </div>
           </div>
         </div>
@@ -223,8 +232,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { useOrdersStore } from '@/stores/orders'
+import { useOrdersStore, type Order } from '@/stores/orders'
 import { formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
+import { getOrderStatusText, getPaymentStatusText } from '@/utils/status'
 
 const route = useRoute()
 const ordersStore = useOrdersStore()
@@ -233,9 +243,9 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const cancelling = ref(false)
 const confirming = ref(false)
-const order = ref<any>(null)
+const order = ref<Order | null>(null)
 
-// Load order detail
+// 주문 상세 로드
 const loadOrderDetail = async () => {
   loading.value = true
   error.value = null
@@ -243,7 +253,7 @@ const loadOrderDetail = async () => {
   try {
     const orderId = Number(route.params.id)
     if (isNaN(orderId)) {
-      error.value = '잘못된 주문 번호입니다.'
+      error.value = '유효하지 않은 주문 번호입니다.'
       return
     }
 
@@ -251,13 +261,13 @@ const loadOrderDetail = async () => {
     order.value = response
   } catch (err: any) {
     console.error('주문 상세 로드 실패:', err)
-    error.value = '주문 정보를 불러오는데 실패했습니다.'
+    error.value = '주문 정보를 불러오는 데 실패했습니다.'
   } finally {
     loading.value = false
   }
 }
 
-// Cancel order
+// 주문 취소
 const handleCancelOrder = async () => {
   if (!order.value) return
 
@@ -278,18 +288,18 @@ const handleCancelOrder = async () => {
   }
 }
 
-// Confirm delivery
+// 배송 완료 확인
 const handleConfirmDelivery = async () => {
   if (!order.value) return
 
-  const confirmed = confirm('배송을 확인하시겠습니까?')
+  const confirmed = confirm('배송 완료를 확인하시겠습니까?')
   if (!confirmed) return
 
   confirming.value = true
 
   try {
     await ordersStore.confirmDelivery(order.value.id)
-    alert('배송이 확인되었습니다.')
+    alert('배송 완료가 확인되었습니다.')
     await loadOrderDetail()
   } catch (err: any) {
     console.error('배송 확인 실패:', err)
@@ -299,54 +309,28 @@ const handleConfirmDelivery = async () => {
   }
 }
 
-// Check if order can be cancelled
-const canCancelOrder = (order: any): boolean => {
-  return ['pending', 'paid', 'processing'].includes(order.order_status)
+// 주문 취소 가능 여부
+const canCancelOrder = (order: Order): boolean => {
+  return ['pending', 'paid', 'processing'].includes(order.status)
 }
 
-// Check if delivery can be confirmed
-const canConfirmDelivery = (order: any): boolean => {
-  return order.order_status === 'shipped'
+// 배송 완료 확인 가능 여부
+const canConfirmDelivery = (order: Order): boolean => {
+  return ['paid', 'shipped'].includes(order.status)
 }
 
-// Check if status is active in timeline
+// 타임라인 상태 활성 여부
 const isStatusActive = (status: string): boolean => {
   if (!order.value) return false
 
   const statusOrder = ['pending', 'paid', 'processing', 'shipped', 'delivered']
-  const currentIndex = statusOrder.indexOf(order.value.order_status)
+  const currentIndex = statusOrder.indexOf(order.value.status)
   const checkIndex = statusOrder.indexOf(status)
 
   return checkIndex <= currentIndex
 }
 
-// Get order status text
-const getOrderStatusText = (status: string): string => {
-  const statusMap: Record<string, string> = {
-    pending: '주문대기',
-    paid: '결제완료',
-    processing: '처리중',
-    shipped: '배송중',
-    delivered: '배송완료',
-    cancelled: '취소',
-    refunded: '환불'
-  }
-  return statusMap[status] || status
-}
-
-// Get payment status text
-const getPaymentStatusText = (status: string): string => {
-  const statusMap: Record<string, string> = {
-    pending: '대기중',
-    paid: '결제완료',
-    failed: '실패',
-    cancelled: '취소',
-    refunded: '환불'
-  }
-  return statusMap[status] || status
-}
-
-// Format date time
+// 날짜/시간 포맷
 const formatDateTime = (dateString: string): string => {
   const date = new Date(dateString)
   return date.toLocaleString('ko-KR', {
@@ -358,13 +342,13 @@ const formatDateTime = (dateString: string): string => {
   })
 }
 
-// Handle image error
+// 이미지 로딩 실패 처리
 const handleImageError = (event: Event) => {
   const target = event.target as HTMLImageElement
   target.src = DEFAULT_PRODUCT_IMAGE
 }
 
-// Initialize
+// 초기 로드
 onMounted(() => {
   loadOrderDetail()
 })
@@ -439,18 +423,11 @@ onMounted(() => {
   gap: 0.25rem;
   color: #666;
   text-decoration: none;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  transition: color 0.2s;
 }
 
 .btn-back-link svg {
   width: 20px;
   height: 20px;
-}
-
-.btn-back-link:hover {
-  color: #00a86b;
 }
 
 .page-title {
@@ -459,20 +436,58 @@ onMounted(() => {
   color: #1a1a1a;
 }
 
-.status-badge {
-  padding: 0.5rem 1rem;
-  border-radius: 12px;
-  font-size: 0.875rem;
-  font-weight: 700;
+.header-right {
+  display: flex;
+  align-items: center;
 }
 
-.status-pending { background: #ffc107; color: #000; }
-.status-paid { background: #28a745; color: white; }
-.status-processing { background: #007bff; color: white; }
-.status-shipped { background: #17a2b8; color: white; }
-.status-delivered { background: #6c757d; color: white; }
-.status-cancelled { background: #dc3545; color: white; }
-.status-refunded { background: #e83e8c; color: white; }
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem 0.875rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.status-pending {
+  background: #fff3cd;
+  color: #856404;
+  border-color: #ffeeba;
+}
+
+.status-paid {
+  background: #e6f4ff;
+  color: #0b5ed7;
+  border-color: #b6e0ff;
+}
+
+.status-processing {
+  background: #e6f4ff;
+  color: #0b5ed7;
+  border-color: #b6e0ff;
+}
+
+.status-shipped {
+  background: #e0f3ff;
+  color: #055160;
+  border-color: #9eeaf9;
+}
+
+.status-delivered {
+  background: #d1e7dd;
+  color: #0f5132;
+  border-color: #badbcc;
+}
+
+.status-cancelled,
+.status-refunded {
+  background: #f8d7da;
+  color: #842029;
+  border-color: #f5c2c7;
+}
 
 /* Info Card */
 .info-card {
@@ -581,6 +596,11 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.no-shipping {
+  font-size: 0.9375rem;
+  color: #666;
 }
 
 /* Payment Summary */

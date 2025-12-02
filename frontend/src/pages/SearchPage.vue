@@ -157,10 +157,10 @@ const sort = ref((route.query.sort as string) || '')
 
 const fetchResults = async () => {
   await ensureCategories()
+  // v2.1: is_best 필터 대신 quality_score로 베스트 상품 필터링 (프론트에서 처리)
   const res = await productStore.fetchProducts({
     search: searchText.value || undefined,
     category: categoryId.value,
-    is_best: bestOnly.value || undefined,
     page: currentPage.value,
     page_size: pageSize,
   })
@@ -190,17 +190,28 @@ watch(
 )
 
 // Derived results with client-side filters/sort
+// v2.1: discount 필드 대신 original_price와 price로 할인율 계산
+const calculateDiscountRate = (p: { price: number; original_price: number | null }) => {
+  if (!p.original_price || p.original_price <= p.price) return 0
+  return Math.round(((p.original_price - p.price) / p.original_price) * 100)
+}
+
 const displayedProducts = computed(() => {
   let list = [...productStore.products]
+  // v2.1: bestOnly 필터는 quality_score 80 이상인 상품만 표시
+  if (bestOnly.value) {
+    list = list.filter(p => p.quality_score >= 80)
+  }
+  // v2.1: discountOnly 필터는 original_price가 있고 price보다 큰 상품만 표시
   if (discountOnly.value) {
-    list = list.filter(p => p.discount > 0)
+    list = list.filter(p => calculateDiscountRate(p) > 0)
   }
   if (sort.value === 'price_asc') {
     list.sort((a, b) => a.price - b.price)
   } else if (sort.value === 'price_desc') {
     list.sort((a, b) => b.price - a.price)
   } else if (sort.value === 'discount_desc') {
-    list.sort((a, b) => b.discount - a.discount)
+    list.sort((a, b) => calculateDiscountRate(b) - calculateDiscountRate(a))
   }
   return list
 })
