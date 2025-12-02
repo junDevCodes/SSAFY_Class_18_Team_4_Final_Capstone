@@ -1,0 +1,50 @@
+[project]
+name = "self-backend"
+version = "0.1.0"
+description = "SelF - 전자상거래 플랫폼 백엔드 API"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "SelF Team"}
+]
+keywords = ["django", "rest-api", "e-commerce"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "project_self.settings"
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.isort]
+known-first-party = ["project_self", "authentication", "products", "sellers", "orders"]
+
+[tool.black]
+target-version = ["py312"]
+line-length = 120
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_ignores = true
+plugins = ["mypy_django_plugin.main"]
+
+[tool.django-stubs]
+django_settings_module = "project_self.settings"
+
