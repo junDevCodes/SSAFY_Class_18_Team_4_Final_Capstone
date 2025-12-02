@@ -91,13 +91,32 @@ WSGI_APPLICATION = 'project_self.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+DB_ENGINE = os.getenv('DB_ENGINE', 'django.db.backends.sqlite3')
+DB_NAME = os.getenv('DB_NAME', str(BASE_DIR / 'db.sqlite3'))
+DB_USER = os.getenv('DB_USER', '')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '')
+DB_HOST = os.getenv('DB_HOST', '')
+DB_PORT = os.getenv('DB_PORT', '')
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# 환경변수 값에 따라 SQLite(기본) 또는 Postgres 등으로 분기
+if DB_ENGINE == 'django.db.backends.sqlite3':
+    DATABASES = {
+        'default': {
+            'ENGINE': DB_ENGINE,
+            'NAME': DB_NAME,
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': DB_ENGINE,
+            'NAME': DB_NAME,
+            'USER': DB_USER,
+            'PASSWORD': DB_PASSWORD,
+            'HOST': DB_HOST,
+            'PORT': DB_PORT,
+        }
+    }
 
 
 # Password validation
@@ -176,13 +195,35 @@ AUTHENTICATION_BACKENDS = (
 
 # CORS 설정 (프론트엔드와 통신을 위해)
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # Vite 기본 포트
+    "http://localhost:5173",  # Vite 기본 포트 (로컬 개발)
     "http://localhost:3000",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:3000",
+    "http://localhost:8080",  # Docker Frontend 포트
+    "http://127.0.0.1:8080",
 ]
 
+# 환경변수로 추가 CORS 출처 설정 가능
+_extra_cors = os.getenv('CORS_ALLOWED_ORIGINS', '')
+if _extra_cors:
+    CORS_ALLOWED_ORIGINS.extend([o.strip() for o in _extra_cors.split(',') if o.strip()])
+
 CORS_ALLOW_CREDENTIALS = True
+
+# CSRF 신뢰 출처 설정 (CORS와 동일하게)
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8080",
+]
+
+# 환경변수로 추가 CSRF 출처 설정 가능
+_extra_csrf = os.getenv('CSRF_TRUSTED_ORIGINS', '')
+if _extra_csrf:
+    CSRF_TRUSTED_ORIGINS.extend([o.strip() for o in _extra_csrf.split(',') if o.strip()])
 
 # 이메일 설정
 # 개발 환경에서는 console 백엔드를 사용하여 즉시 응답 (타임아웃 방지)
