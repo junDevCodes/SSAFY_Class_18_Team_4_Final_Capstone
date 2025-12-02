@@ -81,7 +81,7 @@ class Command(BaseCommand):
         skip_duplicates = options.get('skip_duplicates', False)
         validate_images = options.get('validate_images', False)
         skip_if_exists = options.get('skip_if_exists', False)
-        clear_existing = not skip_if_exists  # skip_if_exists가 True면 clear_existing은 False
+        clear_existing = options.get('clear_existing', False)
 
         # CSV 파일 존재 여부 확인
         if not os.path.exists(csv_file_path):
