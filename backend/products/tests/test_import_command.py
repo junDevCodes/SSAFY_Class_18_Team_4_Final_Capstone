@@ -87,7 +87,7 @@ class ImportProductsCommandTest(TestCase):
 
         # 다시 임포트 (기존 데이터 삭제되어야 함)
         out = StringIO()
-        call_command('import_products', self.temp_csv.name, stdout=out)
+        call_command('import_products', self.temp_csv.name, '--clear-existing', stdout=out)
 
         # 제품 수가 동일해야 함 (중복이 아닌 교체)
         self.assertEqual(Product.objects.count(), 3)
