@@ -1,6 +1,8 @@
 /**
  * 통합 API 서비스
  * 모든 백엔드 API 엔드포인트를 중앙에서 관리
+ *
+ * v2.1: ProductDetail, ProductInventory, ProductStats, ProductPriceHistory 지원
  */
 import apiClient from './client'
 import type {
@@ -10,7 +12,12 @@ import type {
   User,
   RegisterResponse
 } from '@/types/auth'
-import type { Product, ProductDetail } from '@/types/product'
+import type {
+  ProductDetail,
+  ProductListResponse,
+  ProductFilterParams,
+  CategoryListResponse,
+} from '@/types/product'
 
 // ==================== Auth API ====================
 export const authAPI = {
@@ -57,33 +64,77 @@ export const authAPI = {
 
 // ==================== Products API ====================
 export const productsAPI = {
-  // 상품 목록 (필터링, 검색, 정렬)
-  getProducts: (params?: {
-    category?: number
-    price__gte?: number
-    price__lte?: number
-    is_featured?: boolean
-    is_best?: boolean
-    is_new?: boolean
-    is_on_sale?: boolean
-    search?: string
-    ordering?: string
-    page?: number
-    page_size?: number
-  }) => apiClient.get<{
-    count: number
-    next: string | null
-    previous: string | null
-    results: Product[]
-  }>('/api/products/', { params }),
+  /**
+   * 상품 목록 조회 (필터링, 검색, 정렬, 페이지네이션)
+   */
+  getProducts: (params?: ProductFilterParams) =>
+    apiClient.get<ProductListResponse>('/api/products/', { params }),
 
-  // 상품 상세
-  getProduct: (slug: string) =>
-    apiClient.get<ProductDetail>(`/api/products/${slug}/`),
+  /**
+   * 상품 상세 조회 (v2.1 - detail, inventory, stats, price_histories 포함)
+   */
+  getProduct: (idOrSlug: number | string) =>
+    apiClient.get<ProductDetail>(`/api/products/${idOrSlug}/`),
 
-  // 카테고리 목록
+  /**
+   * 카테고리 목록 조회
+   */
   getCategories: () =>
-    apiClient.get('/api/categories/'),
+    apiClient.get<CategoryListResponse>('/api/categories/'),
+
+  /**
+   * 추천 상품 목록 조회
+   */
+  getFeaturedProducts: (limit: number = 8) =>
+    apiClient.get<ProductListResponse>('/api/products/', {
+      params: { is_featured: true, page_size: limit },
+    }),
+
+  /**
+   * 베스트 상품 목록 조회
+   */
+  getBestProducts: (limit: number = 8) =>
+    apiClient.get<ProductListResponse>('/api/products/', {
+      params: { is_best: true, page_size: limit },
+    }),
+
+  /**
+   * 신상품 목록 조회
+   */
+  getNewProducts: (limit: number = 8) =>
+    apiClient.get<ProductListResponse>('/api/products/', {
+      params: { is_new: true, page_size: limit, ordering: '-created_at' },
+    }),
+
+  /**
+   * 할인 상품 목록 조회
+   */
+  getSaleProducts: (limit: number = 8) =>
+    apiClient.get<ProductListResponse>('/api/products/', {
+      params: { is_on_sale: true, page_size: limit },
+    }),
+
+  /**
+   * 상품 검색
+   */
+  searchProducts: (query: string, params?: Omit<ProductFilterParams, 'search'>) =>
+    apiClient.get<ProductListResponse>('/api/products/', {
+      params: { search: query, ...params },
+    }),
+
+  /**
+   * 카테고리별 상품 조회
+   */
+  getProductsByCategory: (categoryId: number, params?: Omit<ProductFilterParams, 'category'>) =>
+    apiClient.get<ProductListResponse>('/api/products/', {
+      params: { category: categoryId, ...params },
+    }),
+
+  /**
+   * 상품 조회수 증가
+   */
+  incrementViewCount: (productId: number) =>
+    apiClient.post(`/api/products/${productId}/view/`),
 }
 
 // ==================== Wishlist API ====================
@@ -159,6 +210,26 @@ export const ordersAPI = {
   // 배송 완료 확인
   confirmDelivery: (id: number) =>
     apiClient.post(`/api/orders/${id}/confirm_delivery/`),
+}
+
+// ==================== Guest Orders API (비회원 주문) ====================
+export const guestOrdersAPI = {
+  // 비회원 주문 생성
+  createOrder: (data: {
+    items: Array<{ product_id: number; quantity: number }>
+    guest_email: string
+    guest_name: string
+    guest_phone: string
+    recipient_name: string
+    recipient_phone: string
+    shipping_address: string
+    shipping_memo?: string
+    payment_method_type?: string
+  }) => apiClient.post('/api/orders/guest/create_order/', data),
+
+  // 비회원 주문 조회
+  lookupOrder: (data: { order_no: string; guest_email: string }) =>
+    apiClient.post('/api/orders/guest/lookup/', data),
 }
 
 // ==================== Sellers API ====================
@@ -263,6 +334,7 @@ export const api = {
   wishlist: wishlistAPI,
   cart: cartAPI,
   orders: ordersAPI,
+  guestOrders: guestOrdersAPI,
   sellers: sellersAPI,
   sellerProducts: sellerProductsAPI,
 }

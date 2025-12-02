@@ -5,7 +5,11 @@
  * @param val 가격 (숫자)
  * @returns 포맷팅된 가격 문자열 (예: "39,900원")
  */
-export const formatPrice = (val: number): string => {
+export const formatPrice = (val: number | null | undefined): string => {
+  // null, undefined, NaN 방어
+  if (val === null || val === undefined || isNaN(val)) {
+    return '0원'
+  }
   return new Intl.NumberFormat('ko-KR').format(val) + '원'
 }
 
