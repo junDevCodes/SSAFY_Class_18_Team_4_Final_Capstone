@@ -68,6 +68,12 @@ class ProductListView(generics.ListAPIView):
     """상품 목록 API (필터링 및 정렬 지원)
 
     v2.1: ProductStats 테이블에서 통계 데이터를 가져옵니다.
+
+    커스텀 필터 (프론트엔드 호환):
+    - is_featured: 추천 상품 (quality_score 기준 정렬)
+    - is_best: 베스트 상품 (조회수/주문수 기준 정렬)
+    - is_new: 신상품 (최근 7일 내 등록)
+    - is_on_sale: 할인 상품 (original_price > price)
     """
 
     serializer_class = ProductListSerializerV2
@@ -85,15 +91,56 @@ class ProductListView(generics.ListAPIView):
     # 검색 (ERD V2.1 필드만 사용)
     search_fields = ['name']
 
-    # 정렬 (ERD V2.1 필드만 사용)
-    ordering_fields = ['price', 'created_at']
+    # 정렬 (ERD V2.1 필드, stats 테이블 필드 포함)
+    ordering_fields = [
+        'price', 'created_at',
+        'stats__quality_score', 'stats__view_count',
+        'stats__order_event_count', 'stats__average_rating'
+    ]
     ordering = ['-created_at']  # 기본 정렬: 최신순
 
     def get_queryset(self):
-        """쿼리셋 최적화 - v2.1 stats 테이블 prefetch"""
-        return Product.objects.filter(status='active').select_related(
+        """쿼리셋 최적화 - v2.1 stats 테이블 prefetch + 커스텀 필터"""
+        from datetime import timedelta
+        from django.db.models import Q
+
+        queryset = Product.objects.filter(status='active').select_related(
             'category', 'stats'
         )
+
+        # 커스텀 필터: is_featured (추천 상품 - quality_score 기준)
+        is_featured = self.request.query_params.get('is_featured')
+        if is_featured and is_featured.lower() in ('true', '1'):
+            # quality_score 70 이상인 상품을 quality_score 내림차순으로 정렬
+            queryset = queryset.filter(
+                stats__quality_score__gte=70
+            ).order_by('-stats__quality_score', '-created_at')
+
+        # 커스텀 필터: is_best (베스트 상품 - 조회수/주문수 기준)
+        is_best = self.request.query_params.get('is_best')
+        if is_best and is_best.lower() in ('true', '1'):
+            # 주문 이벤트 또는 조회수가 높은 상품 (주문수 > 0 또는 조회수 > 100)
+            queryset = queryset.filter(
+                Q(stats__order_event_count__gt=0) | Q(stats__view_count__gte=100)
+            ).order_by('-stats__order_event_count', '-stats__view_count', '-created_at')
+
+        # 커스텀 필터: is_new (신상품 - 최근 7일 내 등록)
+        is_new = self.request.query_params.get('is_new')
+        if is_new and is_new.lower() in ('true', '1'):
+            seven_days_ago = timezone.now() - timedelta(days=7)
+            queryset = queryset.filter(
+                created_at__gte=seven_days_ago
+            ).order_by('-created_at')
+
+        # 커스텀 필터: is_on_sale (할인 상품 - original_price > price)
+        is_on_sale = self.request.query_params.get('is_on_sale')
+        if is_on_sale and is_on_sale.lower() in ('true', '1'):
+            queryset = queryset.filter(
+                original_price__isnull=False,
+                original_price__gt=F('price')
+            ).order_by('-created_at')
+
+        return queryset
 
 
 class ProductDetailView(generics.RetrieveAPIView):

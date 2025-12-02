@@ -99,11 +99,11 @@ export const productsAPI = {
     }),
 
   /**
-   * 신상품 목록 조회
+   * 신상품 목록 조회 (최근 7일 내 등록)
    */
   getNewProducts: (limit: number = 8) =>
     apiClient.get<ProductListResponse>('/api/products/', {
-      params: { is_new: true, page_size: limit, ordering: '-created_at' },
+      params: { is_new: true, page_size: limit },
     }),
 
   /**

@@ -255,17 +255,26 @@ export interface CategoryListResponse {
   results: Category[]
 }
 
-// 상품 필터 파라미터
+// 상품 필터 파라미터 (v2.1 백엔드 호환)
 export interface ProductFilterParams {
+  // 기본 필터
   category?: number
   price__gte?: number
   price__lte?: number
-  is_featured?: boolean
-  is_best?: boolean
-  is_new?: boolean
-  is_on_sale?: boolean
+  status?: 'active' | 'inactive' | 'draft' | 'out_of_stock' | 'discontinued'
+  product_type?: 'main' | 'seller'
+
+  // 커스텀 필터 (백엔드 v2.1 지원)
+  is_featured?: boolean  // 추천 상품 (quality_score >= 70)
+  is_best?: boolean      // 베스트 상품 (조회수/주문수 기준)
+  is_new?: boolean       // 신상품 (최근 7일 내 등록)
+  is_on_sale?: boolean   // 할인 상품 (original_price > price)
+
+  // 검색 및 정렬
   search?: string
   ordering?: string
+
+  // 페이지네이션
   page?: number
   page_size?: number
 }
