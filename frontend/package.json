@@ -1,18 +1,23 @@
 {
-  "name": "front_demo_2",
+  "name": "self-frontend",
   "version": "1.0.0",
   "type": "module",
-  "description": "",
+  "description": "SelF - 전자상거래 플랫폼 프론트엔드",
   "main": "index.js",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
-    "type-check": "vue-tsc --noEmit"
+    "type-check": "vue-tsc --noEmit",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["vue", "typescript", "e-commerce"],
+  "author": "SelF Team",
+  "license": "MIT",
   "devDependencies": {
     "@types/node": "^24.10.1",
     "@vitejs/plugin-vue": "^6.0.2",

@@ -410,7 +410,7 @@ class ProductView(models.Model):
         ]
 
     def __str__(self):
-        user_info = self.user.username if self.user else f"세션:{self.session_id[:8]}"
+        user_info = self.user.username if self.user else f"세션:{self.session_id[:8] if self.session_id else 'unknown'}"
         return f"{self.product.name} - {user_info}"
 
 

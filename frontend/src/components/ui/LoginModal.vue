@@ -217,7 +217,8 @@ const handleLogin = async () => {
 
   isSubmitting.value = true
   try {
-    const result = await authStore.login(loginForm.email, loginForm.password)
+    // 로그인 API 호출 (결과값은 authStore 내부에서 처리)
+    await authStore.login(loginForm.email, loginForm.password)
     uiStore.showToast('로그인되었습니다.')
     uiStore.closeLogin()
 

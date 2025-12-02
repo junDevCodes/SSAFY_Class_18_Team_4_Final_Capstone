@@ -1,0 +1,73 @@
+services:
+  backend:
+    build: ./backend
+    container_name: self-backend
+    env_file:
+      - backend/.env
+    environment:
+      # docker-compose 내부 네트워크용 DB 설정 (env 파일 값 오버라이드)
+      # settings.py가 읽는 개별 환경변수로 설정
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: selfdb
+      DB_USER: selfuser
+      DB_PASSWORD: selfpass
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      # data 폴더 마운트 (CSV 파일 접근용)
+      - ./data:/app/data:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    # 컨테이너 시작 시 migrate + Site 설정 + CSV 임포트 + gunicorn 실행
+    # 주의: import_products의 fallback(|| echo)이 migrate/shell 실패까지 잡지 않도록 괄호로 그룹화
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py shell -c \"from django.contrib.sites.models import Site; Site.objects.update_or_create(id=1, defaults={'domain': 'localhost:8000', 'name': 'SelF Local'})\" &&
+             (python manage.py import_products /app/data/merged_all_naver.csv --skip-if-exists 2>/dev/null || echo '[INIT] CSV 임포트 스킵') &&
+             gunicorn project_self.wsgi:application --bind 0.0.0.0:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: self-frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+  db:
+    image: postgres:16-alpine
+    container_name: self-postgres
+    environment:
+      POSTGRES_DB: selfdb
+      POSTGRES_USER: selfuser
+      POSTGRES_PASSWORD: selfpass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U selfuser -d selfdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: self-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
