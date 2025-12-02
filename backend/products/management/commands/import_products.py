@@ -38,6 +38,11 @@ class Command(BaseCommand):
             action='store_true',
             help='기존 데이터 삭제 후 임포트'
         )
+        parser.add_argument(
+            '--skip-if-exists',
+            action='store_true',
+            help='제품 데이터가 이미 존재하면 임포트 스킵 (Docker 재시작 시 유용)'
+        )
 
     def validate_image_url(self, url):
         """이미지 URL 유효성 검사"""
@@ -75,11 +80,20 @@ class Command(BaseCommand):
         csv_file_path = options['csv_file']
         skip_duplicates = options.get('skip_duplicates', False)
         validate_images = options.get('validate_images', False)
-        clear_existing = True
+        skip_if_exists = options.get('skip_if_exists', False)
+        clear_existing = not skip_if_exists  # skip_if_exists가 True면 clear_existing은 False
 
         # CSV 파일 존재 여부 확인
         if not os.path.exists(csv_file_path):
             raise CommandError(f'CSV 파일을 찾을 수 없습니다: {csv_file_path}')
+
+        # 데이터가 이미 존재하면 스킵 (--skip-if-exists 옵션)
+        if skip_if_exists and Product.objects.exists():
+            product_count = Product.objects.count()
+            self.stdout.write(
+                self.style.SUCCESS(f'[SKIP] 제품 데이터가 이미 존재합니다 ({product_count}개). 임포트를 건너뜁니다.')
+            )
+            return
 
         # 기존 데이터 삭제 (옵션)
         if clear_existing:
