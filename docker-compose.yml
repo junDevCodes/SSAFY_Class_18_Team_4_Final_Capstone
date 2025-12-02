@@ -6,7 +6,13 @@ services:
       - backend/.env
     environment:
       # docker-compose 내부 네트워크용 DB 설정 (env 파일 값 오버라이드)
-      DATABASE_URL: postgresql://selfuser:selfpass@db:5432/selfdb
+      # settings.py가 읽는 개별 환경변수로 설정
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: selfdb
+      DB_USER: selfuser
+      DB_PASSWORD: selfpass
+      DB_HOST: db
+      DB_PORT: "5432"
       REDIS_URL: redis://redis:6379/0
     volumes:
       # data 폴더 마운트 (CSV 파일 접근용)
