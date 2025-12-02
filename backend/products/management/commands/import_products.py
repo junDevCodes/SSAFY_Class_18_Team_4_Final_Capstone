@@ -1,20 +1,27 @@
 """
-CSV 파일에서 제품 데이터를 임포트하는 관리 커맨드
+CSV 파일에서 제품 데이터를 임포트하는 관리 커맨드 (ERD V2.1)
+
+ERD V2.1에서 Product는 seller_id가 필수입니다.
+이미지는 ProductImage 테이블에 별도로 저장됩니다.
 """
 import csv
 import os
-import re
 from datetime import datetime
 from urllib.parse import urlparse
 from django.core.management.base import BaseCommand, CommandError
 from django.utils.text import slugify
 from django.utils import timezone
-from products.models import Category, Product
+from django.contrib.auth import get_user_model
+from products.models import Category, Product, ProductImage, ProductPriceHistory
+from sellers.models import Seller
+
+
+User = get_user_model()
 
 
 class Command(BaseCommand):
-    """CSV 파일에서 제품 데이터를 임포트"""
-    help = 'CSV 파일에서 제품 데이터를 임포트합니다'
+    """CSV 파일에서 제품 데이터를 임포트 (ERD V2.1)"""
+    help = 'CSV 파일에서 제품 데이터를 임포트합니다 (ERD V2.1)'
 
     def add_arguments(self, parser):
         """커맨드 인자 추가"""
@@ -75,6 +82,30 @@ class Command(BaseCommand):
             category=category
         ).exists()
 
+    def get_or_create_default_seller(self):
+        """기본 판매자 생성 또는 가져오기 (임포트용)"""
+        # 기본 관리자 유저 가져오기 또는 생성
+        default_email = "import@system.local"
+        user, _ = User.objects.get_or_create(
+            email=default_email,
+            defaults={
+                'username': 'import_system',
+                'is_active': True,
+            }
+        )
+
+        # 기본 판매자 가져오기 또는 생성
+        seller, _ = Seller.objects.get_or_create(
+            user=user,
+            defaults={
+                'brand_name': '시스템 임포트',
+                'brand_slug': 'system-import',
+                'status': 'active',
+            }
+        )
+
+        return seller
+
     def handle(self, *args, **options):
         """커맨드 실행"""
         csv_file_path = options['csv_file']
@@ -100,9 +131,15 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING('기존 데이터를 삭제합니다...'))
             deleted_products = Product.objects.count()
             deleted_categories = Category.objects.count()
+            deleted_images = ProductImage.objects.count()
+            ProductImage.objects.all().delete()
             Product.objects.all().delete()
             Category.objects.all().delete()
-            self.stdout.write(f'삭제됨: {deleted_products}개 제품, {deleted_categories}개 카테고리')
+            self.stdout.write(f'삭제됨: {deleted_products}개 제품, {deleted_categories}개 카테고리, {deleted_images}개 이미지')
+
+        # 기본 판매자 가져오기 (ERD V2.1: seller_id 필수)
+        default_seller = self.get_or_create_default_seller()
+        self.stdout.write(f'기본 판매자: {default_seller.brand_name}')
 
         # 통계 변수
         stats = {
@@ -111,10 +148,15 @@ class Command(BaseCommand):
             'skipped_duplicate': 0,
             'skipped_invalid_image': 0,
             'failed': 0,
+            'images_created': 0,
+            'price_histories_created': 0,
         }
 
         # 카테고리 캐시 (중복 방지)
         category_cache = {}
+
+        # slug 중복 방지용 카운터
+        slug_counter = {}
 
         # CSV 파일 읽기 및 임포트
         self.stdout.write(f'CSV 파일 읽기 시작: {csv_file_path}')
@@ -193,26 +235,51 @@ class Command(BaseCommand):
                         except ValueError:
                             pass
 
-                    # 제품 생성 (새 필드 지원)
-                    Product.objects.create(
+                    # slug 생성 (중복 방지)
+                    base_slug = slugify(product_name, allow_unicode=True)[:450]
+                    if not base_slug:
+                        base_slug = f'product-{stats["total_rows"]}'
+
+                    if base_slug in slug_counter:
+                        slug_counter[base_slug] += 1
+                        slug = f'{base_slug}-{slug_counter[base_slug]}'
+                    else:
+                        slug_counter[base_slug] = 0
+                        slug = base_slug
+
+                    # ERD V2.1: 제품 생성
+                    product = Product.objects.create(
+                        seller=default_seller,  # ERD V2.1: 필수
                         category=category,
-                        # 새 필드
-                        product_type='main',
                         source_site=row.get('site_name', '').strip() or None,
                         source_url=row.get('product_url', '').strip() or None,
-                        main_image_url=image_url,
-                        # 기본 정보
+                        crawled_at=crawled_at,
                         name=product_name,
+                        slug=slug,
                         price=price,
                         unit=row.get('unit', '').strip() or None,
-                        description=row.get('description', '').strip() or None,
-                        crawled_at=crawled_at,
-                        # 이전 필드 (DEPRECATED, 하위 호환성 유지)
-                        site_name=row.get('site_name', '').strip() or None,
-                        product_url=row.get('product_url', '').strip() or None,
-                        image_url=image_url,
-                        detail_info=row.get('detail_info', '').strip() or None,
+                        product_type='main',
+                        status='active',
                     )
+
+                    # ERD V2.1: 이미지는 ProductImage 테이블에 저장
+                    # display_order가 가장 낮은 것이 대표 이미지
+                    if image_url:
+                        ProductImage.objects.create(
+                            product=product,
+                            image_url=image_url,
+                            display_order=0,
+                        )
+                        stats['images_created'] += 1
+
+                    # 가격 이력 초기 기록 (가격 변화 누적 추적)
+                    ProductPriceHistory.objects.create(
+                        product=product,
+                        price=price,
+                        source='import',
+                    )
+                    stats['price_histories_created'] += 1
+
                     stats['created'] += 1
 
                     # 진행상황 출력 (100개마다)
@@ -235,6 +302,8 @@ class Command(BaseCommand):
         self.stdout.write('='*60)
         self.stdout.write(f'총 행 수:           {stats["total_rows"]}')
         self.stdout.write(self.style.SUCCESS(f'생성됨:             {stats["created"]}'))
+        self.stdout.write(self.style.SUCCESS(f'이미지 생성됨:      {stats["images_created"]}'))
+        self.stdout.write(self.style.SUCCESS(f'가격 이력 생성됨:   {stats["price_histories_created"]}'))
         if stats['skipped_duplicate'] > 0:
             self.stdout.write(self.style.WARNING(f'중복 건너뜀:        {stats["skipped_duplicate"]}'))
         if stats['skipped_invalid_image'] > 0:

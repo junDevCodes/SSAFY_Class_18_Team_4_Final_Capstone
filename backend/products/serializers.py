@@ -1,12 +1,17 @@
 """
-제품 관련 Serializer
+제품 관련 Serializer (ERD V2.1)
+
+ERD V2.1: ProductDetail, ProductInventory, ProductStats 분리 테이블 지원
 """
 from rest_framework import serializers
-from .models import Category, Product, ProductImage, Wishlist, Cart
+from .models import (
+    Category, Product, ProductImage, Wishlist, Cart,
+    ProductDetail, ProductInventory, ProductStats
+)
 
 
 class CategorySerializer(serializers.ModelSerializer):
-    """카테고리 Serializer"""
+    """카테고리 Serializer (ERD V2.1)"""
 
     class Meta:
         model = Category
@@ -14,8 +19,17 @@ class CategorySerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
+class ProductImageSerializer(serializers.ModelSerializer):
+    """상품 이미지 Serializer (ERD V2.1)"""
+
+    class Meta:
+        model = ProductImage
+        fields = ['id', 'image_url', 'display_order', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
 class ProductSerializer(serializers.ModelSerializer):
-    """제품 Serializer"""
+    """제품 Serializer (ERD V2.1)"""
     # 카테고리 정보를 nested로 포함 (읽기용)
     category = CategorySerializer(read_only=True)
     # 카테고리 ID를 받을 수 있도록 추가 (쓰기용)
@@ -31,39 +45,35 @@ class ProductSerializer(serializers.ModelSerializer):
         model = Product
         fields = [
             'id',
+            'seller',
             'category',
             'category_id',
-            'site_name',
-            'name',
-            'price',
-            'unit',
-            'description',
-            'product_url',
-            'image_url',
-            'detail_info',
+            'source_site',
+            'source_url',
             'crawled_at',
+            'name',
+            'slug',
+            'price',
             'original_price',
-            'discount',
-            'is_best',
+            'status',
+            'product_type',
+            'unit',
+            'unit_quantity',
+            'shipping_required',
+            'shipping_fee',
+            'free_shipping_threshold',
+            'estimated_delivery_days',
             'created_at',
             'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
-class ProductImageSerializer(serializers.ModelSerializer):
-    """상품 이미지 Serializer"""
-
-    class Meta:
-        model = ProductImage
-        fields = ['id', 'image_url', 'alt_text', 'display_order', 'width', 'height', 'format']
-
-
 class ProductListSerializer(serializers.ModelSerializer):
-    """상품 목록용 Serializer (간소화)"""
+    """상품 목록용 Serializer (간소화) - ERD V2.1"""
 
     category = CategorySerializer(read_only=True)
-    category_name = serializers.CharField(source='category.name', read_only=True)
+    category_name = serializers.SerializerMethodField()
     main_image = serializers.SerializerMethodField()
     wishlist_count = serializers.SerializerMethodField()
 
@@ -75,26 +85,28 @@ class ProductListSerializer(serializers.ModelSerializer):
             'name',
             'price',
             'original_price',
-            'discount_rate',
-            'discount',
             'unit',
             'main_image',
             'category',
             'category_name',
-            'is_featured',
-            'is_best',
-            'is_new',
-            'is_on_sale',
-            'quality_score',
-            'view_count',
-            'average_rating',
-            'review_count',
+            'status',
+            'product_type',
             'wishlist_count',
+            'created_at',
         ]
 
+    def get_category_name(self, obj):
+        """카테고리명 반환 (null 안전)"""
+        if obj.category:
+            return obj.category.name
+        return None
+
     def get_main_image(self, obj):
-        """메인 이미지 URL 반환"""
-        return obj.main_image_url or obj.image_url
+        """메인 이미지 URL 반환 (ProductImage 테이블에서, display_order 기준)"""
+        first_image = obj.images.order_by('display_order').first()
+        if first_image:
+            return first_image.image_url
+        return None
 
     def get_wishlist_count(self, obj):
         """해당 상품을 찜한 수"""
@@ -104,14 +116,58 @@ class ProductListSerializer(serializers.ModelSerializer):
 class SellerBriefSerializer(serializers.Serializer):
     """판매자 간단 정보 (ProductDetailSerializer용)"""
 
+    id = serializers.IntegerField()
     brand_name = serializers.CharField()
     brand_slug = serializers.CharField()
-    average_rating = serializers.DecimalField(max_digits=3, decimal_places=2)
-    total_products = serializers.IntegerField()
+
+
+class ProductDetailInfoSerializer(serializers.ModelSerializer):
+    """상품 상세 정보 Serializer (ERD V2.1)
+
+    ProductDetail 테이블의 데이터를 직렬화합니다.
+    """
+
+    class Meta:
+        model = ProductDetail
+        fields = ['short_description', 'full_description', 'meta_title', 'meta_keywords']
+
+
+class ProductInventorySerializer(serializers.ModelSerializer):
+    """상품 재고 정보 Serializer (ERD V2.1)
+
+    ProductInventory 테이블의 데이터를 직렬화합니다.
+    """
+    is_low_stock = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = ProductInventory
+        fields = ['stock_quantity', 'safe_stock_level', 'is_low_stock', 'updated_at']
+
+
+class ProductStatsSerializer(serializers.ModelSerializer):
+    """상품 통계 정보 Serializer (ERD V2.1)
+
+    ProductStats 테이블의 데이터를 직렬화합니다.
+    """
+
+    class Meta:
+        model = ProductStats
+        fields = [
+            'view_count',
+            'recommend_clicked_count',
+            'cart_event_count',
+            'order_event_count',
+            'wishlist_count',
+            'review_count',
+            'average_rating',
+            'photo_review_count',
+            'quality_score',
+            'last_updated',
+        ]
 
 
 class ProductDetailSerializer(serializers.ModelSerializer):
-    """상품 상세 Serializer"""
+    """상품 상세 Serializer (ERD V2.1)"""
 
     category = CategorySerializer(read_only=True)
     seller = SellerBriefSerializer(read_only=True, allow_null=True)
@@ -120,12 +176,38 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     # 추가 정보
     is_wishlist = serializers.SerializerMethodField()
     related_products = serializers.SerializerMethodField()
-    final_price = serializers.IntegerField(read_only=True)
     wishlist_count = serializers.SerializerMethodField()
+    main_image = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = '__all__'
+        fields = [
+            'id',
+            'seller',
+            'category',
+            'source_site',
+            'source_url',
+            'crawled_at',
+            'name',
+            'slug',
+            'price',
+            'original_price',
+            'status',
+            'product_type',
+            'unit',
+            'unit_quantity',
+            'shipping_required',
+            'shipping_fee',
+            'free_shipping_threshold',
+            'estimated_delivery_days',
+            'main_image',
+            'images',
+            'is_wishlist',
+            'wishlist_count',
+            'related_products',
+            'created_at',
+            'updated_at',
+        ]
 
     def get_is_wishlist(self, obj):
         """찜 여부 확인"""
@@ -134,12 +216,22 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             return Wishlist.objects.filter(user=request.user, product=obj).exists()
         return False
 
+    def get_main_image(self, obj):
+        """메인 이미지 URL 반환 (ProductImage 테이블에서, display_order 기준)"""
+        first_image = obj.images.order_by('display_order').first()
+        if first_image:
+            return first_image.image_url
+        return None
+
     def get_related_products(self, obj):
         """관련 상품 추천 (같은 카테고리)"""
+        if not obj.category:
+            return []
+
         related = Product.objects.filter(
             category=obj.category,
             status='active'
-        ).exclude(id=obj.id).order_by('-quality_score')[:6]
+        ).exclude(id=obj.id).select_related('category')[:6]
 
         return ProductListSerializer(related, many=True, context=self.context).data
 
@@ -149,7 +241,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 
 
 class WishlistSerializer(serializers.ModelSerializer):
-    """찜 목록 Serializer"""
+    """찜 목록 Serializer (ERD V2.1)"""
 
     product = ProductListSerializer(read_only=True)
     product_id = serializers.PrimaryKeyRelatedField(
@@ -165,7 +257,7 @@ class WishlistSerializer(serializers.ModelSerializer):
 
 
 class CartSerializer(serializers.ModelSerializer):
-    """장바구니 Serializer"""
+    """장바구니 Serializer (ERD V2.1)"""
 
     product = ProductListSerializer(read_only=True)
     product_id = serializers.PrimaryKeyRelatedField(
@@ -187,3 +279,170 @@ class CartSerializer(serializers.ModelSerializer):
         if value > 999:
             raise serializers.ValidationError('수량은 999 이하여야 합니다.')
         return value
+
+
+# ========================= v2.1 신규 Serializer =========================
+
+class ProductListSerializerV2(serializers.ModelSerializer):
+    """상품 목록용 Serializer v2.1 (v2.1 테이블 포함)
+
+    ProductStats에서 통계 데이터를 가져옵니다.
+    """
+    category = CategorySerializer(read_only=True)
+    category_name = serializers.SerializerMethodField()
+    main_image = serializers.SerializerMethodField()
+
+    # v2.1 통계 정보
+    view_count = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
+    wishlist_count = serializers.SerializerMethodField()
+    quality_score = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            'id',
+            'slug',
+            'name',
+            'price',
+            'original_price',
+            'unit',
+            'main_image',
+            'category',
+            'category_name',
+            'status',
+            'product_type',
+            'view_count',
+            'average_rating',
+            'review_count',
+            'wishlist_count',
+            'quality_score',
+            'created_at',
+        ]
+
+    def get_category_name(self, obj):
+        """카테고리명 반환 (null 안전)"""
+        if obj.category:
+            return obj.category.name
+        return None
+
+    def get_main_image(self, obj):
+        """메인 이미지 URL 반환 (ProductImage 테이블에서, display_order 기준)"""
+        first_image = obj.images.order_by('display_order').first()
+        if first_image:
+            return first_image.image_url
+        return None
+
+    def get_view_count(self, obj):
+        """조회수 (ProductStats에서)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return obj.stats.view_count
+        return 0
+
+    def get_average_rating(self, obj):
+        """평균 평점 (ProductStats에서)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return obj.stats.average_rating
+        return 0
+
+    def get_review_count(self, obj):
+        """리뷰 수 (ProductStats에서)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return obj.stats.review_count
+        return 0
+
+    def get_wishlist_count(self, obj):
+        """찜 수 (ProductStats에서)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return obj.stats.wishlist_count
+        return 0
+
+    def get_quality_score(self, obj):
+        """품질 점수 (ProductStats에서)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return obj.stats.quality_score
+        return 50.00
+
+
+class ProductDetailSerializerV2(serializers.ModelSerializer):
+    """상품 상세 Serializer v2.1 (분리된 테이블 포함)
+
+    ProductDetail, ProductInventory, ProductStats 정보를 포함합니다.
+    """
+    category = CategorySerializer(read_only=True)
+    seller = SellerBriefSerializer(read_only=True, allow_null=True)
+    images = ProductImageSerializer(many=True, read_only=True)
+
+    # ERD V2.1 분리 테이블
+    detail = ProductDetailInfoSerializer(read_only=True)
+    inventory = ProductInventorySerializer(read_only=True)
+    stats = ProductStatsSerializer(read_only=True)
+
+    # 추가 정보
+    is_wishlist = serializers.SerializerMethodField()
+    related_products = serializers.SerializerMethodField()
+    main_image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            # 기본 정보
+            'id',
+            'slug',
+            'name',
+            'price',
+            'original_price',
+            'unit',
+            'category',
+            'seller',
+            'product_type',
+            'status',
+            # 이미지
+            'main_image',
+            'images',
+            # ERD V2.1 분리 테이블
+            'detail',
+            'inventory',
+            'stats',
+            # 배송 정보
+            'shipping_required',
+            'shipping_fee',
+            'free_shipping_threshold',
+            'estimated_delivery_days',
+            # 추가 정보
+            'is_wishlist',
+            'related_products',
+            # 메타데이터
+            'source_site',
+            'source_url',
+            'crawled_at',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_is_wishlist(self, obj):
+        """찜 여부 확인"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return Wishlist.objects.filter(user=request.user, product=obj).exists()
+        return False
+
+    def get_main_image(self, obj):
+        """메인 이미지 URL 반환 (ProductImage 테이블에서, display_order 기준)"""
+        first_image = obj.images.order_by('display_order').first()
+        if first_image:
+            return first_image.image_url
+        return None
+
+    def get_related_products(self, obj):
+        """관련 상품 추천 (같은 카테고리)"""
+        if not obj.category:
+            return []
+
+        related = Product.objects.filter(
+            category=obj.category,
+            status='active'
+        ).exclude(id=obj.id).select_related('category', 'stats')[:6]
+
+        return ProductListSerializerV2(related, many=True, context=self.context).data

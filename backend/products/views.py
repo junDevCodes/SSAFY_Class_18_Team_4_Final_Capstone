@@ -1,5 +1,7 @@
 """
 제품 관련 뷰
+
+v2.1: ProductDetail, ProductInventory, ProductStats, ProductPriceHistory 지원
 """
 from rest_framework import viewsets, filters, generics, status
 from rest_framework.decorators import action
@@ -10,10 +12,14 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
-from .models import Category, Product, ProductView, ProductImage, Wishlist, Cart
+from .models import (
+    Category, Product, ProductImage, Wishlist, Cart,
+    ProductDetail as ProductDetailModel, ProductStats
+)
 from .serializers import (
     CategorySerializer, ProductSerializer, ProductDetailSerializer,
-    ProductListSerializer, ProductImageSerializer, WishlistSerializer, CartSerializer
+    ProductListSerializer, ProductImageSerializer, WishlistSerializer, CartSerializer,
+    ProductListSerializerV2, ProductDetailSerializerV2
 )
 
 
@@ -54,80 +60,66 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ProductSerializer
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ['category', 'is_best']
-    search_fields = ['name', 'description']
+    filterset_fields = ['category', 'status']
+    search_fields = ['name']
 
 
 class ProductListView(generics.ListAPIView):
-    """상품 목록 API (필터링 및 정렬 지원)"""
+    """상품 목록 API (필터링 및 정렬 지원)
 
-    serializer_class = ProductListSerializer
+    v2.1: ProductStats 테이블에서 통계 데이터를 가져옵니다.
+    """
+
+    serializer_class = ProductListSerializerV2
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
 
-    # 필터링
+    # 필터링 (ERD V2.1 필드만 사용)
     filterset_fields = {
         'category': ['exact'],
         'price': ['gte', 'lte'],
-        'is_featured': ['exact'],
-        'is_best': ['exact'],
-        'is_new': ['exact'],
-        'is_on_sale': ['exact'],
         'status': ['exact'],
+        'product_type': ['exact'],
     }
 
-    # 검색
-    search_fields = ['name', 'description', 'short_description']
+    # 검색 (ERD V2.1 필드만 사용)
+    search_fields = ['name']
 
-    # 정렬
-    ordering_fields = ['price', 'created_at', 'quality_score', 'view_count', 'average_rating']
-    ordering = ['-quality_score']  # 기본 정렬: 품질 점수 높은 순
+    # 정렬 (ERD V2.1 필드만 사용)
+    ordering_fields = ['price', 'created_at']
+    ordering = ['-created_at']  # 기본 정렬: 최신순
 
     def get_queryset(self):
-        """쿼리셋 최적화"""
-        return Product.objects.filter(status='active').select_related('category')
+        """쿼리셋 최적화 - v2.1 stats 테이블 prefetch"""
+        return Product.objects.filter(status='active').select_related(
+            'category', 'stats'
+        )
 
 
 class ProductDetailView(generics.RetrieveAPIView):
-    """상품 상세 API (조회수 증가 및 로그 기록)"""
+    """상품 상세 API (ERD V2.1)
 
-    queryset = Product.objects.select_related('category', 'seller').prefetch_related('images')
-    serializer_class = ProductDetailSerializer
+    ERD V2.1: detail, inventory, stats 분리 테이블을 포함하여 응답합니다.
+    """
+
+    queryset = Product.objects.select_related(
+        'category', 'seller', 'detail', 'inventory', 'stats'
+    ).prefetch_related('images')
+    serializer_class = ProductDetailSerializerV2
 
     def retrieve(self, request, *args, **kwargs):
-        """조회수 증가 및 로그 기록"""
+        """조회수 증가 (ERD V2.1: ProductStats 테이블 사용)"""
         instance = self.get_object()
 
-        # 조회수 증가 (F() 사용으로 race condition 방지)
-        Product.objects.filter(id=instance.id).update(view_count=F('view_count') + 1)
-
-        # 조회 로그 기록
-        self.log_product_view(request, instance)
+        # ERD V2.1: ProductStats 테이블의 view_count 증가
+        ProductStats.objects.filter(product_id=instance.id).update(
+            view_count=F('view_count') + 1
+        )
 
         # instance를 다시 가져와서 업데이트된 view_count 반영
         instance.refresh_from_db()
 
         return super().retrieve(request, *args, **kwargs)
-
-    def log_product_view(self, request, product):
-        """상품 조회 로그 저장"""
-        ProductView.objects.create(
-            product=product,
-            user=request.user if request.user.is_authenticated else None,
-            session_id=request.session.session_key or '',
-            referrer=request.META.get('HTTP_REFERER'),
-            user_agent=request.META.get('HTTP_USER_AGENT'),
-            ip_address=self.get_client_ip(request),
-        )
-
-    def get_client_ip(self, request):
-        """클라이언트 IP 주소 추출"""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
 
     def get_object(self):
         """
@@ -183,16 +175,18 @@ class SellerProductViewSet(viewsets.ModelViewSet):
         """상품 발행 (draft → active)"""
         product = self.get_object()
 
+        # ERD V2.1: 메인 이미지는 ProductImage 테이블에서 확인
+        has_image = product.images.exists()
+
         # 필수 정보 검증
-        if not all([product.name, product.price, product.main_image_url, product.category]):
+        if not all([product.name, product.price, has_image, product.category]):
             return Response(
                 {'error': '필수 정보를 모두 입력해주세요. (상품명, 가격, 이미지, 카테고리)'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         product.status = 'active'
-        product.published_at = timezone.now()
-        product.save()
+        product.save(update_fields=['status', 'updated_at'])
 
         return Response({
             'message': '상품이 발행되었습니다.',
@@ -243,11 +237,10 @@ class ProductImageManageView(APIView):
             if not image_url:
                 continue
 
-            # ProductImage 생성
+            # ERD V2.1: ProductImage 생성 (alt_text 필드 없음)
             image = ProductImage.objects.create(
                 product=product,
                 image_url=image_url,
-                alt_text=img_data.get('alt_text', product.name),
                 display_order=img_data.get('display_order', 0),
             )
             created_images.append(image)
@@ -317,16 +310,38 @@ class WishlistViewSet(viewsets.ModelViewSet):
         if not created:
             # 이미 존재하면 삭제
             wishlist.delete()
+
+            # v2.1: ProductStats의 wishlist_count 감소
+            ProductStats.objects.filter(product_id=product_id).update(
+                wishlist_count=F('wishlist_count') - 1
+            )
+
+            # 현재 wishlist_count 조회
+            stats = ProductStats.objects.filter(product_id=product_id).first()
+            current_count = stats.wishlist_count if stats else 0
+
             return Response({
                 'message': '찜 목록에서 제거되었습니다.',
-                'is_wishlist': False
+                'is_wishlist': False,
+                'wishlist_count': max(0, current_count)
             })
         else:
             # 새로 생성
+
+            # v2.1: ProductStats의 wishlist_count 증가
+            ProductStats.objects.filter(product_id=product_id).update(
+                wishlist_count=F('wishlist_count') + 1
+            )
+
+            # 현재 wishlist_count 조회
+            stats = ProductStats.objects.filter(product_id=product_id).first()
+            current_count = stats.wishlist_count if stats else 1
+
             return Response({
                 'message': '찜 목록에 추가되었습니다.',
                 'is_wishlist': True,
-                'wishlist': self.get_serializer(wishlist).data
+                'wishlist': self.get_serializer(wishlist).data,
+                'wishlist_count': current_count
             }, status=status.HTTP_201_CREATED)
 
 
