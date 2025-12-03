@@ -48,10 +48,53 @@
                 </div>
                 <div class="item-price">
                   <p class="price">{{ formatPrice(item.product.price) }}</p>
-                  <p class="subtotal">{{ formatPrice(item.subtotal) }}</p>
+                  <p class="subtotal">{{ formatPrice(item.subtotal || item.product.price * item.quantity) }}</p>
                 </div>
               </div>
             </div>
+          </section>
+
+          <!-- Guest Info Section (비회원일 때만 표시) -->
+          <section v-if="!authStore.isAuthenticated" class="section guest-section">
+            <h2 class="section-title">주문자 정보</h2>
+            <div class="guest-notice">
+              <p>비회원 주문입니다. 주문 확인을 위해 정보를 입력해주세요.</p>
+            </div>
+            <form class="shipping-form">
+              <div class="form-group">
+                <label for="guest_name">주문자 이름 *</label>
+                <input
+                  id="guest_name"
+                  v-model="guestInfo.name"
+                  type="text"
+                  placeholder="주문자 이름을 입력하세요"
+                  required
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="guest_email">이메일 *</label>
+                <input
+                  id="guest_email"
+                  v-model="guestInfo.email"
+                  type="email"
+                  placeholder="주문 확인용 이메일을 입력하세요"
+                  required
+                />
+                <small class="form-hint">주문번호와 함께 주문 조회에 사용됩니다</small>
+              </div>
+
+              <div class="form-group">
+                <label for="guest_phone">연락처 *</label>
+                <input
+                  id="guest_phone"
+                  v-model="guestInfo.phone"
+                  type="tel"
+                  placeholder="010-0000-0000"
+                  required
+                />
+              </div>
+            </form>
           </section>
 
           <!-- Shipping Info Section -->
@@ -227,6 +270,7 @@ import { useRouter } from 'vue-router'
 import { useCartStore } from '@/stores/cart'
 import { useOrdersStore } from '@/stores/orders'
 import { useAuthStore } from '@/stores/auth'
+import { guestOrdersAPI } from '@/services/api'
 import { getProductImage, formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 
 const router = useRouter()
@@ -243,6 +287,13 @@ const placing = ref(false)
 const agreedToTerms = ref(false)
 const paymentMethod = ref('instant')
 const customRequest = ref('')
+
+// 비회원 정보
+const guestInfo = ref({
+  name: '',
+  email: '',
+  phone: ''
+})
 
 // Shipping info
 const shippingInfo = ref({
@@ -274,7 +325,7 @@ const orderSummary = computed(() => {
 
 // Form validation
 const isFormValid = computed(() => {
-  return (
+  const baseValid = (
     agreedToTerms.value &&
     shippingInfo.value.recipient_name.trim() !== '' &&
     shippingInfo.value.phone.trim() !== '' &&
@@ -282,6 +333,16 @@ const isFormValid = computed(() => {
     shippingInfo.value.address.trim() !== '' &&
     orderItems.value.length > 0
   )
+
+  // 비회원인 경우 추가 검증
+  if (!authStore.isAuthenticated) {
+    return baseValid &&
+      guestInfo.value.name.trim() !== '' &&
+      guestInfo.value.email.trim() !== '' &&
+      guestInfo.value.phone.trim() !== ''
+  }
+
+  return baseValid
 })
 
 // Load initial data
@@ -318,6 +379,22 @@ const loadCheckoutData = async () => {
 const handlePlaceOrder = async () => {
   if (!isFormValid.value || placing.value) return
 
+  // 비회원 검증
+  if (!authStore.isAuthenticated) {
+    if (!guestInfo.value.name.trim()) {
+      alert('주문자 이름을 입력해주세요.')
+      return
+    }
+    if (!guestInfo.value.email.trim()) {
+      alert('이메일을 입력해주세요.')
+      return
+    }
+    if (!guestInfo.value.phone.trim()) {
+      alert('주문자 연락처를 입력해주세요.')
+      return
+    }
+  }
+
   // Validate required fields
   if (!shippingInfo.value.recipient_name.trim()) {
     alert('받는 사람 이름을 입력해주세요.')
@@ -351,31 +428,62 @@ const handlePlaceOrder = async () => {
       deliveryRequest = customRequest.value.trim()
     }
 
-    // Create order
-    const orderData = {
-      recipient_name: shippingInfo.value.recipient_name,
-      recipient_phone: shippingInfo.value.phone,
-      shipping_address: `(${shippingInfo.value.postal_code}) ${shippingInfo.value.address} ${shippingInfo.value.address_detail}`.trim(),
-      shipping_memo: deliveryRequest
-    }
+    const shippingAddress = `(${shippingInfo.value.postal_code}) ${shippingInfo.value.address} ${shippingInfo.value.address_detail}`.trim()
 
-    const response = await ordersStore.createOrder(orderData)
+    if (!authStore.isAuthenticated) {
+      // 비회원 주문
+      const guestOrderData = {
+        items: cartStore.items.map(item => ({
+          product_id: item.product.id,
+          quantity: item.quantity
+        })),
+        guest_email: guestInfo.value.email,
+        guest_name: guestInfo.value.name,
+        guest_phone: guestInfo.value.phone,
+        recipient_name: shippingInfo.value.recipient_name,
+        recipient_phone: shippingInfo.value.phone,
+        shipping_address: shippingAddress,
+        shipping_memo: deliveryRequest
+      }
 
-    // Clear cart after successful order
-    await cartStore.clearCart()
+      const response = await guestOrdersAPI.createOrder(guestOrderData)
 
-    // Show success message
-    alert('주문이 완료되었습니다!')
+      // 로컬 장바구니 비우기
+      await cartStore.clearCart()
 
-    // Redirect to order detail page
-    if (response && response.id) {
-      router.push(`/mypage/orders/${response.id}`)
+      // 주문번호 표시
+      const orderNo = response.data.order?.order_no || '주문번호'
+      alert(`비회원 주문이 완료되었습니다!\n\n주문번호: ${orderNo}\n이메일: ${guestInfo.value.email}\n\n주문 조회 시 주문번호와 이메일이 필요합니다.`)
+
+      // 홈으로 이동
+      router.push('/')
     } else {
-      router.push('/mypage/orders')
+      // 회원 주문
+      const orderData = {
+        recipient_name: shippingInfo.value.recipient_name,
+        recipient_phone: shippingInfo.value.phone,
+        shipping_address: shippingAddress,
+        shipping_memo: deliveryRequest
+      }
+
+      const response = await ordersStore.createOrder(orderData)
+
+      // Clear cart after successful order
+      await cartStore.clearCart()
+
+      // Show success message
+      alert('주문이 완료되었습니다!')
+
+      // Redirect to order detail page
+      if (response && response.id) {
+        router.push(`/mypage/orders/${response.id}`)
+      } else {
+        router.push('/mypage/orders')
+      }
     }
   } catch (err: any) {
     console.error('주문 실패:', err)
-    alert(err.response?.data?.message || '주문에 실패했습니다. 다시 시도해주세요.')
+    alert(err.response?.data?.message || err.response?.data?.error || '주문에 실패했습니다. 다시 시도해주세요.')
   } finally {
     placing.value = false
   }
@@ -778,6 +886,31 @@ onMounted(() => {
 .btn-place-order:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Guest Section */
+.guest-section {
+  border: 2px solid #ffc107;
+}
+
+.guest-notice {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 6px;
+}
+
+.guest-notice p {
+  margin: 0;
+  color: #856404;
+  font-size: 0.9rem;
+}
+
+.form-hint {
+  color: #6c757d;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
 }
 
 .terms {

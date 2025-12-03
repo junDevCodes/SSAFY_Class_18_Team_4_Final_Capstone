@@ -59,8 +59,9 @@ class AuthAPITest(APITestCase):
         self.assertFalse(PendingRegistration.objects.filter(email=email).exists())
 
         user = User.objects.get(email=email)
-        self.assertTrue(user.is_email_verified)
-        self.assertIsNone(user.email_verification_code)
+        # ERD V2.1: is_email_verified는 AuthEmailCredential에 저장
+        self.assertTrue(hasattr(user, 'email_credential'))
+        self.assertTrue(user.email_credential.is_email_verified)
 
         res = self.client.post(
             reverse("authentication:login"),

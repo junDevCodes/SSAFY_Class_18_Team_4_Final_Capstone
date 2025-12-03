@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { Product, Category } from '@/types/product'
+import type { Product, Category, ProductFilterParams } from '@/types/product'
 import { productsAPI, categoriesAPI } from '@/api/products'
 
 // 상품 스토어
@@ -12,15 +12,9 @@ export const useProductStore = defineStore('products', () => {
 
   /**
    * 제품 목록 조회
-   * @param params - 쿼리 파라미터 (page, page_size, search, category, is_best)
+   * @param params - 쿼리 파라미터 (page, page_size, search, category, is_best, is_featured, is_new, is_on_sale, ordering)
    */
-  const fetchProducts = async (params?: {
-    page?: number
-    page_size?: number
-    search?: string
-    category?: number
-    is_best?: boolean
-  }) => {
+  const fetchProducts = async (params?: ProductFilterParams) => {
     loading.value = true
     error.value = null
     try {
@@ -56,10 +50,31 @@ export const useProductStore = defineStore('products', () => {
   }
 
   /**
-   * 베스트 제품만 조회
+   * 베스트 제품 조회 (조회수/주문수 기준)
    */
-  const fetchBestProducts = async () => {
-    return fetchProducts({ is_best: true, page_size: 20 })
+  const fetchBestProducts = async (limit: number = 20) => {
+    return fetchProducts({ is_best: true, page_size: limit })
+  }
+
+  /**
+   * 추천 제품 조회 (quality_score 기준)
+   */
+  const fetchFeaturedProducts = async (limit: number = 8) => {
+    return fetchProducts({ is_featured: true, page_size: limit })
+  }
+
+  /**
+   * 신상품 조회 (최근 7일 내 등록)
+   */
+  const fetchNewProducts = async (limit: number = 8) => {
+    return fetchProducts({ is_new: true, page_size: limit })
+  }
+
+  /**
+   * 할인 상품 조회 (original_price > price)
+   */
+  const fetchSaleProducts = async (limit: number = 8) => {
+    return fetchProducts({ is_on_sale: true, page_size: limit })
   }
 
   return {
@@ -69,7 +84,10 @@ export const useProductStore = defineStore('products', () => {
     error,
     fetchProducts,
     fetchCategories,
-    fetchBestProducts
+    fetchBestProducts,
+    fetchFeaturedProducts,
+    fetchNewProducts,
+    fetchSaleProducts
   }
 })
 

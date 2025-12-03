@@ -24,17 +24,17 @@
           <h1 class="product-name">{{ product.name }}</h1>
 
           <div class="product-price">
-            <span v-if="product.original_price && product.discount_rate > 0" class="original-price">
+            <span v-if="product.original_price && discountRate > 0" class="original-price">
               {{ formatPrice(product.original_price) }}
             </span>
-            <span class="current-price">{{ formatPrice(product.final_price || product.price) }}</span>
-            <span v-if="product.discount_rate > 0" class="discount-rate">
-              {{ product.discount_rate }}%
+            <span class="current-price">{{ formatPrice(product.price) }}</span>
+            <span v-if="discountRate > 0" class="discount-rate">
+              {{ discountRate }}%
             </span>
           </div>
 
-          <div v-if="product.short_description" class="product-description">
-            {{ product.short_description }}
+          <div v-if="shortDescription" class="product-description">
+            {{ shortDescription }}
           </div>
 
           <div class="product-meta">
@@ -44,13 +44,17 @@
                 {{ product.shipping_fee > 0 ? formatPrice(product.shipping_fee) : '무료배송' }}
               </span>
             </div>
-            <div v-if="product.origin" class="meta-item">
-              <span class="label">원산지:</span>
-              <span class="value">{{ product.origin }}</span>
+            <div v-if="product.free_shipping_threshold" class="meta-item">
+              <span class="label">무료배송:</span>
+              <span class="value">{{ formatPrice(product.free_shipping_threshold) }} 이상 구매시</span>
             </div>
             <div class="meta-item">
               <span class="label">판매단위:</span>
               <span class="value">{{ product.unit || '개' }}</span>
+            </div>
+            <div v-if="product.estimated_delivery_days" class="meta-item">
+              <span class="label">예상배송:</span>
+              <span class="value">{{ product.estimated_delivery_days }}일 이내</span>
             </div>
           </div>
 
@@ -66,7 +70,7 @@
               @click="toggleWishlist"
               :class="{ active: product.is_wishlist }"
             >
-              {{ product.is_wishlist ? '♥' : '♡' }} 찜 {{ product.wishlist_count ?? 0 }}
+              {{ product.is_wishlist ? '♥' : '♡' }} 찜 {{ wishlistCount }}
             </button>
 
             <button class="btn-cart" @click="addToCart">
@@ -99,28 +103,32 @@
 
         <div class="tab-content">
           <div v-if="activeTab === 'detail'" class="detail-content">
-            <div v-if="product.description" v-html="product.description"></div>
-            <div v-else-if="product.detail_info" v-html="product.detail_info"></div>
+            <div v-if="fullDescription" v-html="fullDescription"></div>
+            <div v-else-if="shortDescription">{{ shortDescription }}</div>
             <p v-else>상세 정보가 없습니다.</p>
           </div>
 
           <div v-if="activeTab === 'info'" class="info-content">
             <table>
-              <tr v-if="product.origin">
-                <th>원산지</th>
-                <td>{{ product.origin }}</td>
-              </tr>
               <tr v-if="product.unit">
                 <th>판매단위</th>
                 <td>{{ product.unit }}</td>
               </tr>
-              <tr v-if="product.storage_method">
-                <th>보관방법</th>
-                <td>{{ product.storage_method }}</td>
+              <tr v-if="product.shipping_required !== undefined">
+                <th>배송여부</th>
+                <td>{{ product.shipping_required ? '배송 가능' : '배송 불가 (직접 수령)' }}</td>
               </tr>
-              <tr v-if="product.expiration_date">
-                <th>유통기한</th>
-                <td>{{ product.expiration_date }}</td>
+              <tr v-if="product.shipping_fee !== undefined">
+                <th>배송비</th>
+                <td>{{ product.shipping_fee > 0 ? formatPrice(product.shipping_fee) : '무료' }}</td>
+              </tr>
+              <tr v-if="product.estimated_delivery_days">
+                <th>예상 배송</th>
+                <td>{{ product.estimated_delivery_days }}일 이내</td>
+              </tr>
+              <tr v-if="product.stats?.average_rating">
+                <th>평균 평점</th>
+                <td>{{ product.stats.average_rating.toFixed(1) }}점 ({{ product.stats.review_count }}개 리뷰)</td>
               </tr>
             </table>
           </div>
@@ -143,13 +151,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { productsAPI } from '@/services/api'
 import { useCartStore } from '@/stores/cart'
 import { useWishlistStore } from '@/stores/wishlist'
 import { useAuthStore } from '@/stores/auth'
-import { getProductImage, formatPrice, type ProductDetail, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
+import { getProductImage, formatPrice, calculateDiscountRate, type ProductDetail, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 import ProductCard from '@/components/ui/ProductCard.vue'
 
 const route = useRoute()
@@ -163,6 +171,27 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const quantity = ref(1)
 const activeTab = ref('detail')
+
+// v2.1: 계산된 할인율 (원가 대비 현재 가격)
+const discountRate = computed(() => {
+  if (!product.value) return 0
+  return calculateDiscountRate(product.value.original_price ?? 0, product.value.price)
+})
+
+// v2.1: 상품 설명 (detail 테이블에서 가져오기)
+const shortDescription = computed(() => {
+  return product.value?.detail?.short_description ?? null
+})
+
+// v2.1: 상세 설명 (detail 테이블에서 가져오기)
+const fullDescription = computed(() => {
+  return product.value?.detail?.full_description ?? null
+})
+
+// v2.1: 찜 수 (stats 테이블에서 가져오기)
+const wishlistCount = computed(() => {
+  return product.value?.stats?.wishlist_count ?? 0
+})
 
 onMounted(async () => {
   await loadProduct()
@@ -218,16 +247,11 @@ async function toggleWishlist() {
   if (!product.value) return
 
   try {
-    const isWishlisted = await wishlistStore.toggleWishlist(product.value as any)
-    product.value.is_wishlist = isWishlisted
-    // Update local count
-    if (typeof product.value.wishlist_count !== 'number') {
-      product.value.wishlist_count = 0 as any
-    }
-    if (isWishlisted) {
-      product.value.wishlist_count = (product.value.wishlist_count || 0) + 1
-    } else {
-      product.value.wishlist_count = Math.max(0, (product.value.wishlist_count || 0) - 1)
+    const result = await wishlistStore.toggleWishlist(product.value as any)
+    product.value.is_wishlist = result.isWishlisted
+    // v2.1: 서버에서 반환된 정확한 wishlist_count를 stats에 반영
+    if (product.value.stats) {
+      product.value.stats.wishlist_count = result.wishlistCount
     }
   } catch (err) {
     alert('찜 처리에 실패했습니다.')

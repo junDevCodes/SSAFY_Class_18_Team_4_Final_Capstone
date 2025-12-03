@@ -11,11 +11,12 @@ from typing import Any
 
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.hashers import check_password
 from django.core import exceptions
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
-from .models import User, UserAddress, UserPaymentMethod
+from .models import User, UserAddress, UserPaymentMethod, UserProfile, AuthEmailCredential
 from .services import EmailDeliveryError, send_email_verification_email, upsert_pending_registration
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,11 @@ class RegisterSerializer(serializers.Serializer):
         UserModel = get_user_model()
         existing = UserModel.objects.filter(email=email).first()
         if existing:
-            if existing.is_email_verified:
+            # ERD V2.1: is_email_verified는 AuthEmailCredential에 있음
+            is_verified = False
+            if hasattr(existing, 'email_credential'):
+                is_verified = existing.email_credential.is_email_verified
+            if is_verified:
                 raise serializers.ValidationError({"email": _("이미 가입된 이메일입니다.")})
             self._legacy_user = existing
         return attrs
@@ -105,14 +110,40 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError({"detail": _("이메일 또는 비밀번호가 올바르지 않습니다.")})
         if not user.is_active:
             raise serializers.ValidationError({"detail": _("비활성화된 계정입니다.")})
-        if not getattr(user, "is_email_verified", False):
+        # ERD V2.1: is_email_verified는 AuthEmailCredential에 있음
+        is_verified = False
+        if hasattr(user, 'email_credential'):
+            is_verified = user.email_credential.is_email_verified
+        if not is_verified:
             raise serializers.ValidationError({"detail": _("이메일 인증이 완료되지 않은 계정입니다.")})
         attrs["user"] = user
         return attrs
 
 
+class UserProfileSerializer(serializers.ModelSerializer):
+    """사용자 프로필 정보 시리얼라이저 (ERD V2.1)"""
+
+    class Meta:
+        model = UserProfile
+        fields = [
+            "profile_image_url",
+            "phone_number",
+            "date_of_birth",
+            "gender",
+            "timezone",
+            "language",
+            "notification_enabled",
+            "marketing_agreed",
+        ]
+
+
 class UserSerializer(serializers.ModelSerializer):
-    """사용자 프로필 시리얼라이저"""
+    """사용자 시리얼라이저 (ERD V2.1)"""
+
+    # UserProfile 정보 포함
+    profile_image_url = serializers.SerializerMethodField()
+    timezone = serializers.SerializerMethodField()
+    profile = UserProfileSerializer(read_only=True)
 
     class Meta:
         model = User
@@ -120,14 +151,24 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "email",
             "username",
-            "first_name",
-            "last_name",
-            "profile_image_url",
-            "provider",
             "role",
+            "profile_image_url",
             "timezone",
+            "profile",
         ]
-        read_only_fields = ["email", "provider", "role"]  # role은 관리자만 수정 가능하도록 읽기 전용
+        read_only_fields = ["email", "role"]  # role은 관리자만 수정 가능하도록 읽기 전용
+
+    def get_profile_image_url(self, obj):
+        """UserProfile에서 프로필 이미지 URL 가져오기"""
+        if hasattr(obj, 'profile') and obj.profile:
+            return obj.profile.profile_image_url
+        return None
+
+    def get_timezone(self, obj):
+        """UserProfile에서 타임존 가져오기"""
+        if hasattr(obj, 'profile') and obj.profile:
+            return obj.profile.timezone
+        return "Asia/Seoul"
 
 
 class PasswordChangeSerializer(serializers.Serializer):
@@ -138,7 +179,8 @@ class PasswordChangeSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         user: User = self.context["request"].user
-        if not user.check_password(attrs["old_password"]):
+        cred = getattr(user, "email_credential", None)
+        if cred is None or not check_password(attrs["old_password"], cred.password_hash):
             raise serializers.ValidationError({"old_password": _("기존 비밀번호가 일치하지 않습니다.")})
         try:
             validate_password(attrs["new_password"], user)
@@ -176,23 +218,18 @@ class EmailVerificationConfirmSerializer(serializers.Serializer):
 
 
 class UserAddressSerializer(serializers.ModelSerializer):
-    """사용자 배송지 시리얼라이저"""
+    """사용자 배송지 시리얼라이저 (ERD V2.1)"""
 
     class Meta:
         model = UserAddress
         fields = [
             'id',
-            'name',
+            'address_name',
             'recipient_name',
             'recipient_phone',
             'postal_code',
             'address_line1',
             'address_line2',
-            'city',
-            'state',
-            'country',
-            'latitude',
-            'longitude',
             'is_default',
             'created_at',
             'updated_at',

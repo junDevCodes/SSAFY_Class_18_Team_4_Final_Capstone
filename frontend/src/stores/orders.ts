@@ -5,45 +5,71 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ordersAPI } from '@/services/api'
 
+// ----- 타입 정의 (ERD V2.1 DTO 기준) -----
+
 export interface OrderItem {
   id: number
   product: any
   product_name: string
-  product_image_url: string
-  image_url?: string // 별칭
-  price?: number // 별칭
+  image_url: string | null
   quantity: number
   unit_price: number
   discount_amount: number
   total_price: number
+  status: string
+  created_at: string
+}
+
+export interface Shipment {
+  id: number
+  recipient_name: string
+  recipient_phone: string
+  address_full: string
+  shipping_memo: string | null
+  courier: string | null
+  tracking_no: string | null
+  shipping_fee: number
+  shipped_at: string | null
+  delivered_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Payment {
+  id: number
+  method_type: string
+  amount: number
+  status: string
+  is_simulation: boolean
+  simulation_note: string | null
+  pg_provider: string | null
+  pg_tid: string | null
+  created_at: string
+  processed_at: string | null
+  failure_reason: string | null
 }
 
 export interface Order {
   id: number
-  order_number: string
+  order_no: string
   user: number
-  recipient_name: string
-  recipient_phone: string
-  shipping_address: string
-  shipping_memo?: string
-  payment_method_type: string
+  status: string
+  status_display: string
   subtotal: number
   shipping_fee: number
   discount_amount: number
   total_amount: number
-  order_status: string
-  order_status_display: string
-  payment_status: string
-  payment_status_display: string
-  paid_at?: string
-  tracking_number?: string
-  shipped_at?: string
-  delivered_at?: string
-  cancelled_at?: string
-  cancel_reason?: string
-  items: OrderItem[]
+  cancelled_at: string | null
+  cancel_reason: string | null
+  refunded_at: string | null
   created_at: string
   updated_at: string
+  items: OrderItem[]
+  shipment: Shipment | null
+  payment: Payment | null
+  payment_status: string | null
+  payment_status_display: string | null
+  paid_at: string | null
 }
 
 export const useOrdersStore = defineStore('orders', () => {
@@ -63,8 +89,10 @@ export const useOrdersStore = defineStore('orders', () => {
 
     try {
       const response = await ordersAPI.getOrders(params)
-      orders.value = response.data.results || response.data
-      total.value = response.data.count || orders.value.length
+      // DRF 페이지네이션 또는 비페이지네이션 모두 대응
+      const data = response.data
+      orders.value = (data.results as Order[]) || (data as Order[])
+      total.value = (data.count as number) || orders.value.length
     } catch (err: any) {
       error.value = err.response?.data?.message || '주문 목록을 불러오는데 실패했습니다.'
       console.error('주문 목록 로드 실패:', err)
@@ -80,8 +108,8 @@ export const useOrdersStore = defineStore('orders', () => {
 
     try {
       const response = await ordersAPI.getOrder(id)
-      currentOrder.value = response.data
-      return response.data
+      currentOrder.value = response.data as Order
+      return response.data as Order
     } catch (err: any) {
       error.value = err.response?.data?.message || '주문 정보를 불러오는데 실패했습니다.'
       console.error('주문 상세 로드 실패:', err)
@@ -105,7 +133,7 @@ export const useOrdersStore = defineStore('orders', () => {
 
     try {
       const response = await ordersAPI.createOrder(data)
-      const newOrder = response.data.order
+      const newOrder = response.data.order as Order
 
       // 주문 목록에 추가
       orders.value.unshift(newOrder)
@@ -128,7 +156,7 @@ export const useOrdersStore = defineStore('orders', () => {
 
     try {
       const response = await ordersAPI.cancelOrder(id, cancel_reason)
-      const updatedOrder = response.data.order
+      const updatedOrder = response.data.order as Order
 
       // 주문 목록 업데이트
       const index = orders.value.findIndex(o => o.id === id)
@@ -158,7 +186,7 @@ export const useOrdersStore = defineStore('orders', () => {
 
     try {
       const response = await ordersAPI.confirmDelivery(id)
-      const updatedOrder = response.data.order
+      const updatedOrder = response.data.order as Order
 
       // 주문 목록 업데이트
       const index = orders.value.findIndex(o => o.id === id)

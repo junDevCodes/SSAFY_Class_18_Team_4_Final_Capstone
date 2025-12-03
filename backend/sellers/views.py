@@ -1,5 +1,5 @@
 """
-판매자 관련 뷰
+판매자 관련 뷰 (ERD V2.1)
 """
 from rest_framework import viewsets, generics, status
 from rest_framework.decorators import action
@@ -7,13 +7,13 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.utils import timezone
 from django.db import transaction
-from .models import Seller, SellerOperatingHours
+from .models import Seller, SellerBusiness, SellerSchedule
 from .serializers import (
     SellerSerializer,
     SellerRegistrationSerializer,
     SellerApprovalSerializer,
     SellerPublicSerializer,
-    SellerOperatingHoursSerializer,
+    SellerScheduleSerializer,
 )
 from .permissions import IsSeller, IsOwnerSeller
 
@@ -38,9 +38,12 @@ class SellerRegistrationView(generics.CreateAPIView):
         seller = serializer.save(
             user=user,
             status='active',  # MVP: 자동 승인
-            is_verified=True,  # MVP: 자동 인증
-            verified_at=timezone.now()
         )
+
+        # SellerBusiness의 verified_at 업데이트 (ERD V2.1)
+        if hasattr(seller, 'business'):
+            seller.business.verified_at = timezone.now()
+            seller.business.save()
 
         # User role 업데이트
         user.role = 'seller'
@@ -114,9 +117,12 @@ class SellerApprovalView(generics.UpdateAPIView):
 
         if action_type == 'approve':
             seller.status = 'active'
-            seller.is_verified = True
-            seller.verified_at = timezone.now()
             seller.save()
+
+            # SellerBusiness의 verified_at 업데이트 (ERD V2.1)
+            if hasattr(seller, 'business'):
+                seller.business.verified_at = timezone.now()
+                seller.business.save()
 
             # User role 업데이트
             seller.user.role = 'seller'
@@ -158,19 +164,23 @@ class SellerDashboardView(generics.RetrieveAPIView):
     def retrieve(self, request, *args, **kwargs):
         seller = self.get_object()
 
-        # 추가 통계 정보 계산
-        from products.models import Product
+        # 추가 통계 정보 계산 (ERD V2.1: ProductStats 테이블에서 집계)
+        from products.models import Product, ProductStats
         from django.db.models import Sum, Avg, Count
 
         products = Product.objects.filter(seller=seller)
+
+        # ERD V2.1: ProductStats 테이블에서 통계 정보 집계
+        product_ids = products.values_list('id', flat=True)
+        stats_qs = ProductStats.objects.filter(product_id__in=product_ids)
 
         stats = {
             'total_products': products.count(),
             'active_products': products.filter(status='active').count(),
             'draft_products': products.filter(status='draft').count(),
-            'total_views': products.aggregate(Sum('view_count'))['view_count__sum'] or 0,
-            'total_clicks': products.aggregate(Sum('click_count'))['click_count__sum'] or 0,
-            'avg_quality_score': products.aggregate(Avg('quality_score'))['quality_score__avg'] or 0,
+            'total_views': stats_qs.aggregate(Sum('view_count'))['view_count__sum'] or 0,
+            'total_clicks': stats_qs.aggregate(Sum('recommend_clicked_count'))['recommend_clicked_count__sum'] or 0,
+            'avg_quality_score': stats_qs.aggregate(Avg('quality_score'))['quality_score__avg'] or 0,
         }
 
         serializer = self.get_serializer(seller)
