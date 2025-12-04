@@ -550,17 +550,12 @@ interface AddressListResponse {
 
 interface UserAddressDTO {
   id: number;                      // PK
-  name: string;                    // 배송지 이름 (예: '집', '회사')
+  address_name: string;            // 배송지 이름 (예: '집', '회사')
   recipient_name: string;          // 수령인
   recipient_phone: string;         // 수령인 연락처
   postal_code: string;             // 우편번호
-  address_line1: string;           // 주소
-  address_line2: string | null;    // 상세주소
-  city: string;                    // 시/도
-  state: string;                   // 구/군
-  country: string;                 // 국가 (기본: 'KR')
-  latitude: decimal | null;        // 위도
-  longitude: decimal | null;       // 경도
+  address_line1: string;           // 기본 주소
+  address_line2: string | null;    // 상세 주소
   is_default: boolean;             // 기본 배송지 여부
   created_at: datetime;            // 생성일
   updated_at: datetime;            // 수정일
@@ -586,17 +581,12 @@ interface UserAddressDTO {
 
 | Parameter | Type | Required | Place | Description |
 |-----------|------|----------|-------|-------------|
-| `name` | string | O | body | 배송지 이름 |
+| `address_name` | string | O | body | 배송지 이름 |
 | `recipient_name` | string | O | body | 수령인 이름 |
 | `recipient_phone` | string | O | body | 수령인 연락처 |
 | `postal_code` | string | O | body | 우편번호 |
-| `address_line1` | string | O | body | 주소 |
-| `address_line2` | string | X | body | 상세주소 |
-| `city` | string | O | body | 시/도 |
-| `state` | string | O | body | 구/군 |
-| `country` | string | X | body | 국가 (기본: 'KR') |
-| `latitude` | decimal | X | body | 위도 |
-| `longitude` | decimal | X | body | 경도 |
+| `address_line1` | string | O | body | 기본 주소 |
+| `address_line2` | string | X | body | 상세 주소 |
 | `is_default` | boolean | X | body | 기본 배송지 여부 (기본: false) |
 
 #### ✅ Response 201
@@ -607,7 +597,7 @@ interface UserAddressDTO {
 #### ✅ Response 400
 ```typescript
 {
-  name?: string[];         // ["이 필드는 필수입니다."]
+  address_name?: string[];   // ["이 필드는 필수입니다."]
   recipient_name?: string[]; // ["이 필드는 필수입니다."]
 }
 ```
@@ -625,14 +615,12 @@ interface UserAddressDTO {
 | Parameter | Type | Required | Place | Description |
 |-----------|------|----------|-------|-------------|
 | `id` | number | O | url | 배송지 ID |
-| `name` | string | X | body | 배송지 이름 |
+| `address_name` | string | X | body | 배송지 이름 |
 | `recipient_name` | string | X | body | 수령인 이름 |
 | `recipient_phone` | string | X | body | 수령인 연락처 |
 | `postal_code` | string | X | body | 우편번호 |
-| `address_line1` | string | X | body | 주소 |
-| `address_line2` | string | X | body | 상세주소 |
-| `city` | string | X | body | 시/도 |
-| `state` | string | X | body | 구/군 |
+| `address_line1` | string | X | body | 기본 주소 |
+| `address_line2` | string | X | body | 상세 주소 |
 | `is_default` | boolean | X | body | 기본 배송지 여부 |
 
 #### ✅ Response 200

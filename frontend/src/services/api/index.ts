@@ -10,7 +10,10 @@ import type {
   RegisterRequest,
   LoginResponse,
   User,
-  RegisterResponse
+  RegisterResponse,
+  UserAddress,
+  UserAddressRequest,
+  AddressListResponse
 } from '@/types/auth'
 import type {
   ProductDetail,
@@ -60,6 +63,33 @@ export const authAPI = {
   // 프로필 수정 (별칭)
   updateProfile: (data: Partial<User>) =>
     apiClient.patch<User>('/auth/user/', data),
+}
+
+// ==================== Addresses API (배송지 관리) ====================
+export const addressesAPI = {
+  // 배송지 목록 조회
+  getAddresses: (params?: { page?: number; page_size?: number }) =>
+    apiClient.get<AddressListResponse>('/users/me/addresses/', { params }),
+
+  // 배송지 상세 조회
+  getAddress: (id: number) =>
+    apiClient.get<UserAddress>(`/users/me/addresses/${id}/`),
+
+  // 배송지 추가
+  createAddress: (data: UserAddressRequest) =>
+    apiClient.post<UserAddress>('/users/me/addresses/', data),
+
+  // 배송지 수정
+  updateAddress: (id: number, data: Partial<UserAddressRequest>) =>
+    apiClient.patch<UserAddress>(`/users/me/addresses/${id}/`, data),
+
+  // 배송지 삭제
+  deleteAddress: (id: number) =>
+    apiClient.delete(`/users/me/addresses/${id}/`),
+
+  // 기본 배송지 설정
+  setDefaultAddress: (id: number) =>
+    apiClient.post<UserAddress>(`/users/me/addresses/${id}/set-default/`),
 }
 
 // ==================== Products API ====================
@@ -330,6 +360,7 @@ export const sellerProductsAPI = {
 // 전체 API를 하나의 객체로 export
 export const api = {
   auth: authAPI,
+  addresses: addressesAPI,
   products: productsAPI,
   wishlist: wishlistAPI,
   cart: cartAPI,
