@@ -671,23 +671,34 @@ class KakaoCallbackView(APIView):
 
 
 class UserAddressViewSet(viewsets.ModelViewSet):
-    """사용자 배송지 관리 ViewSet"""
+    """사용자 배송지 관리 ViewSet
 
+    API 엔드포인트:
+    - GET /api/users/me/addresses/ - 배송지 목록 조회
+    - POST /api/users/me/addresses/ - 배송지 추가
+    - GET /api/users/me/addresses/{id}/ - 배송지 상세 조회
+    - PATCH /api/users/me/addresses/{id}/ - 배송지 수정
+    - DELETE /api/users/me/addresses/{id}/ - 배송지 삭제
+    - POST /api/users/me/addresses/{id}/set-default/ - 기본 배송지 설정
+    """
 
     serializer_class = UserAddressSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        """현재 사용자의 배송지만 조회"""
+        """현재 사용자의 배송지만 조회 (기본 배송지 우선, 최신순)"""
         return UserAddress.objects.filter(user=self.request.user).order_by('-is_default', '-created_at')
 
     def perform_create(self, serializer):
         """배송지 생성 시 현재 사용자 자동 설정"""
         serializer.save(user=self.request.user)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], url_path='set-default', url_name='set-default')
     def set_default(self, request, pk=None):
-        """배송지를 기본 배송지로 설정"""
+        """배송지를 기본 배송지로 설정
+
+        POST /api/users/me/addresses/{id}/set-default/
+        """
         address = self.get_object()
 
         # 기존 기본 배송지 해제
