@@ -17,6 +17,7 @@ const MyPageLayout = () => import('@/pages/mypage/MyPageLayout.vue')
 const MyPageProfile = () => import('@/pages/mypage/ProfilePage.vue')
 const MyPageOrders = () => import('@/pages/mypage/OrdersPage.vue')
 const MyPageOrderDetail = () => import('@/pages/mypage/OrderDetailPage.vue')
+const MyPageAddresses = () => import('@/pages/mypage/AddressesPage.vue')
 
 // Seller
 const SellerDashboard = () => import('@/pages/seller/DashboardPage.vue')
@@ -105,6 +106,12 @@ const routes: RouteRecordRaw[] = [
         name: 'mypage-order-detail',
         component: MyPageOrderDetail,
         meta: { title: '주문 상세' }
+      },
+      {
+        path: 'addresses',
+        name: 'mypage-addresses',
+        component: MyPageAddresses,
+        meta: { title: '배송지 관리' }
       }
     ]
   },
