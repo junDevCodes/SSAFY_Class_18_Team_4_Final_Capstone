@@ -42,9 +42,13 @@ export const useAuthStore = defineStore('auth', () => {
         localStorage.setItem('refresh_token', response.data.refresh)
       }
 
-      // 로그인 후 장바구니/찜 목록 로드
+      // 로그인 후 비회원 장바구니 동기화 및 장바구니/찜 목록 로드
       const cartStore = useCartStore()
       const wishlistStore = useWishlistStore()
+
+      // 비회원 장바구니가 있으면 서버로 동기화
+      await cartStore.syncGuestCartToServer()
+
       await Promise.all([
         cartStore.loadCart(),
         wishlistStore.loadWishlist()

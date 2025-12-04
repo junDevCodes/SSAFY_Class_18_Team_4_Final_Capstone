@@ -96,8 +96,8 @@
               </div>
 
               <div class="item-price">
-                <div v-if="item.product.discount_rate > 0" class="price-discount">
-                  <span class="discount-rate">{{ item.product.discount_rate }}%</span>
+                <div v-if="getDiscountRate(item.product) > 0" class="price-discount">
+                  <span class="discount-rate">{{ getDiscountRate(item.product) }}%</span>
                   <span class="original-price">{{ formatPrice(item.product.original_price || 0) }}</span>
                 </div>
                 <span class="current-price">{{ formatPrice(item.product.price) }}</span>
@@ -168,11 +168,16 @@
 import { ref, computed, onMounted } from 'vue'
 import { useWishlistStore } from '@/stores/wishlist'
 import { useCartStore } from '@/stores/cart'
-import type { WishlistItem } from '@/types/product'
-import { getProductImage, formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
+import type { WishlistItem, Product } from '@/types/product'
+import { getProductImage, formatPrice, DEFAULT_PRODUCT_IMAGE, calculateDiscountRate } from '@/types/product'
 
 const wishlistStore = useWishlistStore()
 const cartStore = useCartStore()
+
+// v2.1: 계산된 할인율
+const getDiscountRate = (product: Product): number => {
+  return calculateDiscountRate(product.original_price ?? 0, product.price)
+}
 
 // Selection state
 const selectedItems = ref<Set<number>>(new Set())

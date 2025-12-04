@@ -109,7 +109,7 @@
 
             <div class="item-subtotal">
               <p class="subtotal-label">소계</p>
-              <p class="subtotal-price">{{ formatPrice(item.subtotal) }}</p>
+              <p class="subtotal-price">{{ formatPrice(item.subtotal || item.product.price * item.quantity) }}</p>
             </div>
 
             <div class="item-actions">

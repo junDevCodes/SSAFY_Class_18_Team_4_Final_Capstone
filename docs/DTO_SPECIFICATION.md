@@ -1,8 +1,14 @@
 # SelF 플랫폼 DTO (Data Transfer Object) 명세서
 
-> **문서 버전**: v2.0.0
+> **문서 버전**: v2.1.0
 > **작성일**: 2025년 12월 01일
+> **최종 수정일**: 2025년 12월 01일
 > **프로젝트명**: SelF (Special Selection All For You)
+>
+> **v2.1 변경사항**:
+> - 상품 상세 응답에 분리 테이블 (detail, inventory, stats, price_histories) 추가
+> - ProductDetailInfo, ProductInventory, ProductStats, ProductPriceHistory DTO 신규 정의
+> - 상품 목록에 ProductStats 기반 통계 필드 반영
 
 ---
 
@@ -791,7 +797,7 @@ interface CategoryDTO {
 - `average_rating` / `-average_rating`: 평점 오름차순/내림차순
 - `order_count` / `-order_count`: 판매량 오름차순/내림차순
 
-#### ✅ Response 200
+#### ✅ Response 200 (v2.1)
 ```typescript
 interface ProductListResponse {
   count: number;
@@ -800,6 +806,14 @@ interface ProductListResponse {
   results: ProductListDTO[];
 }
 
+/**
+ * 상품 목록용 DTO (v2.1)
+ *
+ * v2.1 변경사항:
+ * - view_count, average_rating, review_count, wishlist_count, quality_score는
+ *   ProductStats 테이블에서 조회 (기존 Product 테이블 직접 조회 방식에서 변경)
+ * - category 필드 추가 (CategoryDTO 객체로 반환)
+ */
 interface ProductListDTO {
   id: number;                      // PK
   slug: string;                    // URL용 슬러그
@@ -807,20 +821,22 @@ interface ProductListDTO {
   price: number;                   // 판매가
   original_price: number | null;   // 원가
   discount_rate: number;           // 할인율 (0-100)
-  discount: number;                // 할인 금액
+  discount: number;                // 할인 금액 (레거시 호환)
   unit: string | null;             // 단위 (예: '1kg', '500g')
   main_image: string | null;       // 메인 이미지 URL
-  category: CategoryDTO | null;    // 카테고리 정보
-  category_name: string | null;    // 카테고리명
+  category: CategoryDTO | null;    // 카테고리 정보 (v2.1)
+  category_name: string | null;    // 카테고리명 (null 안전)
   is_featured: boolean;            // 추천 상품
   is_best: boolean;                // 베스트 상품
   is_new: boolean;                 // 신상품
   is_on_sale: boolean;             // 할인 중
-  quality_score: decimal;          // 품질 점수 (0-100)
-  view_count: number;              // 조회수
-  average_rating: decimal;         // 평균 평점 (0-5)
-  review_count: number;            // 리뷰 수
-  wishlist_count: number;          // 찜 수
+
+  // 통계 정보 (v2.1 - ProductStats 테이블에서 조회)
+  view_count: number;              // 조회수 (stats.view_count)
+  average_rating: decimal;         // 평균 평점 (stats.average_rating, 0-5)
+  review_count: number;            // 리뷰 수 (stats.review_count)
+  wishlist_count: number;          // 찜 수 (stats.wishlist_count)
+  quality_score: decimal;          // 품질 점수 (stats.quality_score, 0-100)
 }
 ```
 
@@ -838,44 +854,34 @@ interface ProductListDTO {
 |-----------|------|----------|-------|-------------|
 | `slug` | string | O | url | 상품 슬러그 또는 ID |
 
-#### ✅ Response 200
+#### ✅ Response 200 (v2.1)
 ```typescript
 interface ProductDetailDTO {
   // 기본 정보
   id: number;                      // PK
-  product_type: string;            // 'main' | 'seller'
   slug: string;                    // URL용 슬러그
   name: string;                    // 상품명
-  short_description: string | null; // 짧은 설명
-  description: string | null;      // 상세 설명
-
-  // 가격
   price: number;                   // 판매가
   original_price: number | null;   // 원가
   discount_rate: number;           // 할인율 (0-100)
   final_price: number;             // 최종가 (할인 적용)
-
-  // 단위 및 재고
   unit: string | null;             // 단위
-  unit_quantity: decimal | null;   // 단위 수량
-  stock_quantity: number;          // 재고 수량
-  is_in_stock: boolean;            // 재고 있음 여부
-  low_stock_threshold: number;     // 재고 부족 기준
+
+  // 카테고리 & 판매자
+  category: CategoryDTO | null;    // 카테고리
+  seller: SellerBriefDTO | null;   // 판매자 (seller 타입만)
+  product_type: string;            // 'main' | 'seller'
+  status: string;                  // 'draft' | 'active' | 'inactive' | 'out_of_stock' | 'discontinued'
 
   // 이미지
   main_image_url: string | null;   // 메인 이미지 URL
   images: ProductImageDTO[];       // 추가 이미지 목록
 
-  // 관계
-  category: CategoryDTO | null;    // 카테고리
-  seller: SellerBriefDTO | null;   // 판매자 (seller 타입만)
-
-  // 상태 플래그
-  status: string;                  // 'draft' | 'active' | 'inactive' | 'out_of_stock' | 'discontinued'
-  is_featured: boolean;            // 추천 상품
-  is_best: boolean;                // 베스트 상품
-  is_new: boolean;                 // 신상품
-  is_on_sale: boolean;             // 할인 중
+  // ========== v2.1 분리 테이블 ==========
+  detail: ProductDetailInfoDTO | null;     // 상품 상세 정보 (v2.1)
+  inventory: ProductInventoryDTO | null;   // 재고 정보 (v2.1)
+  stats: ProductStatsDTO | null;           // 통계 정보 (v2.1)
+  price_histories: ProductPriceHistoryDTO[]; // 가격 변동 이력 (v2.1)
 
   // 배송
   shipping_required: boolean;      // 배송 필요 여부
@@ -883,23 +889,72 @@ interface ProductDetailDTO {
   free_shipping_threshold: number | null; // 무료배송 기준
   estimated_delivery_days: number | null; // 예상 배송일
 
-  // 통계
-  quality_score: decimal;          // 품질 점수
-  view_count: number;              // 조회수
-  average_rating: decimal;         // 평균 평점
-  review_count: number;            // 리뷰 수
-  wishlist_count: number;          // 찜 수
-
   // 사용자 상태
   is_wishlist: boolean;            // 현재 사용자 찜 여부
 
   // 추천
   related_products: ProductListDTO[]; // 관련 상품
 
+  // 레거시 호환 필드 (기존 UI 컴포넌트 지원)
+  short_description?: string | null; // 짧은 설명 (detail.short_description 참조)
+  description?: string | null;       // 상세 설명 (detail.full_description 참조)
+  wishlist_count?: number;           // 찜 수 (stats.wishlist_count 참조)
+
   // 메타
   created_at: datetime;            // 생성일
   updated_at: datetime;            // 수정일
-  published_at: datetime | null;   // 발행일
+}
+
+// ========== v2.1 신규 DTO ==========
+
+/**
+ * 상품 상세 정보 (v2.1 분리 테이블)
+ * ProductDetail 테이블에서 조회
+ */
+interface ProductDetailInfoDTO {
+  short_description: string | null;  // 짧은 설명
+  full_description: string | null;   // 상세 설명 (HTML 가능)
+  meta_title: string | null;         // SEO 메타 타이틀
+  meta_keywords: string | null;      // SEO 메타 키워드
+}
+
+/**
+ * 상품 재고 정보 (v2.1 분리 테이블)
+ * ProductInventory 테이블에서 조회
+ */
+interface ProductInventoryDTO {
+  stock_quantity: number;            // 현재 재고 수량
+  safe_stock_level: number;          // 안전 재고 수준
+  is_low_stock: boolean;             // 재고 부족 여부 (stock_quantity < safe_stock_level)
+  updated_at: datetime;              // 재고 최종 갱신 시각
+}
+
+/**
+ * 상품 통계 정보 (v2.1 분리 테이블)
+ * ProductStats 테이블에서 조회
+ */
+interface ProductStatsDTO {
+  view_count: number;                // 조회수
+  recommend_clicked_count: number;   // 추천 클릭 수
+  cart_event_count: number;          // 장바구니 담기 수
+  order_event_count: number;         // 주문 수
+  wishlist_count: number;            // 찜 수
+  review_count: number;              // 리뷰 수
+  average_rating: decimal;           // 평균 평점 (0-5)
+  photo_review_count: number;        // 포토 리뷰 수
+  quality_score: decimal;            // 품질 점수 (0-100)
+  last_updated: datetime;            // 통계 최종 갱신 시각
+}
+
+/**
+ * 상품 가격 변동 이력 (v2.1 분리 테이블)
+ * ProductPriceHistory 테이블에서 조회
+ */
+interface ProductPriceHistoryDTO {
+  old_price: number;                 // 이전 가격
+  new_price: number;                 // 변경된 가격
+  change_rate: decimal;              // 변동률 (%) - 자동 계산
+  recorded_at: datetime;             // 가격 변동 기록 시각
 }
 
 interface ProductImageDTO {
@@ -913,7 +968,6 @@ interface ProductImageDTO {
 }
 
 interface SellerBriefDTO {
-  id: number;                      // PK
   brand_name: string;              // 브랜드명
   brand_slug: string;              // 브랜드 슬러그
   average_rating: decimal;         // 평균 평점
@@ -942,14 +996,19 @@ interface SellerBriefDTO {
 |-----------|------|----------|-------|-------------|
 | `id` | number | O | url | 상품 ID |
 
-#### ✅ Response 200
+#### ✅ Response 200 (v2.1)
 ```typescript
+/**
+ * 상품 재고 조회 응답 (v2.1)
+ *
+ * ProductInventory 테이블에서 조회합니다.
+ * is_low_stock은 stock_quantity < safe_stock_level로 자동 계산됩니다.
+ */
 interface ProductInventoryDTO {
-  product_id: number;              // 상품 ID
   stock_quantity: number;          // 현재 재고 수량
-  is_in_stock: boolean;            // 재고 있음 여부
-  low_stock_threshold: number;     // 재고 부족 기준
-  is_low_stock: boolean;           // 재고 부족 여부
+  safe_stock_level: number;        // 안전 재고 수준
+  is_low_stock: boolean;           // 재고 부족 여부 (자동 계산)
+  updated_at: datetime;            // 재고 최종 갱신 시각
 }
 ```
 
@@ -959,6 +1018,31 @@ interface ProductInventoryDTO {
   detail: string;          // "찾을 수 없습니다."
 }
 ```
+
+---
+
+### ▼ [POST] 상품 조회수 증가
+
+| 항목 | 내용 |
+|------|------|
+| **Description** | 상품 조회수 증가 (v2.1) |
+| **URL** | `https://sellfresh.shop/api/products/{id}/view/` |
+| **Auth Required** | X |
+
+| Parameter | Type | Required | Place | Description |
+|-----------|------|----------|-------|-------------|
+| `id` | number | O | url | 상품 ID |
+
+#### ✅ Response 200
+```typescript
+interface ViewCountResponse {
+  view_count: number;              // 증가 후 조회수
+}
+```
+
+**v2.1 참고사항**:
+- 조회수는 ProductStats 테이블에 저장됩니다.
+- 상품 상세 페이지 조회 시 자동으로 호출하여 조회수를 증가시킵니다.
 
 ---
 

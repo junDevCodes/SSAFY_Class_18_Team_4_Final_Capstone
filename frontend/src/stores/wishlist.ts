@@ -42,11 +42,12 @@ export const useWishlistStore = defineStore('wishlist', () => {
     }
   }
 
-  // 찜 토글
-  const toggleWishlist = async (product: Product) => {
+  // 찜 토글 - 반환값: { isWishlisted: boolean, wishlistCount: number }
+  const toggleWishlist = async (product: Product): Promise<{ isWishlisted: boolean; wishlistCount: number }> => {
     try {
       const response = await wishlistAPI.toggleWishlist(product.id)
       const isWishlisted = response.data.is_wishlist
+      const wishlistCount = response.data.wishlist_count ?? 0
 
       if (isWishlisted) {
         // 추가됨
@@ -56,7 +57,7 @@ export const useWishlistStore = defineStore('wishlist', () => {
         items.value = items.value.filter(item => item.product.id !== product.id)
       }
 
-      return isWishlisted
+      return { isWishlisted, wishlistCount }
     } catch (err: any) {
       error.value = err.response?.data?.message || '찜 처리에 실패했습니다.'
       console.error('찜 토글 실패:', err)

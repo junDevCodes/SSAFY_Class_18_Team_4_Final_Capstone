@@ -1,16 +1,16 @@
 """
-CSV 데이터 임포트 커맨드 테스트
+CSV 데이터 임포트 커맨드 테스트 (ERD V2.1)
 """
 import os
 import tempfile
 from io import StringIO
 from django.test import TestCase
 from django.core.management import call_command
-from products.models import Category, Product
+from products.models import Category, Product, ProductImage
 
 
 class ImportProductsCommandTest(TestCase):
-    """CSV 데이터 임포트 커맨드 테스트"""
+    """CSV 데이터 임포트 커맨드 테스트 (ERD V2.1)"""
 
     def setUp(self):
         """테스트용 임시 CSV 파일 생성"""
@@ -41,20 +41,28 @@ class ImportProductsCommandTest(TestCase):
         self.assertTrue(Category.objects.filter(name='수산/건어물').exists())
 
     def test_import_products_creates_products(self):
-        """제품이 정상적으로 생성되는지 테스트"""
+        """제품이 정상적으로 생성되는지 테스트 (ERD V2.1)"""
         out = StringIO()
         call_command('import_products', self.temp_csv.name, stdout=out)
 
         # 3개의 제품이 생성되어야 함
         self.assertEqual(Product.objects.count(), 3)
 
-        # 첫 번째 제품 검증
+        # 첫 번째 제품 검증 (ERD V2.1 필드)
         product1 = Product.objects.get(name='냉동 칠레산 블루베리 1kg')
         self.assertEqual(product1.price, 9990)
-        self.assertEqual(product1.site_name, '네이버쇼핑_컬리N마트')
+        self.assertEqual(product1.source_site, '네이버쇼핑_컬리N마트')  # ERD V2.1: source_site
         self.assertEqual(product1.category.name, '과일/견과')
-        self.assertEqual(product1.description, '냉동 칠레산 블루베리 1kg')
-        self.assertEqual(product1.image_url, 'https://example.com/image1.jpg')
+
+        # ERD V2.1: seller 필수
+        self.assertIsNotNone(product1.seller)
+        self.assertEqual(product1.seller.brand_name, '시스템 임포트')
+
+        # ERD V2.1: 이미지는 ProductImage 테이블에 저장
+        self.assertEqual(product1.images.count(), 1)
+        primary_image = product1.images.order_by('display_order').first()
+        self.assertEqual(primary_image.image_url, 'https://example.com/image1.jpg')
+        self.assertEqual(primary_image.display_order, 0)
 
     def test_import_products_with_duplicate_categories(self):
         """중복된 카테고리 이름이 있을 때 하나만 생성되는지 테스트"""
@@ -107,3 +115,14 @@ class ImportProductsCommandTest(TestCase):
         output = out.getvalue()
         self.assertIn('성공적으로 임포트', output)
         self.assertIn('3', output)  # 제품 개수
+
+    def test_import_products_creates_images(self):
+        """이미지가 ProductImage 테이블에 정상적으로 생성되는지 테스트 (ERD V2.1)"""
+        out = StringIO()
+        call_command('import_products', self.temp_csv.name, stdout=out)
+
+        # 3개의 이미지가 생성되어야 함 (각 제품당 1개)
+        self.assertEqual(ProductImage.objects.count(), 3)
+
+        # 모든 이미지가 display_order=0이어야 함 (ERD V2.1: display_order 기준으로 대표 이미지 결정)
+        self.assertEqual(ProductImage.objects.filter(display_order=0).count(), 3)

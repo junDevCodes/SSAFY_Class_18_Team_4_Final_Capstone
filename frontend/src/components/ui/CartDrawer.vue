@@ -35,7 +35,7 @@
                   <span class="w-8 text-center text-xs font-bold">{{ item.quantity }}</span>
                   <button @click="cartStore.increaseQty(item.id)" class="w-7 h-full flex items-center justify-center text-gray-500 hover:bg-gray-50">+</button>
                 </div>
-                <span class="font-bold text-sm">{{ formatPrice(item.subtotal) }}</span>
+                <span class="font-bold text-sm">{{ formatPrice(item.subtotal || item.product.price * item.quantity) }}</span>
               </div>
             </div>
             <button @click="cartStore.removeItem(item.id)" class="absolute top-3 right-3 text-gray-300 hover:text-gray-500">
@@ -54,7 +54,11 @@
           <span class="text-brand-500 font-bold">적립</span>
           <span>구매 시 {{ formatPrice(cartStore.total * 0.05) }} (5%) 적립 예정</span>
         </div>
-        <button class="w-full bg-brand-500 text-white font-bold text-base h-12 rounded-lg hover:bg-brand-600 transition-colors shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2">
+        <button
+          @click="handleCheckout"
+          :disabled="cartStore.items.length === 0"
+          class="w-full bg-brand-500 text-white font-bold text-base h-12 rounded-lg hover:bg-brand-600 transition-colors shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
           주문하기
         </button>
       </div>
@@ -64,17 +68,48 @@
 
 <script setup lang="ts">
 import { X, ShoppingBag } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
 import { useUIStore } from '@/stores/ui'
 import { useCartStore } from '@/stores/cart'
+import { useAuthStore } from '@/stores/auth'
 import { formatPrice } from '@/utils/formatters'
 import { getProductImage } from '@/types/product'
 
+const router = useRouter()
 const uiStore = useUIStore()
 const cartStore = useCartStore()
+const authStore = useAuthStore()
 
 const onImgError = (e: Event) => {
   const el = e.target as HTMLImageElement
   el.src = 'https://via.placeholder.com/80x96.png?text=No+Image'
+}
+
+// 주문하기 버튼 클릭 핸들러
+const handleCheckout = () => {
+  // 장바구니 닫기
+  uiStore.closeCart()
+
+  // 로그인 여부 확인
+  if (!authStore.isAuthenticated) {
+    // 비회원인 경우 비회원 주문 페이지로 이동
+    router.push({
+      name: 'checkout',
+      query: {
+        guest: 'true',
+        items: cartStore.items.map(item => item.id).join(',')
+      }
+    })
+    return
+  }
+
+  // 회원인 경우 모든 장바구니 항목으로 주문
+  router.push({
+    name: 'checkout',
+    query: {
+      items: cartStore.items.map(item => item.id).join(',')
+    }
+  })
 }
 </script>
 

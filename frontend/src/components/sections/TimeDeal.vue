@@ -17,7 +17,7 @@
           <div v-for="product in timeDealProducts" :key="product.id" class="w-[220px] group cursor-pointer">
             <div class="relative aspect-[4/5] rounded-xl overflow-hidden bg-gray-100 mb-4 shadow-sm">
               <img :src="getProductImage(product)" :alt="product.name" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
-              <div class="absolute top-3 left-3 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">-{{ product.discount }}%</div>
+              <div class="absolute top-3 left-3 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">-{{ getDiscountRate(product) }}%</div>
             </div>
             <h4 class="text-base font-medium text-gray-900 mb-1 line-clamp-1 group-hover:text-brand-600 transition-colors">{{ product.name }}</h4>
             <div class="flex items-baseline gap-2">
@@ -37,31 +37,27 @@ import { Timer } from 'lucide-vue-next'
 import { useTimer } from '@/composables/useTimer'
 import { useProductStore } from '@/stores/products'
 import { formatPrice } from '@/utils/formatters'
-import { getProductImage } from '@/types/product'
+import { getProductImage, calculateDiscountRate } from '@/types/product'
 import type { Product } from '@/types/product'
 
 const { timer } = useTimer()
 const productStore = useProductStore()
 
-const discountedProducts = computed(() => productStore.products.filter(p => p.discount > 0))
-const timeDealProducts = computed(() => discountedProducts.value.slice(0, 10))
-
-const getOriginalPrice = (p: Product): number | null => {
-  if (p.original_price !== null && p.original_price !== undefined) return p.original_price
-  if (p.discount > 0) {
-    const restored = Math.round(p.price / (1 - p.discount / 100))
-    return Number.isFinite(restored) ? restored : null
-  }
-  return null
+// v2.1: discount 필드 대신 original_price와 price로 할인율 계산
+const getDiscountRate = (p: Product): number => {
+  return calculateDiscountRate(p.original_price ?? 0, p.price)
 }
 
+// v2.1: 할인 상품만 필터링 (original_price가 price보다 큰 상품)
+const discountedProducts = computed(() => productStore.products.filter(p => getDiscountRate(p) > 0))
+const timeDealProducts = computed(() => discountedProducts.value.slice(0, 10))
+
 const hasOriginalPrice = (p: Product): boolean => {
-  return getOriginalPrice(p) !== null
+  return p.original_price !== null && p.original_price !== undefined && p.original_price > p.price
 }
 
 const formatOriginalPrice = (p: Product): string => {
-  const value = getOriginalPrice(p)
-  return value !== null ? formatPrice(value) : ''
+  return p.original_price ? formatPrice(p.original_price) : ''
 }
 </script>
 

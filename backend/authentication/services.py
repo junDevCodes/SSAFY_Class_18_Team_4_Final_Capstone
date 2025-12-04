@@ -24,7 +24,7 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, Ou
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .config import AUTH_CONFIG
-from .models import PendingRegistration, Provider
+from .models import PendingRegistration, Provider, AuthEmailCredential
 
 logger = logging.getLogger(__name__)
 
@@ -134,16 +134,31 @@ def send_email_verification_email(recipient_email: str, verification_code: str) 
             raise EmailDeliveryError(f"인증 메일 발송 중 오류가 발생했습니다: {str(exc)}")
 
 
+def get_user_provider(user) -> str | None:
+    """사용자의 인증 공급자 확인 (ERD V2.1)
+
+    Google/Kakao 계정이 연결되어 있는지 확인하여 provider 반환.
+    여러 계정이 연결된 경우 email을 우선 반환.
+    """
+    if hasattr(user, 'email_credential'):
+        return Provider.EMAIL
+    if hasattr(user, 'google_accounts') and user.google_accounts.exists():
+        return Provider.GOOGLE
+    if hasattr(user, 'kakao_accounts') and user.kakao_accounts.exists():
+        return Provider.KAKAO
+    return None
+
+
 def issue_tokens_with_claims(user) -> dict[str, str]:
     """JWT 발급 (role/provider 정보를 페이로드에 포함)"""
 
     refresh = RefreshToken.for_user(user)
     refresh["role"] = getattr(user, "role", None)
-    refresh["provider"] = getattr(user, "provider", None)
+    refresh["provider"] = get_user_provider(user)
 
     access = refresh.access_token
     access["role"] = getattr(user, "role", None)
-    access["provider"] = getattr(user, "provider", None)
+    access["provider"] = get_user_provider(user)
     return {"access": str(access), "refresh": str(refresh)}
 
 
@@ -198,27 +213,26 @@ def upsert_pending_registration(email: str, raw_password: str, username: str | N
 
 
 def finalize_pending_registration(pending: PendingRegistration):
-    """인증이 완료된 대기 정보를 실제 사용자로 전환
-    
-    일반 회원가입 완료 시 role을 'user'로 설정
+    """인증이 완료된 대기 정보를 실제 사용자로 전환 (ERD V2.1)
+
+    일반 회원가입 완료 시 role을 'user'로 설정.
+    이메일 인증 정보는 AuthEmailCredential에 저장.
     """
 
     User = get_user_model()
     with transaction.atomic():
         # username 생성
         username = _resolve_username(pending.email, pending.username)
-        
-        # User 객체 생성
+
+        # User 객체 생성 (ERD V2.1: provider, is_email_verified 필드 제거됨)
         user = User(
             email=pending.email,
             username=username,
-            provider=Provider.EMAIL,
-            is_email_verified=True,
             role="user",  # 일반 회원가입 완료 시 user 권한 부여
         )
         # password_hash는 이미 해시된 상태이므로 직접 할당
-        user.password = pending.password_hash
-        
+        user.set_unusable_password()
+
         # 관리자 화이트리스트 확인 (role이 이미 user로 설정되어 있으므로 덮어쓰지 않음)
         # 단, 관리자 화이트리스트에 있으면 admin으로 변경
         try:
@@ -228,7 +242,15 @@ def finalize_pending_registration(pending: PendingRegistration):
         except Exception as e:
             # 관리자 화이트리스트 확인 실패 시에도 회원가입은 진행
             logger.warning(f"관리자 화이트리스트 확인 실패: {e}")
-        
+
         user.save()
+
+        # AuthEmailCredential 생성 (ERD V2.1)
+        AuthEmailCredential.objects.create(
+            user=user,
+            password_hash=pending.password_hash,
+            is_email_verified=True,
+        )
+
         PendingRegistration.objects.filter(pk=pending.pk).delete()
         return user

@@ -21,14 +21,17 @@
         </button>
       </div>
 
-      <div v-if="product.is_best" class="absolute top-0 left-0 bg-gray-900 text-white text-[10px] font-bold px-3 py-1.5 uppercase tracking-wider">Best</div>
+      <!-- v2.1: quality_score 기반 뱃지 (품질 점수 80점 이상이면 Best 표시) -->
+      <div v-if="product.quality_score >= 80" class="absolute top-0 left-0 bg-gray-900 text-white text-[10px] font-bold px-3 py-1.5 uppercase tracking-wider">Best</div>
     </div>
 
     <div>
-      <div class="text-xs text-gray-500 mb-1 font-medium">{{ product.description || product.category?.name || '' }}</div>
+      <!-- v2.1: category_name 사용 -->
+      <div class="text-xs text-gray-500 mb-1 font-medium">{{ product.category_name || product.category?.name || '' }}</div>
       <h4 class="text-lg font-normal text-gray-900 mb-2 line-clamp-1 leading-tight group-hover:text-brand-600 transition-colors">{{ product.name }}</h4>
       <div class="flex items-center gap-2">
-        <span v-if="product.discount > 0" class="text-red-500 font-bold">{{ product.discount }}%</span>
+        <!-- v2.1: 계산된 할인율 사용 -->
+        <span v-if="discountRate > 0" class="text-red-500 font-bold">{{ discountRate }}%</span>
         <span class="font-bold text-xl text-gray-900">{{ formatPrice(product.price) }}</span>
 
         <!-- Wishlist count (moved from overlay to reduce image cover) -->
@@ -49,7 +52,7 @@ import { useUIStore } from '@/stores/ui'
 import { useWishlistStore } from '@/stores/wishlist'
 import { useAuthStore } from '@/stores/auth'
 import { formatPrice } from '@/utils/formatters'
-import { getProductImage } from '@/types/product'
+import { getProductImage, calculateDiscountRate } from '@/types/product'
 import { ref, watch, computed } from 'vue'
 
 interface Props {
@@ -62,6 +65,7 @@ const uiStore = useUIStore()
 const wishlistStore = useWishlistStore()
 const authStore = useAuthStore()
 
+// v2.1: wishlist_count를 로컬 상태로 관리
 const localWishlistCount = ref<number>(props.product.wishlist_count ?? 0)
 watch(
   () => props.product.wishlist_count,
@@ -70,29 +74,43 @@ watch(
   }
 )
 
+// v2.1: 계산된 할인율
+const discountRate = computed(() => {
+  return calculateDiscountRate(props.product.original_price ?? 0, props.product.price)
+})
+
 const isWishlisted = computed(() => {
   if (!authStore.isAuthenticated) return false
   return wishlistStore.isWishlisted(props.product.id)
 })
 
-const handleAddToCart = () => {
-  cartStore.addItem(props.product)
-  uiStore.showToast('장바구니에 담았습니다.')
+const handleAddToCart = async () => {
+  // 비회원인 경우 로그인 모달 표시
+  if (!authStore.isAuthenticated) {
+    window.dispatchEvent(new CustomEvent('auth:required'))
+    uiStore.showToast('로그인이 필요한 서비스입니다.')
+    return
+  }
+
+  try {
+    await cartStore.addItem(props.product)
+    uiStore.showToast('장바구니에 담았습니다.')
+  } catch {
+    uiStore.showToast('장바구니 추가에 실패했습니다.')
+  }
 }
 
 const handleToggleWishlist = async () => {
   if (!authStore.isAuthenticated) {
     window.dispatchEvent(new CustomEvent('auth:required'))
+    uiStore.showToast('로그인이 필요한 서비스입니다.')
     return
   }
 
   try {
-    const nowWishlisted = await wishlistStore.toggleWishlist(props.product as any)
-    if (nowWishlisted) {
-      localWishlistCount.value = (localWishlistCount.value || 0) + 1
-    } else {
-      localWishlistCount.value = Math.max(0, (localWishlistCount.value || 0) - 1)
-    }
+    const result = await wishlistStore.toggleWishlist(props.product as any)
+    // 서버에서 반환된 정확한 wishlist_count 사용
+    localWishlistCount.value = result.wishlistCount
   } catch {
     uiStore.showToast('찜 처리에 실패했습니다.')
   }

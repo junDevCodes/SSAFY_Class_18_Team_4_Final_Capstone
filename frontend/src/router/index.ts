@@ -54,12 +54,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '상품 상세' }
   },
 
-  // 장바구니
+  // 장바구니 (비회원도 접근 가능)
   {
     path: '/cart',
     name: 'cart',
     component: CartPage,
-    meta: { title: '장바구니', requiresAuth: true }
+    meta: { title: '장바구니' }
   },
 
   // 찜 목록
@@ -70,12 +70,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '찜 목록', requiresAuth: true }
   },
 
-  // 주문/결제
+  // 주문/결제 (비회원도 접근 가능 - 비회원 주문 지원)
   {
     path: '/checkout',
     name: 'checkout',
     component: CheckoutPage,
-    meta: { title: '주문/결제', requiresAuth: true }
+    meta: { title: '주문/결제' }
   },
 
   // 마이페이지
