@@ -1,32 +1,22 @@
 # 프로덕션용 Docker Compose (AWS EC2)
 # ECR 이미지 사용
+#
+# 사용법:
+#   1. .env 파일 생성 (아래 env_file 참조)
+#   2. docker compose -f docker-compose.prod.yml up -d
 
 services:
   backend:
-    image: 733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-backend:latest
+    image: ${ECR_REPO_BACKEND:-733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-backend}:${IMAGE_TAG:-latest}
     container_name: self-backend
+    env_file:
+      - .env
     environment:
-      # Django 기본 설정
-      SECRET_KEY: ${SECRET_KEY:-your-production-secret-key-change-this}
-      DEBUG: ${DEBUG:-False}
-      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
-      
-      # 데이터베이스 (docker 네트워크 내부)
+      # Docker 네트워크 내부 설정 (고정)
       DB_ENGINE: django.db.backends.postgresql
-      DB_NAME: selfdb
-      DB_USER: selfuser
-      DB_PASSWORD: selfpass
       DB_HOST: db
       DB_PORT: "5432"
-      
-      # Redis
       REDIS_URL: redis://redis:6379/0
-      
-      # OAuth (선택)
-      KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
-      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     depends_on:
       db:
         condition: service_healthy
@@ -36,15 +26,13 @@ services:
       - "8000:8000"
     command: >
       sh -c "python manage.py migrate --noinput &&
-             python manage.py shell -c \"from django.contrib.sites.models import Site; Site.objects.update_or_create(id=1, defaults={'domain': '15.165.232.91:8000', 'name': 'SelF Production'})\" &&
+             python manage.py shell -c \"from django.contrib.sites.models import Site; Site.objects.update_or_create(id=1, defaults={'domain': '${EC2_PUBLIC_IP:-localhost}', 'name': 'SelF Production'})\" &&
              gunicorn project_self.wsgi:application --bind 0.0.0.0:8000 --workers 2"
     restart: unless-stopped
 
   frontend:
-    image: 733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-frontend:latest
+    image: ${ECR_REPO_FRONTEND:-733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-frontend}:${IMAGE_TAG:-latest}
     container_name: self-frontend
-    environment:
-      VITE_API_BASE_URL: http://15.165.232.91:8000
     depends_on:
       - backend
     ports:
@@ -54,14 +42,20 @@ services:
   db:
     image: postgres:16-alpine
     container_name: self-postgres
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: selfdb
-      POSTGRES_USER: selfuser
-      POSTGRES_PASSWORD: selfpass
+      POSTGRES_DB: ${DB_NAME:-selfdb}
+      POSTGRES_USER: ${DB_USER:-selfuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U selfuser -d selfdb"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-selfuser} -d ${DB_NAME:-selfdb}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -79,4 +73,3 @@ services:
 
 volumes:
   postgres_data:
-

@@ -349,7 +349,8 @@ const handleRequestVerification = async () => {
 // 구글 로그인 처리
 const handleGoogleLogin = () => {
   // 백엔드 OAuth 엔드포인트로 리다이렉트 (ui=web으로 설정하여 프론트엔드로 리다이렉트)
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  // 프로덕션: 빈 문자열 → 상대 경로 (Nginx 프록시)
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
   const frontendUrl = window.location.origin
   window.location.href = `${apiBaseUrl}/auth/google/?ui=web&next=${encodeURIComponent(frontendUrl)}`
 }
@@ -357,7 +358,8 @@ const handleGoogleLogin = () => {
 // 카카오 로그인 처리
 const handleKakaoLogin = () => {
   // 백엔드 OAuth 엔드포인트로 리다이렉트 (ui=web으로 설정하여 프론트엔드로 리다이렉트)
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  // 프로덕션: 빈 문자열 → 상대 경로 (Nginx 프록시)
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
   const frontendUrl = window.location.origin
   window.location.href = `${apiBaseUrl}/auth/kakao/?ui=web&next=${encodeURIComponent(frontendUrl)}`
 }

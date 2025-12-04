@@ -1,5 +1,9 @@
 FROM node:20-alpine AS builder
 
+# 빌드 시 환경변수 (프로덕션: 빈 문자열 → Nginx 프록시 사용)
+ARG VITE_API_BASE_URL=""
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
 WORKDIR /app
 
 COPY package*.json ./
