@@ -1,37 +1,66 @@
 """
-제품 관련 모델
+제품 관련 모델 (ERD V2.1 정확 구현)
+
+Group 3: Product Domain
+Group 5: Interactions (carts, wishlists, seller_follows)
+Group 6: Reviews
+Group 7: Recommendation & Analytics
 """
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 
-class Category(models.Model):
-    """카테고리 모델 (계층 구조 지원)"""
-    name = models.CharField(max_length=100, unique=True, verbose_name="카테고리명")
-    slug = models.SlugField(max_length=100, verbose_name="슬러그")
+# ============================================================================
+# Enums (ERD V2.1)
+# ============================================================================
 
-    # 계층 구조 필드
+class ProductStatus(models.TextChoices):
+    """상품 상태 (product_status enum)"""
+    DRAFT = "draft", "임시저장"
+    ACTIVE = "active", "판매중"
+    INACTIVE = "inactive", "판매중지"
+    OUT_OF_STOCK = "out_of_stock", "품절"
+    DISCONTINUED = "discontinued", "단종"
+
+
+class ProductType(models.TextChoices):
+    """상품 유형 (product_type enum)"""
+    MAIN = "main", "메인 상품"
+    SELLER = "seller", "판매자 상품"
+
+
+class ReviewStatus(models.TextChoices):
+    """리뷰 상태"""
+    VISIBLE = "visible", "공개"
+    HIDDEN = "hidden", "숨김"
+    REPORTED = "reported", "신고됨"
+    DELETED = "deleted", "삭제됨"
+
+
+# ============================================================================
+# Group 3: Product Domain (ERD V2.1)
+# ============================================================================
+
+class Category(models.Model):
+    """계층형 카테고리 (ERD: categories)"""
+
     parent = models.ForeignKey(
         'self',
         on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name='children',
-        verbose_name="상위 카테고리"
+        verbose_name="상위 카테고리",
     )
-    path = models.CharField(
-        max_length=500,
-        editable=False,
-        db_index=True,
-        null=True,
-        blank=True,
-        verbose_name="경로"
+
+    name = models.CharField(
+        max_length=100,
+        verbose_name="카테고리명",
     )
-    level = models.SmallIntegerField(
-        default=0,
-        editable=False,
-        db_index=True,
-        verbose_name="레벨"
+    slug = models.SlugField(
+        max_length=100,
+        unique=True,
+        verbose_name="슬러그",
     )
 
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
@@ -41,319 +70,302 @@ class Category(models.Model):
         db_table = 'categories'
         verbose_name = '카테고리'
         verbose_name_plural = '카테고리'
-        ordering = ['path']
-        unique_together = [['parent', 'name']]  # 같은 부모 아래에서만 이름 고유
+        indexes = [
+            models.Index(fields=['parent'], name='ix_categories_parent'),
+        ]
 
     def __str__(self):
-        return self.get_full_path()
-
-    def save(self, *args, **kwargs):
-        """path와 level 자동 계산"""
         if self.parent:
-            self.level = self.parent.level + 1
-            self.path = f"{self.parent.path}/{self.slug}"
-        else:
-            self.level = 0
-            self.path = self.slug
-
-        super().save(*args, **kwargs)
-
-        # 하위 카테고리들의 path 업데이트
-        for child in self.children.all():
-            child.save()
-
-    def get_full_path(self):
-        """전체 경로를 이름으로 반환 (예: '과일 > 사과 > 홍옥')"""
-        if self.parent:
-            return f"{self.parent.get_full_path()} > {self.name}"
+            return f"{self.parent.name} > {self.name}"
         return self.name
-
-    def get_ancestors(self):
-        """모든 상위 카테고리 반환"""
-        ancestors = []
-        current = self.parent
-        while current:
-            ancestors.insert(0, current)
-            current = current.parent
-        return ancestors
-
-    def get_descendants(self):
-        """모든 하위 카테고리 반환 (재귀적)"""
-        descendants = list(self.children.all())
-        for child in self.children.all():
-            descendants.extend(child.get_descendants())
-        return descendants
-
-    def is_root(self):
-        """최상위 카테고리인지 확인"""
-        return self.parent is None
-
-    def is_leaf(self):
-        """하위 카테고리가 없는지 확인"""
-        return not self.children.exists()
 
 
 class Product(models.Model):
-    """제품 모델 (메인 상품 + 판매자 상품 통합)"""
+    """상품 기본 스펙/가격/단위/배송 정보 (ERD: products)"""
 
-    PRODUCT_TYPE_CHOICES = [
-        ('main', '메인 상품'),      # 크롤링/관리자 등록
-        ('seller', '판매자 상품'),   # 판매자 등록
-    ]
-
-    STATUS_CHOICES = [
-        ('draft', '임시저장'),
-        ('active', '판매중'),
-        ('inactive', '판매중지'),
-        ('out_of_stock', '품절'),
-        ('discontinued', '단종'),
-    ]
-
-    # 상품 유형
-    product_type = models.CharField(
-        max_length=20,
-        choices=PRODUCT_TYPE_CHOICES,
-        default='main',
-        verbose_name="상품 유형"
+    seller = models.ForeignKey(
+        'sellers.Seller',
+        on_delete=models.CASCADE,
+        related_name='products',
+        verbose_name="판매자",
     )
-
-    # 관계
     category = models.ForeignKey(
         Category,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name='products',
-        verbose_name="카테고리"
+        verbose_name="카테고리",
     )
-    seller = models.ForeignKey(
-        'sellers.Seller',
-        on_delete=models.CASCADE,
+
+    # 크롤링 메타데이터
+    source_site = models.CharField(
+        max_length=100,
         null=True,
         blank=True,
-        related_name='products',
-        verbose_name="판매자",
-        help_text="product_type='seller'일 때만 필수"
+        verbose_name="출처 사이트",
+        help_text="초기 CSV/크롤링 출처 사이트 이름",
+    )
+    source_url = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="출처 URL",
+        help_text="초기 CSV/크롤링 원본 상품 URL",
+    )
+    crawled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="크롤링 시각",
+        help_text="원본 데이터를 가져온 시각",
     )
 
-    # 크롤링 메타데이터 (main 상품용)
-    source_site = models.CharField(max_length=100, null=True, blank=True, verbose_name="출처 사이트")
-    source_url = models.TextField(null=True, blank=True, verbose_name="출처 URL")
-    crawled_at = models.DateTimeField(null=True, blank=True, verbose_name="크롤링 시간")
-
     # 기본 정보
-    name = models.CharField(max_length=500, verbose_name="제품명")
-    slug = models.SlugField(max_length=500, null=True, blank=True, unique=True, verbose_name="슬러그")
-    short_description = models.TextField(null=True, blank=True, verbose_name="간단 설명")
-    description = models.TextField(null=True, blank=True, verbose_name="상세 설명")
+    name = models.CharField(
+        max_length=500,
+        verbose_name="상품명",
+    )
+    slug = models.SlugField(
+        max_length=500,
+        unique=True,
+        verbose_name="슬러그",
+    )
 
-    # 가격 정보
-    price = models.IntegerField(validators=[MinValueValidator(0)], verbose_name="가격")
+    # 가격
+    price = models.IntegerField(
+        validators=[MinValueValidator(0)],
+        verbose_name="가격",
+    )
     original_price = models.IntegerField(
         null=True,
         blank=True,
         validators=[MinValueValidator(0)],
-        verbose_name="원가"
+        verbose_name="원가",
     )
-    discount_rate = models.SmallIntegerField(
-        default=0,
-        validators=[MinValueValidator(0), MaxValueValidator(100)],
-        verbose_name="할인율"
+
+    # 상태/유형
+    status = models.CharField(
+        max_length=20,
+        choices=ProductStatus.choices,
+        default=ProductStatus.ACTIVE,
+        verbose_name="상태",
     )
-    cost_price = models.IntegerField(
-        null=True,
-        blank=True,
-        validators=[MinValueValidator(0)],
-        verbose_name="원가 (판매자용)"
+    product_type = models.CharField(
+        max_length=20,
+        choices=ProductType.choices,
+        default=ProductType.MAIN,
+        verbose_name="상품 유형",
     )
 
     # 단위
-    unit = models.CharField(max_length=50, null=True, blank=True, verbose_name="단위")
+    unit = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        verbose_name="단위",
+    )
     unit_quantity = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=1.00,
-        verbose_name="단위 수량"
-    )
-
-    # 재고 (판매자 상품만 사용)
-    stock_quantity = models.IntegerField(default=0, verbose_name="재고 수량")
-    low_stock_threshold = models.IntegerField(default=10, verbose_name="낮은 재고 기준")
-    is_in_stock = models.BooleanField(default=True, verbose_name="재고 있음")
-
-    # 이미지
-    main_image_url = models.TextField(null=True, blank=True, verbose_name="메인 이미지 URL")
-
-    # DEPRECATED: 이전 CSV 필드 (마이그레이션 후 삭제 예정)
-    image_url = models.TextField(null=True, blank=True, verbose_name="[DEPRECATED] 이미지 URL")
-    site_name = models.CharField(max_length=100, null=True, blank=True, verbose_name="[DEPRECATED] 출처")
-    product_url = models.TextField(null=True, blank=True, verbose_name="[DEPRECATED] 제품 URL")
-    detail_info = models.TextField(null=True, blank=True, verbose_name="[DEPRECATED] 상세정보")
-    discount = models.IntegerField(
-        default=0,
-        null=True,
-        blank=True,
-        validators=[MinValueValidator(0), MaxValueValidator(100)],
-        verbose_name="[DEPRECATED] 할인율"
-    )
-
-    # 상품 품질 점수 (추천 알고리즘용)
-    quality_score = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=50.00,
-        validators=[MinValueValidator(0), MaxValueValidator(100)],
-        verbose_name="품질 점수",
-        help_text="이미지 품질, 설명 완성도, CTR 등을 종합"
-    )
-    image_quality_score = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=50.00,
-        verbose_name="이미지 품질 점수"
-    )
-    content_quality_score = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=50.00,
-        verbose_name="콘텐츠 품질 점수"
-    )
-
-    # 통계 (비정규화 - 성능 최적화)
-    view_count = models.IntegerField(default=0, verbose_name="조회수")
-    click_count = models.IntegerField(default=0, verbose_name="클릭수")
-    cart_count = models.IntegerField(default=0, verbose_name="장바구니 추가수")
-    wishlist_count = models.IntegerField(default=0, verbose_name="찜 수")
-    purchase_count = models.IntegerField(default=0, verbose_name="구매수")
-    review_count = models.IntegerField(default=0, verbose_name="리뷰수")
-    average_rating = models.DecimalField(
-        max_digits=3,
-        decimal_places=2,
-        default=0.00,
-        verbose_name="평균 평점"
-    )
-
-    # CTR (Click-Through Rate)
-    ctr = models.DecimalField(
-        max_digits=5,
-        decimal_places=4,
-        default=0.0000,
-        verbose_name="CTR",
-        help_text="click_count / view_count"
+        verbose_name="단위 수량",
     )
 
     # 배송 정보
-    shipping_required = models.BooleanField(default=True, verbose_name="배송 필요")
-    shipping_fee = models.IntegerField(default=0, verbose_name="배송비")
+    shipping_required = models.BooleanField(
+        default=True,
+        verbose_name="배송 필요",
+    )
+    shipping_fee = models.IntegerField(
+        default=0,
+        verbose_name="배송비",
+    )
     free_shipping_threshold = models.IntegerField(
         null=True,
         blank=True,
-        verbose_name="무료 배송 기준 금액"
+        verbose_name="무료 배송 기준 금액",
     )
     estimated_delivery_days = models.SmallIntegerField(
         null=True,
         blank=True,
-        verbose_name="예상 배송 일수"
+        verbose_name="예상 배송 일수",
     )
 
-    # 상태
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='active',
-        verbose_name="상태"
-    )
-    is_featured = models.BooleanField(default=False, verbose_name="추천 상품")
-    is_best = models.BooleanField(default=False, verbose_name="베스트 상품")
-    is_new = models.BooleanField(default=False, verbose_name="신상품")
-    is_on_sale = models.BooleanField(default=False, verbose_name="할인 중")
-
-    # 메타데이터
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
-    published_at = models.DateTimeField(null=True, blank=True, verbose_name="게시일시")
-
-    # SEO
-    meta_title = models.CharField(max_length=200, null=True, blank=True, verbose_name="SEO 제목")
-    meta_description = models.TextField(null=True, blank=True, verbose_name="SEO 설명")
-    meta_keywords = models.CharField(max_length=500, null=True, blank=True, verbose_name="SEO 키워드")
 
     class Meta:
         db_table = 'products'
-        verbose_name = '제품'
-        verbose_name_plural = '제품'
+        verbose_name = '상품'
+        verbose_name_plural = '상품'
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['product_type']),
-            models.Index(fields=['category']),
-            models.Index(fields=['seller']),
-            models.Index(fields=['status']),
-            models.Index(fields=['-quality_score']),
-            models.Index(fields=['-view_count']),
-            models.Index(fields=['-ctr']),
-            models.Index(fields=['-created_at']),
-            models.Index(fields=['is_featured', 'status']),
-            models.Index(fields=['is_best', 'status']),
-            models.Index(fields=['slug']),
-            # 복합 인덱스 (추천 알고리즘용)
-            models.Index(fields=['product_type', 'status', '-quality_score', '-ctr']),
-            models.Index(fields=['category', 'status', '-quality_score']),
+            models.Index(fields=['seller'], name='ix_products_seller'),
+            models.Index(fields=['category'], name='ix_products_category'),
+            models.Index(fields=['status'], name='ix_products_status'),
+            models.Index(fields=['product_type'], name='ix_products_type'),
+            models.Index(fields=['slug'], name='ix_products_slug'),
+            models.Index(fields=['created_at'], name='ix_products_created'),
         ]
 
     def __str__(self):
         return self.name
 
-    def save(self, *args, **kwargs):
-        """CTR 자동 계산"""
-        if self.view_count > 0:
-            self.ctr = round(self.click_count / self.view_count, 4)
-        else:
-            self.ctr = 0.0000
-        super().save(*args, **kwargs)
 
-    def update_quality_score(self):
-        """품질 점수 재계산 (이미지 품질 + 콘텐츠 품질 + CTR)"""
-        # 가중 평균: 이미지 30%, 콘텐츠 30%, CTR 40%
-        ctr_score = min(float(self.ctr) * 100, 100.00)  # CTR을 0-100 스케일로 변환
-        self.quality_score = round(
-            (self.image_quality_score * 0.3 +
-             self.content_quality_score * 0.3 +
-             ctr_score * 0.4),
-            2
-        )
-        self.save(update_fields=['quality_score'])
+class ProductDetail(models.Model):
+    """상품 상세 설명 및 SEO 메타 정보 (ERD: product_details)"""
 
-    @property
-    def final_price(self):
-        """할인 적용된 최종 가격"""
-        if self.discount_rate > 0:
-            return int(self.price * (100 - self.discount_rate) / 100)
-        return self.price
+    product = models.OneToOneField(
+        Product,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name='detail',
+        verbose_name="상품",
+    )
+
+    short_description = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="짧은 설명",
+    )
+    full_description = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="상세 설명",
+    )
+
+    meta_title = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        verbose_name="SEO 제목",
+    )
+    meta_keywords = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        verbose_name="SEO 키워드",
+    )
+
+    class Meta:
+        db_table = 'product_details'
+        verbose_name = '상품 상세'
+        verbose_name_plural = '상품 상세'
+
+    def __str__(self):
+        return f"{self.product.name} 상세"
+
+
+class ProductInventory(models.Model):
+    """상품 재고 정보 (ERD: product_inventories)
+
+    재고 부족 여부는 stock_quantity와 safe_stock_level로 계산.
+    """
+
+    product = models.OneToOneField(
+        Product,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name='inventory',
+        verbose_name="상품",
+    )
+
+    stock_quantity = models.IntegerField(
+        default=0,
+        verbose_name="재고 수량",
+    )
+    safe_stock_level = models.IntegerField(
+        default=10,
+        verbose_name="안전 재고 수준",
+    )
+
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
+
+    class Meta:
+        db_table = 'product_inventories'
+        verbose_name = '상품 재고'
+        verbose_name_plural = '상품 재고'
+
+    def __str__(self):
+        return f"{self.product.name} 재고: {self.stock_quantity}"
 
     @property
     def is_low_stock(self):
         """재고 부족 여부"""
-        return self.stock_quantity <= self.low_stock_threshold
+        return self.stock_quantity <= self.safe_stock_level
+
+
+class ProductPriceHistory(models.Model):
+    """상품 가격 변동 이력 (사용자 요청 추가)
+
+    상품의 가격 변화를 누적 기록하여 가격 추이를 추적.
+    예: 1번 상품이 1000원 → 900원 → 1100원으로 변경된 이력 저장
+    """
+
+    product = models.ForeignKey(
+        'Product',
+        on_delete=models.CASCADE,
+        related_name='price_histories',
+        verbose_name="상품",
+    )
+
+    price = models.IntegerField(
+        verbose_name="가격",
+        help_text="해당 시점의 가격",
+    )
+    original_price = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="원가",
+        help_text="해당 시점의 원가 (할인 전 가격)",
+    )
+
+    recorded_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="기록 시각",
+        help_text="가격이 기록된 시각",
+    )
+    source = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        verbose_name="변경 출처",
+        help_text="가격 변경 출처 (import, manual, crawl 등)",
+    )
+
+    class Meta:
+        db_table = 'product_price_histories'
+        verbose_name = '상품 가격 이력'
+        verbose_name_plural = '상품 가격 이력'
+        ordering = ['product', '-recorded_at']
+        indexes = [
+            models.Index(fields=['product', '-recorded_at'], name='ix_price_history_product'),
+            models.Index(fields=['recorded_at'], name='ix_price_history_recorded'),
+        ]
+
+    def __str__(self):
+        return f"{self.product.name}: {self.price}원 ({self.recorded_at.strftime('%Y-%m-%d %H:%M')})"
 
 
 class ProductImage(models.Model):
-    """상품 이미지 모델"""
+    """상품 이미지 (ERD: product_images)
+
+    가장 낮은 display_order를 대표 이미지로 사용.
+    """
 
     product = models.ForeignKey(
         Product,
         on_delete=models.CASCADE,
         related_name='images',
-        verbose_name="상품"
+        verbose_name="상품",
     )
-    image_url = models.TextField(verbose_name="이미지 URL")
-    alt_text = models.CharField(max_length=255, null=True, blank=True, verbose_name="대체 텍스트")
-    display_order = models.IntegerField(default=0, verbose_name="표시 순서")
 
-    # 이미지 메타데이터
-    width = models.IntegerField(null=True, blank=True, verbose_name="너비")
-    height = models.IntegerField(null=True, blank=True, verbose_name="높이")
-    file_size = models.IntegerField(null=True, blank=True, verbose_name="파일 크기 (bytes)")
-    format = models.CharField(max_length=10, null=True, blank=True, verbose_name="형식")  # 'jpg', 'png', 'webp'
+    image_url = models.TextField(
+        verbose_name="이미지 URL",
+    )
+    display_order = models.IntegerField(
+        default=0,
+        verbose_name="표시 순서",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
 
@@ -363,105 +375,42 @@ class ProductImage(models.Model):
         verbose_name_plural = '상품 이미지'
         ordering = ['product', 'display_order']
         indexes = [
-            models.Index(fields=['product', 'display_order']),
+            models.Index(fields=['product', 'display_order'], name='ix_product_images_order'),
         ]
 
     def __str__(self):
         return f"{self.product.name} - 이미지 {self.display_order}"
 
 
-class ProductView(models.Model):
-    """상품 조회 로그 (추천 알고리즘용)"""
-
-    product = models.ForeignKey(
-        Product,
-        on_delete=models.CASCADE,
-        related_name='views',
-        verbose_name="상품"
-    )
-    user = models.ForeignKey(
-        'authentication.User',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='product_views',
-        verbose_name="사용자"
-    )
-
-    # 세션 기반 추적 (비로그인 사용자)
-    session_id = models.CharField(max_length=255, null=True, blank=True, verbose_name="세션 ID")
-
-    # 메타데이터
-    ip_address = models.GenericIPAddressField(null=True, blank=True, verbose_name="IP 주소")
-    user_agent = models.TextField(null=True, blank=True, verbose_name="User Agent")
-    referrer = models.TextField(null=True, blank=True, verbose_name="Referrer")
-
-    # 시간
-    viewed_at = models.DateTimeField(auto_now_add=True, verbose_name="조회 시간")
-
-    class Meta:
-        db_table = 'product_views'
-        verbose_name = '상품 조회 로그'
-        verbose_name_plural = '상품 조회 로그'
-        indexes = [
-            models.Index(fields=['product', '-viewed_at']),
-            models.Index(fields=['user', '-viewed_at']),
-            models.Index(fields=['session_id', '-viewed_at']),
-        ]
-
-    def __str__(self):
-        user_info = self.user.username if self.user else f"세션:{self.session_id[:8] if self.session_id else 'unknown'}"
-        return f"{self.product.name} - {user_info}"
-
-
-class Wishlist(models.Model):
-    """찜 목록"""
-
-    user = models.ForeignKey(
-        'authentication.User',
-        on_delete=models.CASCADE,
-        related_name='wishlists',
-        verbose_name="사용자"
-    )
-    product = models.ForeignKey(
-        Product,
-        on_delete=models.CASCADE,
-        related_name='wishlisted_by',
-        verbose_name="상품"
-    )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="추가일시")
-
-    class Meta:
-        db_table = 'wishlists'
-        verbose_name = '찜 목록'
-        verbose_name_plural = '찜 목록'
-        unique_together = [['user', 'product']]
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['user', '-created_at']),
-        ]
-
-    def __str__(self):
-        return f"{self.user.username} - {self.product.name}"
-
+# ============================================================================
+# Group 5: Interactions (ERD V2.1)
+# ============================================================================
 
 class Cart(models.Model):
-    """장바구니"""
+    """장바구니 (ERD: carts)
+
+    가격은 order_items 스냅샷으로만 관리.
+    """
 
     user = models.ForeignKey(
         'authentication.User',
         on_delete=models.CASCADE,
         related_name='cart_items',
-        verbose_name="사용자"
+        verbose_name="사용자",
     )
     product = models.ForeignKey(
         Product,
         on_delete=models.CASCADE,
         related_name='in_carts',
-        verbose_name="상품"
+        verbose_name="상품",
     )
-    quantity = models.PositiveIntegerField(default=1, verbose_name="수량")
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="추가일시")
+
+    quantity = models.IntegerField(
+        default=1,
+        verbose_name="수량",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
 
     class Meta:
@@ -471,7 +420,7 @@ class Cart(models.Model):
         unique_together = [['user', 'product']]
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['user', '-created_at'], name='ix_carts_user'),
         ]
 
     def __str__(self):
@@ -479,5 +428,301 @@ class Cart(models.Model):
 
     @property
     def subtotal(self):
-        """소계 (할인 적용)"""
-        return self.product.final_price * self.quantity
+        """소계 계산 (상품 가격 * 수량)"""
+        if self.product and self.product.price:
+            return self.product.price * self.quantity
+        return 0
+
+
+class Wishlist(models.Model):
+    """찜 목록 (ERD: wishlists)"""
+
+    user = models.ForeignKey(
+        'authentication.User',
+        on_delete=models.CASCADE,
+        related_name='wishlists',
+        verbose_name="사용자",
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='wishlisted_by',
+        verbose_name="상품",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="추가일시")
+
+    class Meta:
+        db_table = 'wishlists'
+        verbose_name = '찜 목록'
+        verbose_name_plural = '찜 목록'
+        unique_together = [['user', 'product']]
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at'], name='ix_wishlists_user'),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.product.name}"
+
+
+class SellerFollow(models.Model):
+    """판매자 팔로우 (ERD: seller_follows)
+
+    소비자(user)가 판매자(seller)를 팔로우하는 관계.
+    셀러가 유저를 팔로우하는 기능은 제공하지 않으며,
+    애플리케이션에서 user.role이 일반 사용자일 때만 생성 허용.
+    """
+
+    user = models.ForeignKey(
+        'authentication.User',
+        on_delete=models.CASCADE,
+        related_name='following_sellers',
+        verbose_name="사용자",
+    )
+    seller = models.ForeignKey(
+        'sellers.Seller',
+        on_delete=models.CASCADE,
+        related_name='followers',
+        verbose_name="판매자",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="팔로우 시각")
+
+    class Meta:
+        db_table = 'seller_follows'
+        verbose_name = '판매자 팔로우'
+        verbose_name_plural = '판매자 팔로우'
+        unique_together = [['user', 'seller']]
+        indexes = [
+            models.Index(fields=['user', 'seller'], name='ix_seller_follows_pair'),
+            models.Index(fields=['user'], name='ix_seller_follows_user'),
+            models.Index(fields=['seller'], name='ix_seller_follows_seller'),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} → {self.seller.brand_name}"
+
+
+# ============================================================================
+# Group 6: Reviews (ERD V2.1)
+# ============================================================================
+
+class Review(models.Model):
+    """상품 리뷰 (ERD: reviews)
+
+    order_item_id를 통해 실제 구매 기반 리뷰인지 검증할 수 있고,
+    사진 리뷰 여부(has_photos)로 사진 후기 비율 계산 가능.
+    """
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='reviews',
+        verbose_name="상품",
+    )
+    user = models.ForeignKey(
+        'authentication.User',
+        on_delete=models.CASCADE,
+        related_name='reviews',
+        verbose_name="작성자",
+    )
+    order_item = models.ForeignKey(
+        'orders.OrderItem',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviews',
+        verbose_name="주문 품목",
+    )
+
+    rating = models.SmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        verbose_name="평점",
+    )
+    content = models.TextField(
+        verbose_name="리뷰 내용",
+    )
+
+    has_photos = models.BooleanField(
+        default=False,
+        verbose_name="사진 리뷰 여부",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=ReviewStatus.choices,
+        default=ReviewStatus.VISIBLE,
+        verbose_name="상태",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
+
+    class Meta:
+        db_table = 'reviews'
+        verbose_name = '리뷰'
+        verbose_name_plural = '리뷰'
+        indexes = [
+            models.Index(fields=['product'], name='ix_reviews_product'),
+            models.Index(fields=['user'], name='ix_reviews_user'),
+            models.Index(fields=['order_item'], name='ix_reviews_order_item'),
+        ]
+
+    def __str__(self):
+        return f"{self.product.name} - {self.user.username} ({self.rating}점)"
+
+
+class ReviewImage(models.Model):
+    """사진 리뷰용 이미지 (ERD: review_images)
+
+    한 리뷰에 여러 장의 사진을 연결할 수 있음.
+    """
+
+    review = models.ForeignKey(
+        Review,
+        on_delete=models.CASCADE,
+        related_name='images',
+        verbose_name="리뷰",
+    )
+
+    image_url = models.TextField(
+        verbose_name="이미지 URL",
+    )
+    display_order = models.IntegerField(
+        default=0,
+        verbose_name="표시 순서",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
+
+    class Meta:
+        db_table = 'review_images'
+        verbose_name = '리뷰 이미지'
+        verbose_name_plural = '리뷰 이미지'
+        indexes = [
+            models.Index(fields=['review', 'display_order'], name='ix_review_images_order'),
+        ]
+
+    def __str__(self):
+        return f"리뷰 {self.review.id} 이미지 {self.display_order}"
+
+
+# ============================================================================
+# Group 7: Recommendation & Analytics (ERD V2.1)
+# ============================================================================
+
+class ProductStats(models.Model):
+    """상품별 집계/품질 피처 (ERD: product_stats)
+
+    view/cart/order/wishlist/review 로그를 배치/스트림으로 모아 정기적으로 갱신하고,
+    추천/정렬/대시보드 피처의 재료로 사용.
+    """
+
+    product = models.OneToOneField(
+        Product,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name='stats',
+        verbose_name="상품",
+    )
+
+    # 기본 집계 카운트
+    view_count = models.BigIntegerField(default=0, verbose_name="조회수")
+    recommend_clicked_count = models.BigIntegerField(default=0, verbose_name="추천 클릭수")
+    cart_event_count = models.BigIntegerField(default=0, verbose_name="장바구니 이벤트 수")
+    order_event_count = models.BigIntegerField(default=0, verbose_name="주문 이벤트 수")
+    wishlist_count = models.BigIntegerField(default=0, verbose_name="찜 수")
+
+    # 리뷰 기반 집계
+    review_count = models.BigIntegerField(default=0, verbose_name="리뷰 수")
+    average_rating = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        default=0.00,
+        verbose_name="평균 평점",
+    )
+    photo_review_count = models.BigIntegerField(default=0, verbose_name="사진 리뷰 수")
+
+    # 감성/타이밍 피처
+    sentiment_score_avg = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0.00,
+        verbose_name="감성 점수 평균",
+    )
+    first_review_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="첫 리뷰 시각",
+    )
+
+    # 품질 점수
+    quality_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=50.00,
+        verbose_name="품질 점수",
+    )
+    image_quality_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=50.00,
+        verbose_name="이미지 품질 점수",
+    )
+    content_quality_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=50.00,
+        verbose_name="콘텐츠 품질 점수",
+    )
+
+    last_updated = models.DateTimeField(auto_now=True, verbose_name="갱신 시각")
+
+    class Meta:
+        db_table = 'product_stats'
+        verbose_name = '상품 통계'
+        verbose_name_plural = '상품 통계'
+
+    def __str__(self):
+        return f"{self.product.name} 통계"
+
+
+class UserProductStats(models.Model):
+    """유저 × 상품별 집계 피처 (ERD: user_product_stats)
+
+    개인화 추천/재방문 리마인드 등에 사용.
+    """
+
+    user = models.ForeignKey(
+        'authentication.User',
+        on_delete=models.CASCADE,
+        related_name='product_stats',
+        verbose_name="사용자",
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='user_stats',
+        verbose_name="상품",
+    )
+
+    view_count = models.BigIntegerField(default=0, verbose_name="조회수")
+    cart_event_count = models.BigIntegerField(default=0, verbose_name="장바구니 이벤트 수")
+    order_event_count = models.BigIntegerField(default=0, verbose_name="주문 이벤트 수")
+
+    last_interacted_at = models.DateTimeField(auto_now=True, verbose_name="마지막 상호작용 시각")
+
+    class Meta:
+        db_table = 'user_product_stats'
+        verbose_name = '유저별 상품 통계'
+        verbose_name_plural = '유저별 상품 통계'
+        unique_together = [['user', 'product']]
+        indexes = [
+            models.Index(fields=['user', 'product'], name='ix_user_product_stats_pair'),
+            models.Index(fields=['user'], name='ix_user_product_stats_user'),
+            models.Index(fields=['product'], name='ix_user_product_stats_product'),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.product.name} 통계"

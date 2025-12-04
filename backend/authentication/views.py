@@ -17,6 +17,7 @@ import os
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.contrib.auth.hashers import make_password
 from django.core.mail import send_mail
 from django.db import transaction
 from django.http import HttpResponseRedirect
@@ -48,7 +49,7 @@ from .providers import (
     exchange_google_token,
     exchange_kakao_token,
 )
-from .models import UserAddress, UserPaymentMethod
+from .models import UserAddress, UserPaymentMethod, UserProfile, AuthGoogleAccount, AuthKakaoAccount, AuthEmailCredential
 from .serializers import (
     LoginSerializer,
     PasswordChangeSerializer,
@@ -245,7 +246,7 @@ class EmailVerificationConfirmView(APIView):
                 status=status.HTTP_200_OK,
             )
 
-        if not user.email_verification_code or user.email_verification_code != code:
+        if not getattr(user, "email_verification_code", None) or getattr(user, "email_verification_code", None) != code:
             return error_response(
                 "인증번호가 일치하지 않습니다.",
                 "invalid_verification_code",
@@ -268,22 +269,13 @@ class LoginView(APIView):
         serializer = LoginSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
-        
+
         # 일반 이메일 로그인 시 role이 guest인 경우 user로 업데이트
         # (기존에 회원가입했지만 role이 제대로 설정되지 않은 경우 대비)
-        updates = {}
         if user.role == "guest":
-            updates["role"] = "user"
-        
-        # 이메일 로그인 시 마지막 provider 를 EMAIL 로 업데이트
-        if user.provider != Provider.EMAIL:
-            updates["provider"] = Provider.EMAIL
-        
-        if updates:
-            for k, v in updates.items():
-                setattr(user, k, v)
-            user.save(update_fields=list(updates.keys()))
-        
+            user.role = "user"
+            user.save(update_fields=["role"])
+
         tokens = issue_tokens_with_claims(user)
 
         return Response(
@@ -363,7 +355,15 @@ class PasswordChangeView(APIView):
         serializer = PasswordChangeSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         user = request.user
-        user.set_password(serializer.validated_data["new_password"])
+        new_password = serializer.validated_data["new_password"]
+
+        cred = getattr(user, "email_credential", None)
+        if cred is None:
+            cred = AuthEmailCredential(user=user, is_email_verified=True)
+        cred.password_hash = make_password(new_password)
+        cred.save()
+
+        user.set_unusable_password()
         user.save(update_fields=["password"])
         # 보안: 기존 리프레시 토큰 일괄 폐기 (글로벌 로그아웃 효과)
         try:
@@ -434,7 +434,13 @@ class PasswordResetConfirmView(APIView):
         if not token_gen.check_token(user, token):
             return error_response("토큰이 유효하지 않거나 만료되었습니다.", "invalid_token", status.HTTP_400_BAD_REQUEST)
 
-        user.set_password(new_password)
+        cred = getattr(user, "email_credential", None)
+        if cred is None:
+            cred = AuthEmailCredential(user=user, is_email_verified=True)
+        cred.password_hash = make_password(new_password)
+        cred.save()
+
+        user.set_unusable_password()
         user.save(update_fields=["password"])
         try:
             revoked = revoke_all_refresh_tokens(user)
@@ -500,36 +506,53 @@ class GoogleCallbackView(APIView):
             return error_response("이메일을 확인할 수 없습니다.", "email_required", status.HTTP_400_BAD_REQUEST)
 
         User = get_user_model()
-        user, created = User.objects.get_or_create(
-            email=email,
-            defaults={
-                "username": email.split("@")[0],
-                "first_name": name or "",
-                "provider": Provider.GOOGLE,
-                "provider_id": str(sub),
-                "profile_image_url": picture,
-                "is_email_verified": True,
-                "role": "user",  # OAuth 로그인 시 일반 회원 권한 부여
-            },
-        )
-        # 기존 이메일 계정이 있는 경우: OAuth 정보 병합 및 role 업데이트
-        if not created:
-            updates = {}
-            if user.provider != Provider.GOOGLE:
-                updates["provider"] = Provider.GOOGLE
-            if user.provider_id != str(sub):
-                updates["provider_id"] = str(sub)
-            if picture and user.profile_image_url != picture:
-                updates["profile_image_url"] = picture
-            if not user.is_email_verified:
-                updates["is_email_verified"] = True
-            # role이 guest인 경우 user로 업데이트 (OAuth 로그인은 일반 회원)
-            if user.role == "guest":
-                updates["role"] = "user"
-            if updates:
-                for k, v in updates.items():
-                    setattr(user, k, v)
-                user.save(update_fields=list(updates.keys()))
+
+        # ERD V2.1: Google 계정으로 먼저 검색
+        google_account = AuthGoogleAccount.objects.filter(google_user_id=str(sub)).first()
+        if google_account:
+            user = google_account.user
+        else:
+            # 이메일로 기존 사용자 검색
+            user = User.objects.filter(email=email).first()
+
+        if user is None:
+            # 신규 사용자 생성 (ERD V2.1)
+            with transaction.atomic():
+                user = User.objects.create(
+                    email=email,
+                    username=email.split("@")[0],
+                    role="user",  # OAuth 로그인 시 일반 회원 권한 부여
+                )
+                # UserProfile 업데이트 (signal에서 자동 생성됨)
+                profile, _ = UserProfile.objects.get_or_create(user=user)
+                if picture:
+                    profile.profile_image_url = picture
+                    profile.save(update_fields=["profile_image_url"])
+                # AuthGoogleAccount 생성
+                AuthGoogleAccount.objects.create(
+                    user=user,
+                    google_user_id=str(sub),
+                    email=email,
+                )
+        else:
+            # 기존 사용자: Google 계정 연결 확인 및 업데이트
+            with transaction.atomic():
+                # Google 계정 연결이 없으면 생성
+                if not AuthGoogleAccount.objects.filter(user=user, google_user_id=str(sub)).exists():
+                    AuthGoogleAccount.objects.create(
+                        user=user,
+                        google_user_id=str(sub),
+                        email=email,
+                    )
+                # UserProfile 업데이트 (프로필 이미지)
+                profile, _ = UserProfile.objects.get_or_create(user=user)
+                if picture and profile.profile_image_url != picture:
+                    profile.profile_image_url = picture
+                    profile.save(update_fields=["profile_image_url"])
+                # role이 guest인 경우 user로 업데이트 (OAuth 로그인은 일반 회원)
+                if user.role == "guest":
+                    user.role = "user"
+                    user.save(update_fields=["role"])
 
         tokens = issue_tokens_with_claims(user)
         return _oauth_response(request, user, tokens, ui_mode, next_url)
@@ -589,45 +612,59 @@ class KakaoCallbackView(APIView):
         name = profile.get("name")
 
         if not kakao_id:
-            return error_response("?�용???�별값을 ?�인?????�습?�다.", "id_required", status.HTTP_400_BAD_REQUEST)
+            return error_response("사용자 식별값을 확인할 수 없습니다.", "id_required", status.HTTP_400_BAD_REQUEST)
 
         User = get_user_model()
-        user = None
-        if email:
+
+        # ERD V2.1: Kakao 계정으로 먼저 검색
+        kakao_account = AuthKakaoAccount.objects.filter(kakao_user_id=str(kakao_id)).first()
+        if kakao_account:
+            user = kakao_account.user
+        elif email:
+            # 이메일로 기존 사용자 검색
             user = User.objects.filter(email=email).first()
-
-        if user is None:
-            user = User.objects.filter(provider=Provider.KAKAO, provider_id=str(kakao_id)).first()
-
-        if user is None:
-            username = (email or f"kakao_{kakao_id}").split("@")[0] if email else f"kakao_{kakao_id}"
-            user = User.objects.create(
-                email=email or f"kakao_{kakao_id}@example.com",
-                username=username,
-                first_name=name or "",
-                provider=Provider.KAKAO,
-                provider_id=str(kakao_id),
-                profile_image_url=picture,
-                is_email_verified=True,
-                role="user",  # OAuth 로그인 시 일반 회원 권한 부여
-            )
         else:
-            updates = {}
-            if user.provider != Provider.KAKAO:
-                updates["provider"] = Provider.KAKAO
-            if user.provider_id != str(kakao_id):
-                updates["provider_id"] = str(kakao_id)
-            if picture and user.profile_image_url != picture:
-                updates["profile_image_url"] = picture
-            if not user.is_email_verified:
-                updates["is_email_verified"] = True
-            # role이 guest인 경우 user로 업데이트 (OAuth 로그인은 일반 회원)
-            if user.role == "guest":
-                updates["role"] = "user"
-            if updates:
-                for k, v in updates.items():
-                    setattr(user, k, v)
-                user.save(update_fields=list(updates.keys()))
+            user = None
+
+        if user is None:
+            # 신규 사용자 생성 (ERD V2.1)
+            with transaction.atomic():
+                username = (email or f"kakao_{kakao_id}").split("@")[0] if email else f"kakao_{kakao_id}"
+                user = User.objects.create(
+                    email=email or f"kakao_{kakao_id}@example.com",
+                    username=username,
+                    role="user",  # OAuth 로그인 시 일반 회원 권한 부여
+                )
+                # UserProfile 업데이트 (signal에서 자동 생성됨)
+                profile, _ = UserProfile.objects.get_or_create(user=user)
+                if picture:
+                    profile.profile_image_url = picture
+                    profile.save(update_fields=["profile_image_url"])
+                # AuthKakaoAccount 생성
+                AuthKakaoAccount.objects.create(
+                    user=user,
+                    kakao_user_id=str(kakao_id),
+                    email=email or f"kakao_{kakao_id}@example.com",
+                )
+        else:
+            # 기존 사용자: Kakao 계정 연결 확인 및 업데이트
+            with transaction.atomic():
+                # Kakao 계정 연결이 없으면 생성
+                if not AuthKakaoAccount.objects.filter(user=user, kakao_user_id=str(kakao_id)).exists():
+                    AuthKakaoAccount.objects.create(
+                        user=user,
+                        kakao_user_id=str(kakao_id),
+                        email=email or f"kakao_{kakao_id}@example.com",
+                    )
+                # UserProfile 업데이트 (프로필 이미지)
+                profile, _ = UserProfile.objects.get_or_create(user=user)
+                if picture and profile.profile_image_url != picture:
+                    profile.profile_image_url = picture
+                    profile.save(update_fields=["profile_image_url"])
+                # role이 guest인 경우 user로 업데이트 (OAuth 로그인은 일반 회원)
+                if user.role == "guest":
+                    user.role = "user"
+                    user.save(update_fields=["role"])
 
         tokens = issue_tokens_with_claims(user)
         return _oauth_response(request, user, tokens, ui_mode, next_url)

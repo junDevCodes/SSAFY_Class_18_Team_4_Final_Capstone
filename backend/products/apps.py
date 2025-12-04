@@ -1,4 +1,10 @@
-import os
+"""
+Products 앱 설정
+
+서버 시작 시 JSON 데이터 파이프라인을 자동으로 확인하고
+대기 중인 파일이 있으면 처리합니다.
+"""
+import sys
 from django.apps import AppConfig
 from django.conf import settings
 
@@ -10,8 +16,10 @@ class ProductsConfig(AppConfig):
     def ready(self):
         """앱 초기화 시 실행 (runserver 시작 시)"""
         # 마이그레이션 중이거나 다른 명령어 실행 중이면 스킵
-        import sys
-        skip_commands = ['migrate', 'makemigrations', 'shell', 'createsuperuser', 'import_products']
+        skip_commands = [
+            'migrate', 'makemigrations', 'shell', 'createsuperuser',
+            'import_products', 'process_json_data', 'watch_pipeline'
+        ]
         if any(cmd in sys.argv for cmd in skip_commands):
             return
 
@@ -19,68 +27,75 @@ class ProductsConfig(AppConfig):
         if 'runserver' not in sys.argv:
             return
 
-        # 개발 환경에서만 자동 임포트 실행
+        # 개발 환경에서만 자동 처리 실행
         if settings.DEBUG:
             # DB 접근을 지연시키기 위해 별도 스레드에서 실행
             import threading
-            thread = threading.Thread(target=self._auto_import_csv_data)
+            thread = threading.Thread(target=self._auto_process_json_data)
             thread.daemon = True
             thread.start()
 
-    def _auto_import_csv_data(self):
-        """서버 시작 시 CSV 데이터 자동 임포트"""
+    def _auto_process_json_data(self):
+        """서버 시작 시 JSON 파이프라인 자동 처리"""
         import time
-        from django.core.management import call_command
-        from products.models import Product
-        import csv
 
         # Django 앱이 완전히 초기화될 때까지 대기
         time.sleep(2)
 
-        # 이미 데이터가 있으면 스킵
         try:
-            if Product.objects.exists():
-                print(f"[AUTO-IMPORT] 제품 데이터 {Product.objects.count()}개 존재 - CSV 임포트 스킵")
-                return
-        except Exception:
-            # 마이그레이션이 안 된 경우 등 무시
-            return
+            from products.models import Product
+            from data_pipeline.processor import DataProcessor
 
-        # data/ 폴더에서 CSV 파일 찾기
-        base_dir = settings.BASE_DIR.parent  # backend의 상위 디렉토리
-        data_dir = base_dir / 'data'
+            # 현재 제품 수 확인
+            product_count = Product.objects.count()
 
-        if not data_dir.exists():
-            print(f"[AUTO-IMPORT] WARNING: data/ 폴더를 찾을 수 없습니다: {data_dir}")
-            return
+            # 데이터 프로세서 초기화
+            processor = DataProcessor()
 
-        # CSV 파일 검색 (우선순위: merged_all_naver.csv > 기타 .csv)
-        csv_files = list(data_dir.glob('*.csv'))
+            # processed 폴더에서 새 파일 확인
+            new_files = processor.check_new_files()
 
-        if not csv_files:
-            print(f"[AUTO-IMPORT] WARNING: data/ 폴더에 CSV 파일이 없습니다: {data_dir}")
-            return
+            # incoming 폴더의 대기 파일 확인
+            pending_files = processor.get_pending_files()
 
-        # merged_all_naver.csv를 우선 사용
-        target_csv = None
-        for csv_file in csv_files:
-            if 'merged_all_naver' in csv_file.name:
-                target_csv = csv_file
-                break
+            total_pending = len(new_files) + len(pending_files)
 
-        # 없으면 첫 번째 CSV 사용
-        if not target_csv:
-            target_csv = csv_files[0]
+            # 상태 출력
+            print(f"\n{'='*60}")
+            print(f"[JSON-PIPELINE] 데이터 파이프라인 상태 확인")
+            print(f"{'='*60}")
+            print(f"  현재 DB 제품 수: {product_count}개")
+            print(f"  processed 폴더 새 파일: {len(new_files)}개")
+            print(f"  incoming 폴더 대기 파일: {len(pending_files)}개")
 
-        print(f"\n{'='*60}")
-        print(f"[AUTO-IMPORT] CSV 임포트 시작: {target_csv.name}")
-        print(f"{'='*60}\n")
+            # 대기 파일이 있으면 처리
+            if total_pending > 0:
+                print(f"\n[JSON-PIPELINE] 대기 중인 파일 {total_pending}개 처리 시작...")
 
-        try:
-            # import_products 커맨드 실행
-            call_command('import_products', str(target_csv))
-            print(f"\n[AUTO-IMPORT] CSV 임포트 완료!")
+                # 파이프라인 실행 (processed → incoming → DB → backup)
+                results = processor.process_all(dry_run=False, auto_move=True)
+
+                # 결과 출력
+                print(f"\n[JSON-PIPELINE] 처리 완료!")
+                print(f"  - 처리된 파일: {results['processed_files']}개")
+                print(f"  - 신규 상품: {results['new_products']}개")
+                print(f"  - 업데이트: {results['updated_products']}개")
+
+                if results['failed_files'] > 0:
+                    print(f"  - 실패: {results['failed_files']}개")
+                    for err in results['errors']:
+                        print(f"    * {err['file']}: {err['error']}")
+            else:
+                if product_count > 0:
+                    print(f"\n[JSON-PIPELINE] 처리할 파일 없음 - DB에 {product_count}개 제품 존재")
+                else:
+                    print(f"\n[JSON-PIPELINE] 처리할 파일 없음")
+                    print(f"  크롤링된 JSON 파일을 data/json/processed/ 폴더에 넣어주세요.")
+
+            print(f"{'='*60}\n")
+
         except Exception as e:
-            print(f"\n[AUTO-IMPORT] ERROR: CSV 임포트 실패: {str(e)}")
+            # 마이그레이션이 안 된 경우, 테이블 없는 경우 등 무시
             import traceback
+            print(f"\n[JSON-PIPELINE] 파이프라인 확인 중 오류 발생: {str(e)}")
             traceback.print_exc()

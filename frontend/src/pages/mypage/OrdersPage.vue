@@ -2,13 +2,13 @@
   <div class="orders-page">
     <div class="page-header">
       <h2 class="page-title">주문 내역</h2>
-      <p class="page-description">지금까지 주문한 내역을 확인할 수 있습니다</p>
+      <p class="page-description">지금까지 주문하신 내역을 확인할 수 있습니다.</p>
     </div>
 
     <!-- Loading State -->
     <div v-if="loading" class="loading-state">
       <div class="spinner"></div>
-      <p>주문 내역을 불러오는 중...</p>
+      <p>주문 내역을 불러오는 중입니다...</p>
     </div>
 
     <!-- Error State -->
@@ -25,7 +25,7 @@
         </svg>
       </div>
       <h3>주문 내역이 없습니다</h3>
-      <p>첫 주문을 시작해보세요</p>
+      <p>첫 주문을 지금 바로 시작해 보세요.</p>
       <router-link to="/" class="btn-primary">쇼핑 시작하기</router-link>
     </div>
 
@@ -43,13 +43,13 @@
               :to="`/mypage/orders/${order.id}`"
               class="order-number"
             >
-              주문번호: {{ order.order_number }}
+              주문번호: {{ order.order_no }}
             </router-link>
             <span class="order-date">{{ formatDate(order.created_at) }}</span>
           </div>
           <div class="order-status">
-            <span class="status-badge" :class="`status-${order.order_status}`">
-              {{ getOrderStatusText(order.order_status) }}
+            <span class="status-badge" :class="`status-${order.status}`">
+              {{ getOrderStatusText(order.status) }}
             </span>
           </div>
         </div>
@@ -70,7 +70,9 @@
             </div>
             <div class="item-info">
               <h4 class="item-name">{{ item.product_name }}</h4>
-              <p class="item-quantity">{{ item.quantity }}개 × {{ formatPrice(item.price || 0) }}</p>
+              <p class="item-quantity">
+                {{ item.quantity }}개 × {{ formatPrice(item.unit_price || 0) }}
+              </p>
             </div>
             <div class="item-total">
               {{ formatPrice(item.total_price) }}
@@ -118,7 +120,7 @@
               class="btn-cancel"
               :disabled="cancelling === order.id"
             >
-              <span v-if="cancelling === order.id">취소 중...</span>
+              <span v-if="cancelling === order.id">취소 처리 중...</span>
               <span v-else>주문 취소</span>
             </button>
 
@@ -128,8 +130,8 @@
               class="btn-confirm"
               :disabled="confirming === order.id"
             >
-              <span v-if="confirming === order.id">확인 중...</span>
-              <span v-else>배송 확인</span>
+              <span v-if="confirming === order.id">확인 처리 중...</span>
+              <span v-else>배송 완료 확인</span>
             </button>
           </div>
         </div>
@@ -173,6 +175,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
+import { getOrderStatusText } from '@/utils/status'
 
 const ordersStore = useOrdersStore()
 
@@ -216,11 +219,11 @@ const loadOrders = async () => {
   try {
     await ordersStore.loadOrders({
       page: currentPage.value,
-      page_size: pageSize
+      page_size: pageSize,
     })
   } catch (err: any) {
-    console.error('주문 내역 로드 실패:', err)
-    error.value = '주문 내역을 불러오는데 실패했습니다.'
+    console.error('주문 목록 로드 실패:', err)
+    error.value = '주문 내역을 불러오는 데 실패했습니다.'
   } finally {
     loading.value = false
   }
@@ -255,14 +258,14 @@ const handleCancelOrder = async (orderId: number) => {
 
 // Confirm delivery
 const handleConfirmDelivery = async (orderId: number) => {
-  const confirmed = confirm('배송을 확인하시겠습니까?')
+  const confirmed = confirm('배송 완료를 확인하시겠습니까?')
   if (!confirmed) return
 
   confirming.value = orderId
 
   try {
     await ordersStore.confirmDelivery(orderId)
-    alert('배송이 확인되었습니다.')
+    alert('배송 완료가 확인되었습니다.')
     await loadOrders()
   } catch (err: any) {
     console.error('배송 확인 실패:', err)
@@ -274,26 +277,12 @@ const handleConfirmDelivery = async (orderId: number) => {
 
 // Check if order can be cancelled
 const canCancelOrder = (order: any): boolean => {
-  return ['pending', 'paid', 'processing'].includes(order.order_status)
+  return ['pending', 'paid', 'processing'].includes(order.status)
 }
 
 // Check if delivery can be confirmed
 const canConfirmDelivery = (order: any): boolean => {
-  return order.order_status === 'shipped'
-}
-
-// Get order status text
-const getOrderStatusText = (status: string): string => {
-  const statusMap: Record<string, string> = {
-    pending: '주문대기',
-    paid: '결제완료',
-    processing: '처리중',
-    shipped: '배송중',
-    delivered: '배송완료',
-    cancelled: '취소',
-    refunded: '환불'
-  }
-  return statusMap[status] || status
+  return ['paid', 'shipped'].includes(order.status)
 }
 
 // Format date
@@ -302,7 +291,7 @@ const formatDate = (dateString: string): string => {
   return date.toLocaleDateString('ko-KR', {
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
   })
 }
 
@@ -459,9 +448,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.5rem;
-  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 1.25rem 1.5rem 1rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
 }
 
 .order-info {
@@ -471,11 +459,9 @@ onMounted(() => {
 }
 
 .order-number {
-  font-size: 1rem;
-  font-weight: 700;
+  font-weight: 600;
   color: #1a1a1a;
   text-decoration: none;
-  transition: color 0.2s;
 }
 
 .order-number:hover {
@@ -484,7 +470,7 @@ onMounted(() => {
 
 .order-date {
   font-size: 0.875rem;
-  color: #666;
+  color: #888;
 }
 
 .order-status {
@@ -493,30 +479,57 @@ onMounted(() => {
 }
 
 .status-badge {
-  padding: 0.5rem 1rem;
-  border-radius: 12px;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem 0.875rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid transparent;
 }
 
-.status-pending { background: #fef3c7; color: #92400e; }
-.status-paid { background: #d1fae5; color: #065f46; }
-.status-processing { background: #dbeafe; color: #1e40af; }
-.status-shipped { background: #cffafe; color: #164e63; }
-.status-delivered { background: #e5e7eb; color: #374151; }
-.status-cancelled { background: #fee2e2; color: #991b1b; }
-.status-refunded { background: #fce7f3; color: #9f1239; }
+.status-pending {
+  background: #fff3cd;
+  color: #856404;
+  border-color: #ffeeba;
+}
+
+.status-paid,
+.status-processing {
+  background: #e6f4ff;
+  color: #0b5ed7;
+  border-color: #b6e0ff;
+}
+
+.status-shipped {
+  background: #e0f3ff;
+  color: #055160;
+  border-color: #9eeaf9;
+}
+
+.status-delivered {
+  background: #d1e7dd;
+  color: #0f5132;
+  border-color: #badbcc;
+}
+
+.status-cancelled,
+.status-refunded {
+  background: #f8d7da;
+  color: #842029;
+  border-color: #f5c2c7;
+}
 
 /* Order Items */
 .order-items {
-  padding: 1.5rem;
-  border-bottom: 1px solid #e9ecef;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
 }
 
 .order-item {
-  display: grid;
-  grid-template-columns: 60px 1fr auto;
+  display: flex;
+  align-items: center;
   gap: 1rem;
   padding: 0.75rem 0;
 }
@@ -558,42 +571,42 @@ onMounted(() => {
 }
 
 .item-total {
-  text-align: right;
+  margin-left: auto;
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 600;
   color: #1a1a1a;
 }
 
 .more-items {
-  text-align: center;
-  padding: 0.75rem;
-  background: #f8f9fa;
-  border-radius: 6px;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed #e0e0e0;
   font-size: 0.875rem;
   color: #666;
-  margin-top: 0.75rem;
 }
 
 /* Order Footer */
 .order-footer {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  padding: 1.5rem;
+  align-items: center;
+  padding: 1rem 1.5rem 1.25rem;
+  gap: 1.5rem;
 }
 
 .order-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  flex: 1;
 }
 
 .summary-row {
   display: flex;
   justify-content: space-between;
-  gap: 2rem;
-  font-size: 0.875rem;
-  color: #666;
+  font-size: 0.9375rem;
+  color: #444;
+}
+
+.summary-row + .summary-row {
+  margin-top: 0.25rem;
 }
 
 .summary-row.discount {
@@ -601,12 +614,10 @@ onMounted(() => {
 }
 
 .summary-row.total {
-  font-size: 1rem;
+  margin-top: 0.5rem;
+  font-size: 1.0625rem;
   font-weight: 700;
   color: #1a1a1a;
-  padding-top: 0.5rem;
-  border-top: 1px solid #e9ecef;
-  margin-top: 0.5rem;
 }
 
 .total-amount {
@@ -616,36 +627,36 @@ onMounted(() => {
 
 .order-actions {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
 }
 
 .btn-detail,
 .btn-cancel,
 .btn-confirm {
-  padding: 0.625rem 1.25rem;
-  border: none;
-  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
   font-size: 0.875rem;
   font-weight: 600;
+  border: 1px solid transparent;
   cursor: pointer;
   transition: all 0.2s;
-  text-decoration: none;
-  display: inline-block;
 }
 
 .btn-detail {
-  background: #5f0080;
-  color: white;
+  background: white;
+  color: #5f0080;
+  border-color: #e5d4f4;
 }
 
 .btn-detail:hover {
-  background: #4c0066;
+  border-color: #5f0080;
 }
 
 .btn-cancel {
   background: white;
   color: #dc3545;
-  border: 1px solid #dc3545;
+  border-color: #f5c2c7;
 }
 
 .btn-cancel:hover:not(:disabled) {
@@ -654,17 +665,17 @@ onMounted(() => {
 }
 
 .btn-confirm {
-  background: #007bff;
+  background: #5f0080;
   color: white;
 }
 
 .btn-confirm:hover:not(:disabled) {
-  background: #0056b3;
+  background: #4c0066;
 }
 
 .btn-cancel:disabled,
 .btn-confirm:disabled {
-  opacity: 0.5;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
@@ -673,35 +684,37 @@ onMounted(() => {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
   margin-top: 2rem;
-  padding-top: 2rem;
-  border-top: 1px solid #e9ecef;
 }
 
-.btn-page,
-.btn-page-number {
-  padding: 0.5rem 0.875rem;
-  background: white;
-  color: #333;
+.btn-page {
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
   border: 1px solid #ddd;
-  border-radius: 6px;
+  background: white;
   font-size: 0.875rem;
-  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-page:hover:not(:disabled),
-.btn-page-number:hover:not(:disabled) {
-  background: #f9fafb;
-  border-color: #5f0080;
-  color: #5f0080;
 }
 
 .btn-page:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.page-numbers {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.btn-page-number {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid #ddd;
+  background: white;
+  font-size: 0.875rem;
+  cursor: pointer;
 }
 
 .btn-page-number.active {
@@ -710,69 +723,36 @@ onMounted(() => {
   border-color: #5f0080;
 }
 
-.page-numbers {
-  display: flex;
-  gap: 0.25rem;
-}
-
 /* Responsive */
 @media (max-width: 768px) {
-  .page-title {
-    font-size: 1.625rem;
-  }
-
-  .order-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-
   .order-footer {
     flex-direction: column;
-    align-items: stretch;
-    gap: 1.5rem;
+    align-items: flex-start;
   }
 
   .order-actions {
-    flex-direction: column;
+    width: 100%;
+    justify-content: flex-end;
   }
 
-  .btn-detail,
-  .btn-cancel,
-  .btn-confirm {
-    width: 100%;
-    text-align: center;
+  .orders-list {
+    gap: 1rem;
   }
 }
 
 @media (max-width: 480px) {
-  .order-items,
+  .order-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
   .order-footer {
-    padding: 1rem;
+    padding: 0.75rem 1rem 1rem;
   }
 
-  .order-item {
-    grid-template-columns: 50px 1fr;
-    grid-template-areas:
-      "image info"
-      "total total";
-  }
-
-  .item-image {
-    grid-area: image;
-    width: 50px;
-    height: 50px;
-  }
-
-  .item-info {
-    grid-area: info;
-  }
-
-  .item-total {
-    grid-area: total;
-    text-align: left;
-    padding-top: 0.5rem;
-    border-top: 1px solid #f0f0f0;
+  .order-items {
+    padding: 0.75rem 1rem;
   }
 }
 </style>

@@ -1,50 +1,63 @@
 """
-제품 API 뷰 테스트
+제품 API 뷰 테스트 (ERD V2.1)
 """
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
 from products.models import Category, Product
+from authentication.models import User
+from sellers.models import Seller
 
 
 class ProductAPITest(TestCase):
-    """제품 API 테스트"""
+    """제품 API 테스트 (ERD V2.1)"""
 
     def setUp(self):
         """테스트 데이터 생성"""
         self.client = APIClient()
 
+        # 유저 및 셀러 생성 (ERD V2.1: Product는 seller 필수)
+        self.user = User.objects.create_user(
+            email="seller@test.com",
+            username="testuser",
+            password="testpass123"
+        )
+        self.seller = Seller.objects.create(
+            user=self.user,
+            brand_name="테스트 판매자",
+            brand_slug="test-seller"
+        )
+
         # 카테고리 생성
         self.category1 = Category.objects.create(name='과일/견과', slug='fruit-nuts')
         self.category2 = Category.objects.create(name='채소', slug='vegetables')
 
-        # 제품 생성
+        # 제품 생성 (ERD V2.1)
         self.product1 = Product.objects.create(
+            seller=self.seller,
             category=self.category1,
             name='냉동 칠레산 블루베리 1kg',
+            slug='frozen-blueberry-1kg',
             price=9990,
-            description='맛있는 블루베리',
-            image_url='https://example.com/image1.jpg',
             original_price=12000,
-            discount=17,
-            is_best=True
+            status='active'
         )
         self.product2 = Product.objects.create(
+            seller=self.seller,
             category=self.category1,
             name='사과 1kg',
+            slug='apple-1kg',
             price=5000,
-            description='신선한 사과',
-            image_url='https://example.com/image2.jpg',
-            is_best=False
+            status='active'
         )
         self.product3 = Product.objects.create(
+            seller=self.seller,
             category=self.category2,
             name='유기농 상추',
+            slug='organic-lettuce',
             price=3000,
-            description='유기농 상추',
-            image_url='https://example.com/image3.jpg',
-            is_best=True
+            status='active'
         )
 
     def test_get_product_list(self):
@@ -76,17 +89,6 @@ class ProductAPITest(TestCase):
         for product in response.data['results']:
             self.assertEqual(product['category']['id'], self.category1.id)
 
-    def test_filter_best_products(self):
-        """베스트 제품 필터링 테스트"""
-        url = reverse('product-list')
-        response = self.client.get(url, {'is_best': 'true'})
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data['results']), 2)
-        # 모든 제품이 베스트여야 함
-        for product in response.data['results']:
-            self.assertTrue(product['is_best'])
-
     def test_search_products_by_name(self):
         """제품명으로 검색 테스트"""
         url = reverse('product-list')
@@ -109,10 +111,11 @@ class ProductAPITest(TestCase):
         # 추가 제품 생성 (총 20개)
         for i in range(17):
             Product.objects.create(
+                seller=self.seller,
                 category=self.category1,
                 name=f'테스트 제품 {i}',
+                slug=f'test-product-{i}',
                 price=1000 * (i + 1),
-                image_url=f'https://example.com/test{i}.jpg'
             )
 
         url = reverse('product-list')
