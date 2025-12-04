@@ -29,10 +29,10 @@ from .views import (
 
 app_name = "authentication"
 
-# Router for ViewSets
-router = DefaultRouter()
-router.register(r'addresses', UserAddressViewSet, basename='address')
-router.register(r'payment-methods', UserPaymentMethodViewSet, basename='payment-method')
+# Router for ViewSets - 사용자 관련 리소스
+user_router = DefaultRouter()
+user_router.register(r'addresses', UserAddressViewSet, basename='address')
+user_router.register(r'payment-methods', UserPaymentMethodViewSet, basename='payment-method')
 
 urlpatterns = [
     # 기본 인증
@@ -55,7 +55,8 @@ urlpatterns = [
     # OAuth2 - Kakao
     path("auth/kakao/", KakaoLoginRedirectView.as_view(), name="kakao_login"),
     path("auth/kakao/callback/", KakaoCallbackView.as_view(), name="kakao_callback"),
-    # ViewSet URLs (배송지 관리)
-    path("auth/", include(router.urls)),
+    # 사용자 리소스 (배송지, 결제수단 등)
+    # URL: /api/users/me/addresses/, /api/users/me/payment-methods/
+    path("users/me/", include(user_router.urls)),
 ]
 

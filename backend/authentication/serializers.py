@@ -230,6 +230,7 @@ class UserAddressSerializer(serializers.ModelSerializer):
             'postal_code',
             'address_line1',
             'address_line2',
+            'delivery_memo',
             'is_default',
             'created_at',
             'updated_at',

@@ -53,39 +53,34 @@
         </div>
 
         <div class="form-section">
-          <h3 class="section-title">배송지 정보</h3>
+          <div class="section-header">
+            <h3 class="section-title">기본 배송지</h3>
+            <router-link to="/mypage/addresses" class="link-manage">
+              배송지 관리
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </router-link>
+          </div>
 
-          <div class="form-group">
-            <label for="postal_code">우편번호</label>
-            <div class="postal-code-group">
-              <input
-                id="postal_code"
-                v-model="formData.postal_code"
-                type="text"
-                placeholder="우편번호"
-              />
-              <button type="button" class="btn-search-address">주소 검색</button>
+          <div v-if="defaultAddress" class="default-address-card">
+            <div class="address-badge">
+              <span class="badge-default">기본</span>
+              <span class="address-name">{{ defaultAddress.address_name }}</span>
+            </div>
+            <div class="address-info">
+              <p class="recipient">{{ defaultAddress.recipient_name }} · {{ defaultAddress.recipient_phone }}</p>
+              <p class="address-text">
+                [{{ defaultAddress.postal_code }}] {{ defaultAddress.address_line1 }}
+                <span v-if="defaultAddress.address_line2">, {{ defaultAddress.address_line2 }}</span>
+              </p>
             </div>
           </div>
-
-          <div class="form-group">
-            <label for="address">주소</label>
-            <input
-              id="address"
-              v-model="formData.address"
-              type="text"
-              placeholder="주소"
-            />
-          </div>
-
-          <div class="form-group">
-            <label for="address_detail">상세 주소</label>
-            <input
-              id="address_detail"
-              v-model="formData.address_detail"
-              type="text"
-              placeholder="상세 주소를 입력하세요"
-            />
+          <div v-else class="no-address">
+            <p>등록된 배송지가 없습니다</p>
+            <router-link to="/mypage/addresses" class="btn-add-address">
+              배송지 추가하기
+            </router-link>
           </div>
         </div>
 
@@ -207,24 +202,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useAddressesStore } from '@/stores/addresses'
 import { authAPI } from '@/services/api'
+import type { UserAddress } from '@/types/auth'
 
 const authStore = useAuthStore()
+const addressesStore = useAddressesStore()
+
+// 기본 배송지 computed
+const defaultAddress = computed<UserAddress | null>(() => {
+  return addressesStore.addresses.find(addr => addr.is_default) || addressesStore.addresses[0] || null
+})
 
 const loading = ref(true)
 const saving = ref(false)
 const error = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
 
-// Form data
+// Form data (배송지 필드 제거 - 별도 배송지 관리 페이지 사용)
 const formData = reactive({
   name: '',
-  phone: '',
-  postal_code: '',
-  address: '',
-  address_detail: ''
+  phone: ''
 })
 
 // Password change data
@@ -240,15 +240,16 @@ const loadUserData = async () => {
   error.value = null
 
   try {
+    // 프로필 정보 로드
     const response = await authAPI.getProfile()
     const userData = response.data
 
     // Fill form with user data
     formData.name = userData.name || ''
     formData.phone = userData.phone || ''
-    formData.postal_code = userData.postal_code || ''
-    formData.address = userData.address || ''
-    formData.address_detail = userData.address_detail || ''
+
+    // 배송지 목록 로드
+    await addressesStore.loadAddresses()
   } catch (err: any) {
     console.error('프로필 로드 실패:', err)
     error.value = '프로필 정보를 불러오는데 실패했습니다.'
@@ -288,13 +289,10 @@ const handleSubmit = async () => {
   saving.value = true
 
   try {
-    // Update profile
+    // Update profile (배송지 필드 제거)
     await authAPI.updateProfile({
       name: formData.name,
-      phone: formData.phone,
-      postal_code: formData.postal_code,
-      address: formData.address,
-      address_detail: formData.address_detail
+      phone: formData.phone
     })
 
     // Update password if provided
@@ -455,11 +453,42 @@ onMounted(() => {
   padding-bottom: 0;
 }
 
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
 .section-title {
   font-size: 1.25rem;
   font-weight: 700;
   color: #1a1a1a;
   letter-spacing: -0.01em;
+  margin-bottom: 0;
+}
+
+.link-manage {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #5f0080;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.link-manage:hover {
+  color: #4c0066;
+}
+
+.link-manage svg {
+  transition: transform 0.2s;
+}
+
+.link-manage:hover svg {
+  transform: translateX(2px);
 }
 
 .section-description {
@@ -515,30 +544,84 @@ onMounted(() => {
   margin-top: -0.25rem;
 }
 
-.postal-code-group {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.75rem;
+/* 기본 배송지 카드 */
+.default-address-card {
+  padding: 1.25rem;
+  background: #fafafa;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
 }
 
-.btn-search-address {
-  padding: 0.875rem 1.5rem;
+.address-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.badge-default {
+  padding: 0.25rem 0.625rem;
   background: #5f0080;
   color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  white-space: nowrap;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
 }
 
-.btn-search-address:hover {
+.address-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.address-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.recipient {
+  font-size: 0.875rem;
+  color: #374151;
+  font-weight: 500;
+  margin: 0;
+}
+
+.address-text {
+  font-size: 0.875rem;
+  color: #6b7280;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.no-address {
+  padding: 2rem;
+  text-align: center;
+  background: #fafafa;
+  border-radius: 10px;
+  border: 1px dashed #d1d5db;
+}
+
+.no-address p {
+  color: #6b7280;
+  font-size: 0.9375rem;
+  margin: 0 0 1rem 0;
+}
+
+.btn-add-address {
+  display: inline-block;
+  padding: 0.625rem 1.25rem;
+  background: #5f0080;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.btn-add-address:hover {
   background: #4c0066;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 /* Messages */
@@ -775,8 +858,10 @@ onMounted(() => {
     width: 100%;
   }
 
-  .postal-code-group {
-    grid-template-columns: 1fr;
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
   }
 
   .info-card {

@@ -61,3 +61,36 @@ export interface LoginResponse {
   message?: string
 }
 
+// ==================== 배송지 타입 (ERD V2.1) ====================
+export interface UserAddress {
+  id: number
+  address_name: string           // 배송지 이름 (예: '집', '회사')
+  recipient_name: string         // 수령인
+  recipient_phone: string        // 수령인 연락처
+  postal_code: string            // 우편번호
+  address_line1: string          // 기본 주소
+  address_line2: string | null   // 상세 주소
+  delivery_memo: string | null   // 배송 요청사항
+  is_default: boolean            // 기본 배송지 여부
+  created_at: string             // 생성일
+  updated_at: string             // 수정일
+}
+
+export interface UserAddressRequest {
+  address_name: string           // 배송지 이름
+  recipient_name: string         // 수령인 이름
+  recipient_phone: string        // 수령인 연락처
+  postal_code: string            // 우편번호
+  address_line1: string          // 기본 주소
+  address_line2?: string | null  // 상세 주소
+  delivery_memo?: string | null  // 배송 요청사항
+  is_default?: boolean           // 기본 배송지 여부 (기본: false)
+}
+
+export interface AddressListResponse {
+  count: number
+  next: string | null
+  previous: string | null
+  results: UserAddress[]
+}
+
