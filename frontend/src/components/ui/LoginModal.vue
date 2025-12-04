@@ -9,11 +9,11 @@
     <div v-if="uiStore.isLoginOpen" class="fixed inset-0 z-[101] flex items-center justify-center p-4 sm:p-6 pointer-events-none">
       <div class="bg-white w-full max-w-[400px] rounded-2xl shadow-2xl pointer-events-auto overflow-hidden flex flex-col max-h-[90vh]">
         <!-- Modal Header -->
-        <div class="px-6 py-4 flex items-center justify-between border-b border-gray-100 shrink-0">
-          <div class="font-display font-bold text-2xl text-brand-900">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+          <div class="text-2xl font-bold font-display text-brand-900">
             Sel<span class="inline-block transform italic text-brand-500 ml-0.5">F</span>
           </div>
-          <button @click="uiStore.closeLogin" class="text-gray-400 hover:text-gray-900 transition-colors">
+          <button @click="uiStore.closeLogin" class="text-gray-400 transition-colors hover:text-gray-900">
             <X :size="24" />
           </button>
         </div>
@@ -43,18 +43,18 @@
                 v-model="loginForm.email"
                 type="email" 
                 placeholder="이메일을 입력해주세요" 
-                class="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white transition-all text-sm"
+                class="w-full px-4 py-3 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
               >
               <input 
                 v-model="loginForm.password"
                 type="password" 
                 placeholder="비밀번호를 입력해주세요" 
-                class="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white transition-all text-sm"
+                class="w-full px-4 py-3 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
               >
             </div>
-            <div class="flex justify-between items-center text-xs text-gray-500 px-1">
+            <div class="flex items-center justify-between px-1 text-xs text-gray-500">
               <label class="flex items-center gap-1.5 cursor-pointer">
-                <input v-model="loginForm.rememberMe" type="checkbox" class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                <input v-model="loginForm.rememberMe" type="checkbox" class="border-gray-300 rounded text-brand-600 focus:ring-brand-500">
                 <span>로그인 유지</span>
               </label>
               <a href="#" class="hover:underline">비밀번호 찾기</a>
@@ -69,7 +69,7 @@
             
             <div class="relative my-6">
               <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-100"></div></div>
-              <div class="relative flex justify-center text-xs"><span class="px-2 bg-white text-gray-400">또는</span></div>
+              <div class="relative flex justify-center text-xs"><span class="px-2 text-gray-400 bg-white">또는</span></div>
             </div>
 
             <div class="space-y-2.5">
@@ -81,7 +81,7 @@
               </button>
               <button 
                 @click="handleGoogleLogin"
-                class="w-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
+                class="flex items-center justify-center w-full gap-2 py-3 text-sm font-medium text-gray-700 transition-colors bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
               >
                 <svg class="w-4 h-4" viewBox="0 0 24 24">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -101,12 +101,12 @@
                 v-model="signupForm.email"
                 type="email" 
                 placeholder="이메일" 
-                class="flex-1 px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white transition-all text-sm"
+                class="flex-1 px-4 py-3 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
               >
               <button 
                 @click="handleRequestVerification" 
                 :disabled="isSubmitting"
-                class="px-3 py-3 bg-gray-800 text-white text-xs font-bold rounded-lg hover:bg-gray-900 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap"
+                class="px-3 py-3 text-xs font-bold text-white bg-gray-800 rounded-lg hover:bg-gray-900 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap"
               >
                 {{ isSubmitting ? '처리 중...' : '인증요청' }}
               </button>
@@ -117,7 +117,7 @@
                 v-model="signupForm.verificationCode"
                 type="text" 
                 placeholder="인증번호 6자리 입력" 
-                class="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white transition-all text-sm mb-1"
+                class="w-full px-4 py-3 mb-1 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
               >
               <p class="text-[11px] text-brand-600 pl-1">이메일로 발송된 인증코드를 입력해주세요.</p>
             </div>
@@ -126,19 +126,19 @@
               v-model="signupForm.password"
               type="password" 
               placeholder="비밀번호 (영문, 숫자, 특수문자 포함 8자 이상)" 
-              class="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white transition-all text-sm"
+              class="w-full px-4 py-3 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
             >
             <input 
               v-model="signupForm.passwordConfirm"
               type="password" 
               placeholder="비밀번호 확인" 
-              class="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white transition-all text-sm"
+              class="w-full px-4 py-3 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
             >
             
             <div class="pt-2">
               <label class="flex items-start gap-2 cursor-pointer">
                 <input v-model="signupForm.agreeTerms" type="checkbox" class="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                <span class="text-xs text-gray-500 leading-tight">[필수] 만 14세 이상이며, 이용약관 및 개인정보 처리방침에 동의합니다.</span>
+                <span class="text-xs leading-tight text-gray-500">[필수] 만 14세 이상이며, 이용약관 및 개인정보 처리방침에 동의합니다.</span>
               </label>
             </div>
 
@@ -152,7 +152,7 @@
             
             <div class="relative my-6">
               <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-100"></div></div>
-              <div class="relative flex justify-center text-xs"><span class="px-2 bg-white text-gray-400">간편 회원가입</span></div>
+              <div class="relative flex justify-center text-xs"><span class="px-2 text-gray-400 bg-white">간편 회원가입</span></div>
             </div>
 
             <div class="flex gap-2">
@@ -164,7 +164,7 @@
               </button>
               <button 
                 @click="handleGoogleLogin"
-                class="flex-1 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
+                class="flex items-center justify-center flex-1 gap-2 py-3 text-sm font-medium text-gray-700 transition-colors bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
               >
                 <svg class="w-4 h-4" viewBox="0 0 24 24">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -349,7 +349,8 @@ const handleRequestVerification = async () => {
 // 구글 로그인 처리
 const handleGoogleLogin = () => {
   // 백엔드 OAuth 엔드포인트로 리다이렉트 (ui=web으로 설정하여 프론트엔드로 리다이렉트)
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  // 프로덕션: 빈 문자열 → 상대 경로 (Nginx 프록시)
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
   const frontendUrl = window.location.origin
   window.location.href = `${apiBaseUrl}/auth/google/?ui=web&next=${encodeURIComponent(frontendUrl)}`
 }
@@ -357,7 +358,8 @@ const handleGoogleLogin = () => {
 // 카카오 로그인 처리
 const handleKakaoLogin = () => {
   // 백엔드 OAuth 엔드포인트로 리다이렉트 (ui=web으로 설정하여 프론트엔드로 리다이렉트)
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  // 프로덕션: 빈 문자열 → 상대 경로 (Nginx 프록시)
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
   const frontendUrl = window.location.origin
   window.location.href = `${apiBaseUrl}/auth/kakao/?ui=web&next=${encodeURIComponent(frontendUrl)}`
 }

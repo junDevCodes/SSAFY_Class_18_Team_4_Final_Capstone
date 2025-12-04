@@ -1,8 +1,9 @@
 import axios from 'axios'
 
 // Axios 인스턴스 생성
+// 프로덕션: 빈 문자열 → 상대 경로 (Nginx 프록시)
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000',
   timeout: 30000,  // 이메일 발송 대기 시간을 고려하여 30초로 증가
   headers: {
     'Content-Type': 'application/json',
@@ -60,7 +61,7 @@ apiClient.interceptors.response.use(
         if (refreshToken) {
           // 토큰 갱신 시도
           const response = await axios.post(
-            `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/auth/token/refresh/`,
+            `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'}/auth/token/refresh/`,
             { refresh: refreshToken }
           )
 
