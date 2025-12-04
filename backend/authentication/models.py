@@ -269,6 +269,12 @@ class UserAddress(models.Model):
         blank=True,
         verbose_name="상세 주소",
     )
+    delivery_memo = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        verbose_name="배송 요청사항",
+    )
 
     is_default = models.BooleanField(
         default=False,
