@@ -1,7 +1,13 @@
 <template>
   <div class="relative min-h-screen flex flex-col">
     <AppHeader />
-    <router-view />
+    <main
+      class="flex-1"
+      :class="mainClass"
+      :style="mainStyle"
+    >
+      <router-view />
+    </main>
     <AppFooter />
     <LoginModal />
     <CartDrawer />
@@ -10,7 +16,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import AppHeader from './components/layout/AppHeader.vue'
 import AppFooter from './components/layout/AppFooter.vue'
 import LoginModal from './components/ui/LoginModal.vue'
@@ -20,9 +27,18 @@ import { useAuthStore } from './stores/auth'
 import { useWishlistStore } from './stores/wishlist'
 import { useUIStore } from './stores/ui'
 
+const route = useRoute()
 const authStore = useAuthStore()
 const wishlistStore = useWishlistStore()
 const uiStore = useUIStore()
+
+const isHome = computed(() => route.name === 'home')
+const mainStyle = computed(() =>
+  isHome.value ? {} : { paddingTop: 'var(--app-content-top)' }
+)
+const mainClass = computed(() =>
+  isHome.value ? '' : 'bg-gray-50'
+)
 
 // 인증 필요 시 로그인 모달 열고 리다이렉트 경로 저장
 const handleAuthRequired = (e: Event) => {

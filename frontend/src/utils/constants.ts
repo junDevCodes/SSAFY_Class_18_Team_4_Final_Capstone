@@ -1,7 +1,9 @@
 // 상수 정의
 
 // API Base URL
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+// 프로덕션: 빈 문자열 → 상대 경로 사용 (Nginx 프록시)
+// 로컬 개발: .env 파일에서 VITE_API_BASE_URL=http://localhost:8000 설정
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 // 카테고리 목록
 export const CATEGORIES = ['추천', '베스트', '신상품', '비건', '정육', '수산', '베이커리'] as const
