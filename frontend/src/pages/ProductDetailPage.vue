@@ -1,152 +1,117 @@
 <template>
   <div class="product-detail-page">
-    <div v-if="loading" class="loading">
-      <p>로딩 중...</p>
-    </div>
+    <!-- 로딩 상태 (기존 유지) -->
+    <div v-if="loading" class="loading">로딩중...</div>
 
+    <!-- 에러 상태 (기존 유지) -->
     <div v-else-if="error" class="error">
       <p>{{ error }}</p>
-      <button @click="$router.back()">돌아가기</button>
+      <button @click="$router.back()">뒤로가기</button>
     </div>
 
-    <div v-else-if="product" class="product-detail">
-      <!-- 상품 이미지 & 정보 -->
-      <div class="product-main">
-        <div class="product-images">
-          <img
-            :src="getProductImage(product)"
-            :alt="product.name"
-            @error="handleImageError"
-          />
-        </div>
+    <!-- 본문: 마트쇼핑몰형 2컬럼 레이아웃 -->
+    <div v-else-if="product">
+      <div class="detail-grid">
+      <!-- 좌측: 이미지 갤러리 -->
+      <div class="gallery-wrap">
+        <ProductGallery :product="product" />
+      </div>
 
-        <div class="product-info">
-          <h1 class="product-name">{{ product.name }}</h1>
+      <!-- 우측: 정보/CTA -->
+      <div class="info-wrap sticky-buy-panel">
+        <p class="brand" v-if="product.seller?.brand_name">{{ product.seller.brand_name }}</p>
+        <h1 class="title">{{ product.name }}</h1>
 
-          <div class="product-price">
-            <span v-if="product.original_price && discountRate > 0" class="original-price">
+        <div class="price-box">
+          <div class="price-main">
+            <span v-if="product.original_price && discountRate > 0" class="original">
               {{ formatPrice(product.original_price) }}
             </span>
-            <span class="current-price">{{ formatPrice(product.price) }}</span>
-            <span v-if="discountRate > 0" class="discount-rate">
-              {{ discountRate }}%
+            <div class="current">
+              <span v-if="discountRate > 0" class="discount">{{ discountRate }}%</span>
+              <span class="now">{{ formatPrice(product.price) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="meta-box">
+          <div class="meta-row">
+            <span class="label">배송비</span>
+            <span class="value">
+              {{ product.shipping_fee > 0 ? formatPrice(product.shipping_fee) : '무료배송' }}
             </span>
           </div>
-
-          <div v-if="shortDescription" class="product-description">
-            {{ shortDescription }}
+          <div class="meta-row" v-if="product.free_shipping_threshold">
+            <span class="label">무료배송</span>
+            <span class="value">{{ formatPrice(product.free_shipping_threshold) }} 이상 구매 시</span>
           </div>
-
-          <div class="product-meta">
-            <div class="meta-item">
-              <span class="label">배송비:</span>
-              <span class="value">
-                {{ product.shipping_fee > 0 ? formatPrice(product.shipping_fee) : '무료배송' }}
-              </span>
-            </div>
-            <div v-if="product.free_shipping_threshold" class="meta-item">
-              <span class="label">무료배송:</span>
-              <span class="value">{{ formatPrice(product.free_shipping_threshold) }} 이상 구매시</span>
-            </div>
-            <div class="meta-item">
-              <span class="label">판매단위:</span>
-              <span class="value">{{ product.unit || '개' }}</span>
-            </div>
-            <div v-if="product.estimated_delivery_days" class="meta-item">
-              <span class="label">예상배송:</span>
-              <span class="value">{{ product.estimated_delivery_days }}일 이내</span>
-            </div>
-          </div>
-
-          <div class="product-actions">
-            <div class="quantity-selector">
-              <button @click="decreaseQuantity" :disabled="quantity <= 1">-</button>
-              <input v-model.number="quantity" type="number" min="1" />
-              <button @click="increaseQuantity">+</button>
-            </div>
-
-            <button
-              class="btn-wishlist"
-              @click="toggleWishlist"
-              :class="{ active: product.is_wishlist }"
-            >
-              {{ product.is_wishlist ? '♥' : '♡' }} 찜 {{ wishlistCount }}
-            </button>
-
-            <button class="btn-cart" @click="addToCart">
-              장바구니 담기
-            </button>
-
-            <button class="btn-buy" @click="buyNow">
-              바로구매
-            </button>
+          <div class="meta-row" v-if="product.unit">
+            <span class="label">판매단위</span>
+            <span class="value">{{ product.unit }}</span>
           </div>
         </div>
-      </div>
 
-      <!-- 상품 상세 정보 -->
-      <div class="product-tabs">
-        <div class="tabs">
-          <button
-            :class="{ active: activeTab === 'detail' }"
-            @click="activeTab = 'detail'"
-          >
-            상세정보
-          </button>
-          <button
-            :class="{ active: activeTab === 'info' }"
-            @click="activeTab = 'info'"
-          >
-            상품정보
+        <div class="qty-like">
+          <div class="qty-control">
+            <button @click="quantity = Math.max(1, quantity - 1)">-</button>
+            <input
+              type="number"
+              :value="quantity"
+              min="1"
+              @input="quantity = Math.max(1, Number(($event.target as HTMLInputElement).value) || 1)"
+            />
+            <button @click="quantity = quantity + 1">+</button>
+          </div>
+          <button class="wish" @click="toggleWishlist">
+            {{ product.is_wishlist ? '♡ 취소' : '♡ 찜' }} ({{ wishlistCount }})
           </button>
         </div>
 
-        <div class="tab-content">
-          <div v-if="activeTab === 'detail'" class="detail-content">
-            <div v-if="fullDescription" v-html="fullDescription"></div>
-            <div v-else-if="shortDescription">{{ shortDescription }}</div>
-            <p v-else>상세 정보가 없습니다.</p>
-          </div>
-
-          <div v-if="activeTab === 'info'" class="info-content">
-            <table>
-              <tr v-if="product.unit">
-                <th>판매단위</th>
-                <td>{{ product.unit }}</td>
-              </tr>
-              <tr v-if="product.shipping_required !== undefined">
-                <th>배송여부</th>
-                <td>{{ product.shipping_required ? '배송 가능' : '배송 불가 (직접 수령)' }}</td>
-              </tr>
-              <tr v-if="product.shipping_fee !== undefined">
-                <th>배송비</th>
-                <td>{{ product.shipping_fee > 0 ? formatPrice(product.shipping_fee) : '무료' }}</td>
-              </tr>
-              <tr v-if="product.estimated_delivery_days">
-                <th>예상 배송</th>
-                <td>{{ product.estimated_delivery_days }}일 이내</td>
-              </tr>
-              <tr v-if="product.stats?.average_rating">
-                <th>평균 평점</th>
-                <td>{{ product.stats.average_rating.toFixed(1) }}점 ({{ product.stats.review_count }}개 리뷰)</td>
-              </tr>
-            </table>
-          </div>
+        <div class="cta-row">
+          <button class="btn-buy" @click="buyNow">바로구매</button>
+          <button class="btn-cart" @click="addToCart">장바구니 담기</button>
+        </div>
         </div>
       </div>
 
-      <!-- 관련 상품 -->
-      <div v-if="product.related_products && product.related_products.length > 0" class="related-products">
-        <h2>관련 상품</h2>
-        <div class="products-grid">
-          <ProductCard
-            v-for="item in product.related_products"
-            :key="item.id"
-            :product="item"
-          />
-        </div>
-      </div>
+      <!-- 섹션 탭바 (스크롤 이동용) -->
     </div>
+
+    <!-- 하단 섹션(탭/연관상품/스티키바) 유지 -->
+    <div v-if="product" class="section" id="detail">
+      <ProductInfoTabs
+        :product="product"
+        :short-description="shortDescription"
+        :full-description="fullDescription"
+      />
+    </div>
+
+    <div v-if="product" class="section" id="reviews">
+      <h2>상품리뷰</h2>
+      <ReviewsSection :reviews="reviews" :average="averageRating" :count="reviewCount" />
+    </div>
+
+    <section v-if="product" class="section" id="shipping">
+      <h2>배송/교환/반품</h2>
+      <p>배송·교환·반품 정보는 준비 중입니다.</p>
+    </section>
+
+    <section v-if="product?.related_products?.length" class="related section">
+      <h2>연관 상품</h2>
+      <div class="related-grid">
+        <ProductCard v-for="item in product.related_products" :key="item.id" :product="item" />
+      </div>
+    </section>
+    <StickyPurchaseBar
+      v-if="product"
+      :product="product"
+      :discount-rate="discountRate"
+      :quantity="quantity"
+      @change-qty="quantity = $event"
+      @toggle-wish="toggleWishlist"
+      @add-cart="addToCart"
+      @buy-now="buyNow"
+    />
   </div>
 </template>
 
@@ -157,8 +122,21 @@ import { productsAPI } from '@/services/api'
 import { useCartStore } from '@/stores/cart'
 import { useWishlistStore } from '@/stores/wishlist'
 import { useAuthStore } from '@/stores/auth'
-import { getProductImage, formatPrice, calculateDiscountRate, type ProductDetail, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
+import { calculateDiscountRate, formatPrice, type ProductDetail } from '@/types/product'
 import ProductCard from '@/components/ui/ProductCard.vue'
+import ProductGallery from '@/components/product/ProductGallery.vue'
+import ProductInfoTabs from '@/components/product/ProductInfoTabs.vue'
+import StickyPurchaseBar from '@/components/product/StickyPurchaseBar.vue'
+import ReviewsSection from '@/components/product/ReviewsSection.vue'
+
+type Review = {
+  id: number
+  rating: number
+  content: string
+  author: string
+  date: string
+  images?: string[]
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -170,27 +148,38 @@ const product = ref<ProductDetail | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const quantity = ref(1)
-const activeTab = ref('detail')
+const reviews = ref<Review[]>([
+  {
+    id: 1,
+    rating: 5,
+    content: '맛있고 배송도 빨라요.',
+    author: 'user1',
+    date: '2025.01.01',
+    images: []
+  },
+  {
+    id: 2,
+    rating: 4,
+    content: '재구매 의사 있습니다.',
+    author: 'user2',
+    date: '2025.01.02',
+    images: []
+  }
+])
 
-// v2.1: 계산된 할인율 (원가 대비 현재 가격)
 const discountRate = computed(() => {
   if (!product.value) return 0
   return calculateDiscountRate(product.value.original_price ?? 0, product.value.price)
 })
 
-// v2.1: 상품 설명 (detail 테이블에서 가져오기)
-const shortDescription = computed(() => {
-  return product.value?.detail?.short_description ?? null
-})
-
-// v2.1: 상세 설명 (detail 테이블에서 가져오기)
-const fullDescription = computed(() => {
-  return product.value?.detail?.full_description ?? null
-})
-
-// v2.1: 찜 수 (stats 테이블에서 가져오기)
-const wishlistCount = computed(() => {
-  return product.value?.stats?.wishlist_count ?? 0
+const shortDescription = computed(() => product.value?.detail?.short_description ?? null)
+const fullDescription = computed(() => product.value?.detail?.full_description ?? null)
+const wishlistCount = computed(() => product.value?.stats?.wishlist_count ?? 0)
+const reviewCount = computed(() => reviews.value.length)
+const averageRating = computed(() => {
+  if (!reviews.value.length) return 0
+  const sum = reviews.value.reduce((acc: number, r: Review) => acc + (r.rating ?? 0), 0)
+  return sum / reviews.value.length
 })
 
 onMounted(async () => {
@@ -200,7 +189,6 @@ onMounted(async () => {
 async function loadProduct() {
   loading.value = true
   error.value = null
-
   try {
     const slug = route.params.slug as string
     const response = await productsAPI.getProduct(slug)
@@ -212,24 +200,12 @@ async function loadProduct() {
   }
 }
 
-function increaseQuantity() {
-  quantity.value++
-}
-
-function decreaseQuantity() {
-  if (quantity.value > 1) {
-    quantity.value--
-  }
-}
-
 async function addToCart() {
   if (!authStore.isAuthenticated) {
     window.dispatchEvent(new CustomEvent('auth:required'))
     return
   }
-
   if (!product.value) return
-
   try {
     await cartStore.addToCart(product.value as any, quantity.value)
     alert('장바구니에 담았습니다.')
@@ -243,13 +219,10 @@ async function toggleWishlist() {
     window.dispatchEvent(new CustomEvent('auth:required'))
     return
   }
-
   if (!product.value) return
-
   try {
     const result = await wishlistStore.toggleWishlist(product.value as any)
     product.value.is_wishlist = result.isWishlisted
-    // v2.1: 서버에서 반환된 정확한 wishlist_count를 stats에 반영
     if (product.value.stats) {
       product.value.stats.wishlist_count = result.wishlistCount
     }
@@ -263,200 +236,42 @@ function buyNow() {
   router.push('/checkout')
 }
 
-function handleImageError(e: Event) {
-  (e.target as HTMLImageElement).src = DEFAULT_PRODUCT_IMAGE
-}
 </script>
 
 <style scoped>
-.product-detail-page {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
+.sticky-buy-panel {
+  position: sticky;
+  top: calc(var(--app-content-top, 0px) + 16px);
 }
-
-.loading, .error {
-  text-align: center;
-  padding: 3rem;
+.section {
+  margin-top: 48px;
 }
-
-.product-main {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 3rem;
-  margin-bottom: 3rem;
-}
-
-.product-images img {
-  width: 100%;
-  border-radius: 8px;
-}
-
-.product-name {
-  font-size: 1.8rem;
-  margin-bottom: 1rem;
-}
-
-.product-price {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.original-price {
-  text-decoration: line-through;
-  color: #999;
-}
-
-.current-price {
-  font-size: 2rem;
-  font-weight: bold;
-  color: #2d5016;
-}
-
-.discount-rate {
-  color: #e63946;
-  font-weight: bold;
-}
-
-.product-description {
-  color: #666;
-  margin-bottom: 1.5rem;
-}
-
-.product-meta {
-  border-top: 1px solid #eee;
-  border-bottom: 1px solid #eee;
-  padding: 1.5rem 0;
-  margin-bottom: 1.5rem;
-}
-
-.meta-item {
-  display: flex;
-  padding: 0.5rem 0;
-}
-
-.meta-item .label {
-  width: 100px;
-  color: #666;
-}
-
-.quantity-selector {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.quantity-selector button {
-  padding: 0.5rem 1rem;
-  border: 1px solid #ddd;
-  background: white;
-  cursor: pointer;
-}
-
-.quantity-selector input {
-  width: 60px;
-  text-align: center;
-  border: 1px solid #ddd;
-  padding: 0.5rem;
-}
-
-.product-actions {
-  display: grid;
-  grid-template-columns: auto 1fr 2fr;
-  gap: 0.5rem;
-}
-
-.btn-wishlist, .btn-cart, .btn-buy {
-  padding: 1rem;
-  border: 1px solid #ddd;
-  background: white;
-  cursor: pointer;
-  font-weight: bold;
-}
-
-.btn-wishlist.active {
-  color: #e63946;
-}
-
-.btn-cart {
-  background: #2d5016;
-  color: white;
-  border: none;
-}
-
-.btn-buy {
-  background: #a8d08d;
-  border: none;
-}
-
-.product-tabs {
-  margin-top: 3rem;
-}
-
-.tabs {
-  display: flex;
-  border-bottom: 2px solid #eee;
-}
-
-.tabs button {
-  padding: 1rem 2rem;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-weight: bold;
-}
-
-.tabs button.active {
-  border-bottom: 2px solid #2d5016;
-  color: #2d5016;
-}
-
-.tab-content {
-  padding: 2rem 0;
-}
-
-.info-content table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.info-content th,
-.info-content td {
-  padding: 1rem;
-  border-bottom: 1px solid #eee;
-  text-align: left;
-}
-
-.info-content th {
-  width: 150px;
-  background: #f9f9f9;
-  font-weight: bold;
-}
-
-.related-products {
-  margin-top: 3rem;
-}
-
-.related-products h2 {
-  margin-bottom: 1.5rem;
-}
-
-.products-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1.5rem;
-}
-
-@media (max-width: 768px) {
-  .product-main {
-    grid-template-columns: 1fr;
-  }
-
-  .product-actions {
-    grid-template-columns: 1fr;
-  }
-}
+.product-detail-page { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+.detail-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 32px; align-items: start; margin-bottom: 32px; }
+.gallery-wrap { background: white; border-radius: 12px; padding: 12px; }
+.info-wrap { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 6px 20px rgba(0,0,0,0.04); display: flex; flex-direction: column; gap: 16px; }
+.brand { color: #0f3a2a; font-weight: 700; }
+.title { font-size: 26px; font-weight: 800; color: #1a1a1a; line-height: 1.3; }
+.price-box { border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; }
+.price-main { display: flex; flex-direction: column; gap: 6px; }
+.original { text-decoration: line-through; color: #9ca3af; font-size: 14px; }
+.current { display: flex; align-items: center; gap: 8px; }
+.discount { color: #d32f2f; font-weight: 800; font-size: 18px; }
+.now { font-size: 28px; font-weight: 800; color: #0f3a2a; }
+.meta-box { display: flex; flex-direction: column; gap: 8px; }
+.meta-row { display: flex; justify-content: space-between; font-size: 14px; color: #111827; }
+.label { color: #6b7280; }
+.qty-like { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.qty-control { display: inline-flex; border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; }
+.qty-control button { width: 38px; height: 38px; border: none; background: white; cursor: pointer; }
+.qty-control input { width: 60px; text-align: center; border: none; outline: none; }
+.wish { padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; background: white; cursor: pointer; }
+.cta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.btn-buy { padding: 14px; border: none; border-radius: 10px; background: #2d5016; color: white; font-weight: 700; cursor: pointer; }
+.btn-cart { padding: 14px; border: 1px solid #2d5016; border-radius: 10px; background: white; color: #2d5016; font-weight: 700; cursor: pointer; }
+.related { margin-top: 40px; }
+.related h2 { font-weight: 800; margin-bottom: 16px; }
+.related-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+.loading, .error { text-align: center; padding: 3rem; }
+@media (max-width: 1024px) { .detail-grid { grid-template-columns: 1fr; } .cta-row { grid-template-columns: 1fr; } .sticky-tabs { top: 0; } .sticky-buy-panel { position: static; } }
 </style>
