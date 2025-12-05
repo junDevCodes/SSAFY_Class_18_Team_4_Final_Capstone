@@ -1,154 +1,69 @@
 <template>
   <div class="product-detail-page">
-    <div v-if="loading" class="loading">
-      <p>로딩 중...</p>
-    </div>
+    <!-- 로딩 상태 -->
+    <div v-if="loading" class="loading">로딩중...</div>
 
+    <!-- 에러 상태 -->
     <div v-else-if="error" class="error">
       <p>{{ error }}</p>
-      <button @click="$router.back()">돌아가기</button>
+      <button @click="$router.back()">뒤로가기</button>
     </div>
 
-    <div v-else-if="product" class="product-detail">
-      <!-- 상품 이미지 & 정보 -->
-      <div class="product-main">
-        <div class="product-images">
-          <img
-            :src="getProductImage(product)"
-            :alt="product.name"
-            @error="handleImageError"
-          />
-        </div>
-
-        <div class="product-info">
-          <h1 class="product-name">{{ product.name }}</h1>
-
-          <div class="product-price">
-            <span v-if="product.original_price && discountRate > 0" class="original-price">
-              {{ formatPrice(product.original_price) }}
-            </span>
-            <span class="current-price">{{ formatPrice(product.price) }}</span>
-            <span v-if="discountRate > 0" class="discount-rate">
-              {{ discountRate }}%
-            </span>
-          </div>
-
-          <div v-if="shortDescription" class="product-description">
-            {{ shortDescription }}
-          </div>
-
-          <div class="product-meta">
-            <div class="meta-item">
-              <span class="label">배송비:</span>
-              <span class="value">
-                {{ product.shipping_fee > 0 ? formatPrice(product.shipping_fee) : '무료배송' }}
-              </span>
-            </div>
-            <div v-if="product.free_shipping_threshold" class="meta-item">
-              <span class="label">무료배송:</span>
-              <span class="value">{{ formatPrice(product.free_shipping_threshold) }} 이상 구매시</span>
-            </div>
-            <div class="meta-item">
-              <span class="label">판매단위:</span>
-              <span class="value">{{ product.unit || '개' }}</span>
-            </div>
-            <div v-if="product.estimated_delivery_days" class="meta-item">
-              <span class="label">예상배송:</span>
-              <span class="value">{{ product.estimated_delivery_days }}일 이내</span>
-            </div>
-          </div>
-
-          <div class="product-actions">
-            <div class="quantity-selector">
-              <button @click="decreaseQuantity" :disabled="quantity <= 1">-</button>
-              <input v-model.number="quantity" type="number" min="1" />
-              <button @click="increaseQuantity">+</button>
-            </div>
-
-            <button
-              class="btn-wishlist"
-              @click="toggleWishlist"
-              :class="{ active: product.is_wishlist }"
-            >
-              {{ product.is_wishlist ? '♥' : '♡' }} 찜 {{ wishlistCount }}
-            </button>
-
-            <button class="btn-cart" @click="addToCart">
-              장바구니 담기
-            </button>
-
-            <button class="btn-buy" @click="buyNow">
-              바로구매
-            </button>
-          </div>
-        </div>
+    <!-- 본문 -->
+    <div v-else-if="product">
+      <!-- 네비게이션/카테고리 경로 -->
+      <div class="breadcrumb">
+        홈 > {{ product.category?.name || '카테고리' }} > {{ product.name }}
       </div>
 
-      <!-- 상품 상세 정보 -->
-      <div class="product-tabs">
-        <div class="tabs">
-          <button
-            :class="{ active: activeTab === 'detail' }"
-            @click="activeTab = 'detail'"
-          >
-            상세정보
-          </button>
-          <button
-            :class="{ active: activeTab === 'info' }"
-            @click="activeTab = 'info'"
-          >
-            상품정보
-          </button>
-        </div>
+      <!-- 상단 요약: 이미지 갤러리 + 가격/혜택/CTA -->
+      <section class="summary-grid">
+        <ProductGallery :product="product" />
+        <ProductSummary
+          :product="product"
+          :discount-rate="discountRate"
+          :wishlist-count="wishlistCount"
+          :quantity="quantity"
+          @change-qty="quantity = $event"
+          @toggle-wish="toggleWishlist"
+          @add-cart="addToCart"
+          @buy-now="buyNow"
+        />
+      </section>
 
-        <div class="tab-content">
-          <div v-if="activeTab === 'detail'" class="detail-content">
-            <div v-if="fullDescription" v-html="fullDescription"></div>
-            <div v-else-if="shortDescription">{{ shortDescription }}</div>
-            <p v-else>상세 정보가 없습니다.</p>
-          </div>
+      <!-- 상세/상품정보 탭 -->
+      <ProductInfoTabs
+        :product="product"
+        :short-description="shortDescription"
+        :full-description="fullDescription"
+      />
 
-          <div v-if="activeTab === 'info'" class="info-content">
-            <table>
-              <tr v-if="product.unit">
-                <th>판매단위</th>
-                <td>{{ product.unit }}</td>
-              </tr>
-              <tr v-if="product.shipping_required !== undefined">
-                <th>배송여부</th>
-                <td>{{ product.shipping_required ? '배송 가능' : '배송 불가 (직접 수령)' }}</td>
-              </tr>
-              <tr v-if="product.shipping_fee !== undefined">
-                <th>배송비</th>
-                <td>{{ product.shipping_fee > 0 ? formatPrice(product.shipping_fee) : '무료' }}</td>
-              </tr>
-              <tr v-if="product.estimated_delivery_days">
-                <th>예상 배송</th>
-                <td>{{ product.estimated_delivery_days }}일 이내</td>
-              </tr>
-              <tr v-if="product.stats?.average_rating">
-                <th>평균 평점</th>
-                <td>{{ product.stats.average_rating.toFixed(1) }}점 ({{ product.stats.review_count }}개 리뷰)</td>
-              </tr>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- 관련 상품 -->
-      <div v-if="product.related_products && product.related_products.length > 0" class="related-products">
-        <h2>관련 상품</h2>
-        <div class="products-grid">
+      <!-- 연관 상품 영역 -->
+      <section v-if="product.related_products?.length" class="related">
+        <h2>연관 상품</h2>
+        <div class="related-grid">
           <ProductCard
             v-for="item in product.related_products"
             :key="item.id"
             :product="item"
           />
         </div>
-      </div>
+      </section>
+
+      <!-- 하단 스티키 구매 바 (모바일/스크롤 시 CTA) -->
+      <StickyPurchaseBar
+        :product="product"
+        :discount-rate="discountRate"
+        :quantity="quantity"
+        @change-qty="quantity = $event"
+        @toggle-wish="toggleWishlist"
+        @add-cart="addToCart"
+        @buy-now="buyNow"
+      />
     </div>
   </div>
 </template>
+
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
@@ -157,8 +72,14 @@ import { productsAPI } from '@/services/api'
 import { useCartStore } from '@/stores/cart'
 import { useWishlistStore } from '@/stores/wishlist'
 import { useAuthStore } from '@/stores/auth'
-import { getProductImage, formatPrice, calculateDiscountRate, type ProductDetail, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
+import { calculateDiscountRate, type ProductDetail } from '@/types/product'
 import ProductCard from '@/components/ui/ProductCard.vue'
+
+/* Product 상세페이지를 구현하기 위한 import */
+import ProductGallery from '@/components/product/ProductGallery.vue'
+import ProductSummary from '@/components/product/ProductSummary.vue'
+import ProductInfoTabs from '@/components/product/ProductInfoTabs.vue'
+import StickyPurchaseBar from '@/components/product/StickyPurchaseBar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -170,7 +91,6 @@ const product = ref<ProductDetail | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const quantity = ref(1)
-const activeTab = ref('detail')
 
 // v2.1: 계산된 할인율 (원가 대비 현재 가격)
 const discountRate = computed(() => {
@@ -209,16 +129,6 @@ async function loadProduct() {
     error.value = err.response?.data?.detail || '상품을 불러오는데 실패했습니다.'
   } finally {
     loading.value = false
-  }
-}
-
-function increaseQuantity() {
-  quantity.value++
-}
-
-function decreaseQuantity() {
-  if (quantity.value > 1) {
-    quantity.value--
   }
 }
 
@@ -262,10 +172,6 @@ function buyNow() {
   addToCart()
   router.push('/checkout')
 }
-
-function handleImageError(e: Event) {
-  (e.target as HTMLImageElement).src = DEFAULT_PRODUCT_IMAGE
-}
 </script>
 
 <style scoped>
@@ -278,6 +184,34 @@ function handleImageError(e: Event) {
 .loading, .error {
   text-align: center;
   padding: 3rem;
+}
+
+.breadcrumb { 
+  font-size: 14px; 
+  color: #6b7280; 
+  margin-bottom: 16px; 
+}
+
+.summary-grid { 
+  display: grid; 
+  grid-template-columns: 1.1fr 0.9fr; 
+  gap: 24px; align-items: start; 
+  margin-bottom: 32px; 
+}
+
+.related { 
+  margin-top: 40px; 
+}
+
+.related h2 { 
+  font-weight: 800; 
+  margin-bottom: 16px; 
+}
+
+.related-grid { 
+  display: grid; 
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); 
+  gap: 16px; 
 }
 
 .product-main {
@@ -448,6 +382,12 @@ function handleImageError(e: Event) {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 1.5rem;
+}
+
+@media (max-width: 1024px) { 
+  .summary-grid { 
+    grid-template-columns: 1fr; 
+  } 
 }
 
 @media (max-width: 768px) {

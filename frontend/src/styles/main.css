@@ -8,6 +8,19 @@
   --primary: #5f0080; 
   --primary-dark: #4c0066;
 
+  /* 전역 색/ 간격 변수 추가 */
+  --brand-500: #00a86b;
+  --brand-600: #008c5a;
+  --brand-900: #0f3a2a;
+  --gray-50: #f7f8fa;
+  --gray-100: #f0f2f5;
+  --gray-200: #e5e7eb;
+  --gray-600: #4b5563;
+  --gray-900: #111827;
+  --radius-lg: 12px;
+  --shadow-card: 0 10px 30px rgba(0,0,0,0.08);
+
+
   /* 헤더 높이 변수 (AppHeader: h-16=4rem, 홈일 때 h-24=6rem) */
   --app-header-height: 6rem; /* 최대 높이로 잡아 안전 여백 확보 */
   --app-content-top: calc(var(--app-header-height) + 1rem); /* 헤더 + 여유 */

@@ -1,5 +1,5 @@
 <template>
-  <div class="group relative flex flex-col cursor-pointer">
+  <router-link class="group relative flex flex-col cursor-pointer":to="{ name: 'product-detail', params: { slug: product.slug ?? product.id } }">
     <div class="relative aspect-[3/4] bg-gray-50 rounded-lg overflow-hidden mb-5">
       <img :src="getProductImage(product)" :alt="product.name" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105">
 
@@ -41,7 +41,7 @@
         </div>
       </div>
     </div>
-  </div>
+  </router-link>
 </template>
 
 <script setup lang="ts">
