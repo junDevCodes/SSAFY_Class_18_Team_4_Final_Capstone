@@ -1,7 +1,7 @@
 """
 제품 관련 URL 설정
 """
-from django.urls import path, include
+from django.urls import path, include, re_path
 from rest_framework.routers import DefaultRouter
 from .views import (
     CategoryViewSet,
@@ -26,7 +26,8 @@ urlpatterns = [
     # 상품 API (새로운 버전)
     path('products/', ProductListView.as_view(), name='product-list'),
     path('products/<int:pk>/', ProductDetailView.as_view(), name='product-detail'),
-    path('products/<slug:slug>/', ProductDetailView.as_view(), name='product-detail-slug'),
+    # 한글 slug 지원을 위해 re_path 사용 (유니코드 문자 허용)
+    re_path(r'^products/(?P<slug>[\w\-]+)/$', ProductDetailView.as_view(), name='product-detail-slug'),
 
     # 판매자 상품 이미지 관리
     path('seller-products/<int:product_id>/images/', ProductImageManageView.as_view(), name='product-image-add'),
