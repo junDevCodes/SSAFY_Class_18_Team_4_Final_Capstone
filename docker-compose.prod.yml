@@ -26,7 +26,9 @@ services:
       - "8000:8000"
     command: >
       sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
              python manage.py shell -c \"from django.contrib.sites.models import Site; Site.objects.update_or_create(id=1, defaults={'domain': '${EC2_PUBLIC_IP:-localhost}', 'name': 'SelF Production'})\" &&
+             (python manage.py import_products /app/data/merged_all_naver.csv --skip-if-exists 2>/dev/null || echo '[INIT] CSV 임포트 스킵 또는 파일 없음') &&
              gunicorn project_self.wsgi:application --bind 0.0.0.0:8000 --workers 2"
     restart: unless-stopped
 
