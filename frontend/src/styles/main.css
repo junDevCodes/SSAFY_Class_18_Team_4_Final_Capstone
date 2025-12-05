@@ -7,6 +7,10 @@
   --font-display: "GmarketSans", sans-serif;
   --primary: #5f0080; 
   --primary-dark: #4c0066;
+
+  /* 헤더 높이 변수 (AppHeader: h-16=4rem, 홈일 때 h-24=6rem) */
+  --app-header-height: 6rem; /* 최대 높이로 잡아 안전 여백 확보 */
+  --app-content-top: calc(var(--app-header-height) + 1rem); /* 헤더 + 여유 */
 }
 
 body {
