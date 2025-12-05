@@ -1,5 +1,5 @@
 <template>
-  <div class="group relative flex flex-col cursor-pointer">
+  <div class="group relative flex flex-col cursor-pointer" @click="goToDetail">
     <div class="relative aspect-[3/4] bg-gray-50 rounded-lg overflow-hidden mb-5">
       <img :src="getProductImage(product)" :alt="product.name" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105">
 
@@ -46,6 +46,7 @@
 
 <script setup lang="ts">
 import { Plus, Heart } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
 import type { Product } from '@/types/product'
 import { useCartStore } from '@/stores/cart'
 import { useUIStore } from '@/stores/ui'
@@ -60,10 +61,16 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const router = useRouter()
 const cartStore = useCartStore()
 const uiStore = useUIStore()
 const wishlistStore = useWishlistStore()
 const authStore = useAuthStore()
+
+// 상품 상세 페이지로 이동
+const goToDetail = () => {
+  router.push({ name: 'product-detail', params: { slug: props.product.slug } })
+}
 
 // v2.1: wishlist_count를 로컬 상태로 관리
 const localWishlistCount = ref<number>(props.product.wishlist_count ?? 0)
