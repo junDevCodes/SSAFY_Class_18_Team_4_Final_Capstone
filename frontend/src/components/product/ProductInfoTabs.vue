@@ -35,9 +35,15 @@
             <th>도착 예정</th>
             <td>{{ product.estimated_delivery_days }}일 이내</td>
           </tr>
-          <tr v-if="product.stats?.average_rating">
+
+          
+          <tr v-if="averageRating !== null">
             <th>평균 평점</th>
-            <td>{{ product.stats.average_rating.toFixed(1) }} ({{ product.stats.review_count ?? 0 }}개)</td>
+            <td>{{ averageRating.toFixed(1) }} ({{ product.stats?.review_count ?? 0 }}개)</td>
+          </tr>
+          <tr v-else-if="product.stats">
+            <th>평균 평점</th>
+            <td>- ({{ product.stats?.review_count ?? 0 }}개)</td>
           </tr>
         </tbody>
       </table>
@@ -46,16 +52,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { formatPrice, type ProductDetail } from '@/types/product'
 
-defineProps<{
+const props = defineProps<{
   product: ProductDetail
   shortDescription: string | null
   fullDescription: string | null
 }>()
 
 const tab = ref<'detail' | 'review' | 'shipping'>('detail')
+
+const averageRating = computed(() => {
+  const num = Number(props.product.stats?.average_rating)
+  return Number.isFinite(num) ? num : null
+})
+
 </script>
 
 <style scoped>
