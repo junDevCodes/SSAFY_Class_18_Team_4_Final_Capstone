@@ -39,8 +39,11 @@ services:
     container_name: self-frontend
     depends_on:
       - backend
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro # SSL 인증서 마운트
     ports:
       - "80:80"
+      - "443:443" # HTTPS 포트 추가
     restart: unless-stopped
 
   db:
