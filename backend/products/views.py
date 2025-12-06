@@ -335,6 +335,21 @@ class WishlistViewSet(viewsets.ModelViewSet):
         """찜 추가"""
         serializer.save(user=self.request.user)
 
+    def destroy(self, request, *args, **kwargs):
+        """찜 삭제 시 ProductStats의 wishlist_count도 감소"""
+        instance = self.get_object()
+        product_id = instance.product_id
+
+        # 찜 삭제
+        self.perform_destroy(instance)
+
+        # v2.1: ProductStats의 wishlist_count 감소
+        ProductStats.objects.filter(product_id=product_id).update(
+            wishlist_count=F('wishlist_count') - 1
+        )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(detail=False, methods=['post'])
     def toggle(self, request):
         """찜하기 토글 (있으면 삭제, 없으면 추가)"""
