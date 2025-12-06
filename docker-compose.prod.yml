@@ -24,9 +24,13 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    volumes:
+      - ./data:/app/data
     command: >
       sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
              python manage.py shell -c \"from django.contrib.sites.models import Site; Site.objects.update_or_create(id=1, defaults={'domain': '${EC2_PUBLIC_IP:-localhost}', 'name': 'SelF Production'})\" &&
+             (python manage.py process_json_data --show-details 2>/dev/null || echo '[INIT] JSON 데이터 처리 스킵') &&
              gunicorn project_self.wsgi:application --bind 0.0.0.0:8000 --workers 2"
     restart: unless-stopped
 

@@ -16,6 +16,7 @@ redis==5.2.1
 # ===== Production Server =====
 gunicorn==23.0.0
 uvicorn==0.34.0
+whitenoise==6.7.0
 
 # ===== Async Tasks =====
 celery==5.4.0
