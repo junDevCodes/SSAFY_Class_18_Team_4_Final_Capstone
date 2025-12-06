@@ -15,7 +15,7 @@
     <div class="panel info" v-else-if="tab === 'review'">
       <p>리뷰 영역은 준비 중입니다.</p>
     </div>
-
+    
     <div class="panel info" v-else>
       <table>
         <tbody>
