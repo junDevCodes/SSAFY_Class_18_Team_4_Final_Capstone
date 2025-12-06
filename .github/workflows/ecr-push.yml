@@ -1,4 +1,4 @@
-name: Build and Push Images to ECR
+name: Build and Deploy to ECR/EC2 (dev)
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       - ".github/workflows/ecr-push.yml"
 
 permissions:
-  id-token: write   # OIDC
+  id-token: write
   contents: read
 
 env:
@@ -67,3 +67,56 @@ jobs:
           tags: |
             ${{ secrets.ECR_REPO_FRONTEND }}:latest
             ${{ secrets.ECR_REPO_FRONTEND }}:${{ github.sha }}
+
+  deploy-dev:
+    needs: [backend-image, frontend-image]
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: EC2로 배포 (SSH)
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT }}
+          script: |
+            # 기본 경로 설정
+            APP_ENV_PATH=${APP_ENV_PATH:-/home/ubuntu/app.env}
+            DATA_DIR=${DATA_DIR:-/home/ubuntu/data}
+            IMAGE_TAG=${{ github.sha }}
+            ECR_BACK=${{ secrets.ECR_REPO_BACKEND }}
+            ECR_FRONT=${{ secrets.ECR_REPO_FRONTEND }}
+            REGION=${{ secrets.AWS_REGION }}
+            HOST_IP=${{ secrets.EC2_HOST }}
+
+            # ECR 로그인
+            aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "${ECR_BACK%/*}"
+
+            # 새 이미지 Pull
+            docker pull "${ECR_BACK}:${IMAGE_TAG}"
+            docker pull "${ECR_FRONT}:${IMAGE_TAG}"
+
+            # 기존 컨테이너 정리
+            docker stop frontend 2>/dev/null || true && docker rm frontend 2>/dev/null || true
+            docker stop backend 2>/dev/null || true && docker rm backend 2>/dev/null || true
+
+            # 데이터 디렉터리 마운트(있을 때만)
+            EXTRA_VOLUME=""
+            if [ -d "$DATA_DIR" ]; then
+              EXTRA_VOLUME="-v ${DATA_DIR}:/app/data"
+            fi
+
+            # Backend 실행 (env 파일 필수)
+            docker run -d -p 8000:8000 --name backend \
+              --env-file "$APP_ENV_PATH" \
+              $EXTRA_VOLUME \
+              "${ECR_BACK}:${IMAGE_TAG}"
+
+            # 프런트 실행 (API 경로는 EC2 퍼블릭 IP 기준)
+            docker run -d -p 80:80 --name frontend \
+              -e VITE_API_BASE_URL="http://${HOST_IP}:8000" \
+              "${ECR_FRONT}:${IMAGE_TAG}"
