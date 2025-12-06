@@ -11,6 +11,8 @@
 
     <!-- 본문: 마트쇼핑몰형 2컬럼 레이아웃 -->
     <div v-else-if="product">
+      
+
       <div class="detail-grid">
       <!-- 좌측: 이미지 갤러리 -->
       <div class="gallery-wrap">
@@ -71,10 +73,8 @@
           <button class="btn-buy" @click="buyNow">바로구매</button>
           <button class="btn-cart" @click="addToCart">장바구니 담기</button>
         </div>
-        </div>
       </div>
-
-      <!-- 섹션 탭바 (스크롤 이동용) -->
+    </div>
     </div>
 
     <!-- 하단 섹션(탭/연관상품/스티키바) 유지 -->
@@ -87,7 +87,6 @@
     </div>
 
     <div v-if="product" class="section" id="reviews">
-      <h2>상품리뷰</h2>
       <ReviewsSection :reviews="reviews" :average="averageRating" :count="reviewCount" />
     </div>
 
@@ -116,7 +115,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+
+// 리뷰 타입 정의 (파일 상단 script setup 안)
+type Review = {
+  id: number
+  rating: number
+  content: string
+  author: string
+  date: string
+  images?: string[]
+}
+
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { productsAPI } from '@/services/api'
 import { useCartStore } from '@/stores/cart'
@@ -129,15 +139,6 @@ import ProductInfoTabs from '@/components/product/ProductInfoTabs.vue'
 import StickyPurchaseBar from '@/components/product/StickyPurchaseBar.vue'
 import ReviewsSection from '@/components/product/ReviewsSection.vue'
 
-type Review = {
-  id: number
-  rating: number
-  content: string
-  author: string
-  date: string
-  images?: string[]
-}
-
 const route = useRoute()
 const router = useRouter()
 const cartStore = useCartStore()
@@ -148,24 +149,7 @@ const product = ref<ProductDetail | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const quantity = ref(1)
-const reviews = ref<Review[]>([
-  {
-    id: 1,
-    rating: 5,
-    content: '맛있고 배송도 빨라요.',
-    author: 'user1',
-    date: '2025.01.01',
-    images: []
-  },
-  {
-    id: 2,
-    rating: 4,
-    content: '재구매 의사 있습니다.',
-    author: 'user2',
-    date: '2025.01.02',
-    images: []
-  }
-])
+
 
 const discountRate = computed(() => {
   if (!product.value) return 0
@@ -175,16 +159,49 @@ const discountRate = computed(() => {
 const shortDescription = computed(() => product.value?.detail?.short_description ?? null)
 const fullDescription = computed(() => product.value?.detail?.full_description ?? null)
 const wishlistCount = computed(() => product.value?.stats?.wishlist_count ?? 0)
-const reviewCount = computed(() => reviews.value.length)
+
+
+
+
+
+// 리뷰 상태 (기존 reviews 선언 위치 교체)
+const reviews = ref<Review[]>([
+  {
+    id: 1,
+    rating: 5,
+    content: '맛있고 배송이 빨라요',
+    author: 'user1',
+    date: '2025.01.01',
+    images: []
+  },
+  {
+    id: 2,
+    rating: 4,
+    content: '구성이 좋아요',
+    author: 'user2',
+    date: '2025.01.02',
+    images: []
+  }
+])
+
+// 평균 계산 (acc, r 타입 명시)
 const averageRating = computed(() => {
   if (!reviews.value.length) return 0
   const sum = reviews.value.reduce((acc: number, r: Review) => acc + (r.rating ?? 0), 0)
   return sum / reviews.value.length
 })
+const reviewCount = computed(() => reviews.value.length)
 
-onMounted(async () => {
-  await loadProduct()
-})
+// slug 변경 시마다 재로딩 + 초기화 + 스크롤
+watch(
+  () => route.params.slug,
+  async () => {
+    quantity.value = 1
+    await loadProduct()
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  },
+  { immediate: true }
+)
 
 async function loadProduct() {
   loading.value = true
@@ -236,9 +253,11 @@ function buyNow() {
   router.push('/checkout')
 }
 
+
 </script>
 
 <style scoped>
+
 .sticky-buy-panel {
   position: sticky;
   top: calc(var(--app-content-top, 0px) + 16px);
