@@ -26,6 +26,14 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value?.role === 'admin'
   })
 
+  const displayName = computed(() => {
+    return user.value?.username || user.value?.email || ''
+  })
+
+  const phoneNumber = computed(() => {
+    return user.value?.profile?.phone_number || ''
+  })
+
   // 로그인
   const login = async (email: string, password: string) => {
     isLoading.value = true
@@ -214,6 +222,8 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isSeller,
     isAdmin,
+    displayName,
+    phoneNumber,
     login,
     register,
     verifyEmail,

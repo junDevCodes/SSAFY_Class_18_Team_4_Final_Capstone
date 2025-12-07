@@ -267,9 +267,9 @@ const openAddModal = () => {
   Object.assign(formData, {
     ...initialFormData,
     // 프로필에 이름이 있으면 수령인 기본값으로 설정
-    recipient_name: authStore.user?.name || authStore.user?.username || '',
+    recipient_name: authStore.displayName || '',
     // 프로필에 연락처가 있으면 기본값으로 설정
-    recipient_phone: authStore.user?.phone || ''
+    recipient_phone: authStore.phoneNumber || ''
   })
   showModal.value = true
 }
