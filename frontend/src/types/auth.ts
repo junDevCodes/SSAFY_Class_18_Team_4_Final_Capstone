@@ -19,11 +19,32 @@ export interface RegisterResponse {
   email: string
   detail: string
   expires_at: string
-  verification_code?: string  // 개발 환경에서만 제공
+  verification_code?: string // 개발 환경에서만 제공
 }
 
 export interface VerificationResponse {
   detail: string
+}
+
+export interface UserProfile {
+  profile_image_url: string | null
+  phone_number: string | null
+  date_of_birth: string | null
+  gender: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null
+  timezone: string
+  language: string
+  notification_enabled: boolean
+  marketing_agreed: boolean
+}
+
+export interface User {
+  id: number
+  email: string
+  username: string
+  profile_image_url: string | null
+  role: 'guest' | 'user' | 'seller' | 'admin'
+  timezone: string
+  profile?: UserProfile | null
 }
 
 export interface AuthResponse {
@@ -32,26 +53,7 @@ export interface AuthResponse {
   user: User
 }
 
-export interface User {
-  id: number
-  email: string
-  username: string | null
-  first_name: string | null
-  last_name: string | null
-  name?: string
-  phone?: string
-  postal_code?: string | null
-  address?: string | null
-  address_detail?: string | null
-  profile_image_url: string | null
-  provider: string
-  role: 'guest' | 'user' | 'seller' | 'admin'  // Role: guest(비회원) > user(일반회원) > seller(판매자) > admin(관리자)
-  timezone: string | null
-  created_at?: string
-  last_login?: string
-}
-
-// 별칭 추가 (호환성)
+// 별칭 추가 (환형)
 export type RegisterRequest = SignupRequest
 export interface LoginResponse {
   access: string
@@ -61,30 +63,30 @@ export interface LoginResponse {
   message?: string
 }
 
-// ==================== 배송지 타입 (ERD V2.1) ====================
+// ==================== 배송지 타입(ERD V2.1) ====================
 export interface UserAddress {
   id: number
-  address_name: string           // 배송지 이름 (예: '집', '회사')
-  recipient_name: string         // 수령인
-  recipient_phone: string        // 수령인 연락처
-  postal_code: string            // 우편번호
-  address_line1: string          // 기본 주소
-  address_line2: string | null   // 상세 주소
-  delivery_memo: string | null   // 배송 요청사항
-  is_default: boolean            // 기본 배송지 여부
-  created_at: string             // 생성일
-  updated_at: string             // 수정일
+  address_name: string // 배송지 이름 (ex. '집', '회사')
+  recipient_name: string // 수령인
+  recipient_phone: string // 수령인 연락처
+  postal_code: string // 우편번호
+  address_line1: string // 기본 주소
+  address_line2: string | null // 상세 주소
+  delivery_memo: string | null // 배송 요청사항
+  is_default: boolean // 기본 배송지 여부
+  created_at: string // 생성일시
+  updated_at: string // 수정일시
 }
 
 export interface UserAddressRequest {
-  address_name: string           // 배송지 이름
-  recipient_name: string         // 수령인 이름
-  recipient_phone: string        // 수령인 연락처
-  postal_code: string            // 우편번호
-  address_line1: string          // 기본 주소
-  address_line2?: string | null  // 상세 주소
-  delivery_memo?: string | null  // 배송 요청사항
-  is_default?: boolean           // 기본 배송지 여부 (기본: false)
+  address_name: string // 배송지 이름
+  recipient_name: string // 수령인 이름
+  recipient_phone: string // 수령인 연락처
+  postal_code: string // 우편번호
+  address_line1: string // 기본 주소
+  address_line2?: string | null // 상세 주소
+  delivery_memo?: string | null // 배송 요청사항
+  is_default?: boolean // 기본 배송지 여부 (기본: false)
 }
 
 export interface AddressListResponse {
@@ -93,4 +95,3 @@ export interface AddressListResponse {
   previous: string | null
   results: UserAddress[]
 }
-

@@ -6,7 +6,7 @@
         <div class="header-content">
           <h1 class="page-title">마이페이지</h1>
           <p v-if="authStore.user" class="user-greeting">
-            안녕하세요, <strong>{{ authStore.user.name || authStore.user.email }}</strong>님
+            안녕하세요, <strong>{{ authStore.displayName || authStore.user?.email }}</strong>님
           </p>
         </div>
       </div>
