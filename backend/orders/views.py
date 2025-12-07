@@ -99,7 +99,13 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         payment_method_type = serializer.validated_data.get("payment_method_type", "card")
 
         # 1) 재고 확인 및 차감 (select_for_update로 동시성 제어)
-        product_ids = [item.product_id for item in cart_items]
+        # 상품별 총 주문 수량 집계 (중복 상품 처리)
+        product_quantity_map = {}
+        for cart_item in cart_items:
+            pid = cart_item.product_id
+            product_quantity_map[pid] = product_quantity_map.get(pid, 0) + cart_item.quantity
+
+        product_ids = list(product_quantity_map.keys())
         inventories = {
             inv.product_id: inv
             for inv in ProductInventory.objects.filter(
@@ -107,23 +113,28 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
             ).select_for_update()
         }
 
-        # 재고 부족 체크
-        for cart_item in cart_items:
-            inventory = inventories.get(cart_item.product_id)
+        # 재고 부족 체크 (집계된 수량 기준)
+        inventory_deducted = False
+        for pid, total_qty in product_quantity_map.items():
+            inventory = inventories.get(pid)
             # inventory가 없으면 재고 무제한으로 간주 (기존 동작 유지)
-            if inventory and inventory.stock_quantity < cart_item.quantity:
+            if inventory and inventory.stock_quantity < total_qty:
+                product_name = next(
+                    (item.product.name for item in cart_items if item.product_id == pid), "상품"
+                )
                 return Response(
-                    {"error": f"'{cart_item.product.name}' 상품의 재고가 부족합니다. (현재 재고: {inventory.stock_quantity}개)"},
+                    {"error": f"'{product_name}' 상품의 재고가 부족합니다. (현재 재고: {inventory.stock_quantity}개, 요청 수량: {total_qty}개)"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        # 재고 차감
-        for cart_item in cart_items:
-            inventory = inventories.get(cart_item.product_id)
+        # 재고 차감 (집계된 수량 기준)
+        for pid, total_qty in product_quantity_map.items():
+            inventory = inventories.get(pid)
             if inventory:
-                ProductInventory.objects.filter(product_id=cart_item.product_id).update(
-                    stock_quantity=F("stock_quantity") - cart_item.quantity
+                ProductInventory.objects.filter(product_id=pid).update(
+                    stock_quantity=F("stock_quantity") - total_qty
                 )
+                inventory_deducted = True
 
         # 금액 계산
         subtotal = sum(item.product.price * item.quantity for item in cart_items)
@@ -135,6 +146,7 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         order = Order.objects.create(
             user=request.user,
             status=OrderStatus.PENDING,
+            inventory_deducted=inventory_deducted,
         )
 
         # 3) 주문 상품 항목 생성
@@ -211,11 +223,12 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         serializer = OrderCancelSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # 재고 복원 (주문 품목별로 재고 증가)
-        for order_item in order.items.all():
-            ProductInventory.objects.filter(product_id=order_item.product_id).update(
-                stock_quantity=F("stock_quantity") + order_item.quantity
-            )
+        # 재고 복원 (재고 차감된 주문만 복원)
+        if order.inventory_deducted:
+            for order_item in order.items.all():
+                ProductInventory.objects.filter(product_id=order_item.product_id).update(
+                    stock_quantity=F("stock_quantity") + order_item.quantity
+                )
 
         # 주문 상태 갱신
         order.status = OrderStatus.CANCELLED
@@ -326,7 +339,13 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
         payment_method_type = serializer.validated_data.get("payment_method_type", "card")
 
         # 1) 재고 확인 및 차감 (select_for_update로 동시성 제어)
-        product_ids = [item["product"].id for item in items]
+        # 상품별 총 주문 수량 집계 (중복 상품 처리)
+        product_quantity_map = {}
+        for item in items:
+            pid = item["product"].id
+            product_quantity_map[pid] = product_quantity_map.get(pid, 0) + item["quantity"]
+
+        product_ids = list(product_quantity_map.keys())
         inventories = {
             inv.product_id: inv
             for inv in ProductInventory.objects.filter(
@@ -334,23 +353,28 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
             ).select_for_update()
         }
 
-        # 재고 부족 체크
-        for item in items:
-            inventory = inventories.get(item["product"].id)
+        # 재고 부족 체크 (집계된 수량 기준)
+        inventory_deducted = False
+        for pid, total_qty in product_quantity_map.items():
+            inventory = inventories.get(pid)
             # inventory가 없으면 재고 무제한으로 간주 (기존 동작 유지)
-            if inventory and inventory.stock_quantity < item["quantity"]:
+            if inventory and inventory.stock_quantity < total_qty:
+                product_name = next(
+                    (item["product"].name for item in items if item["product"].id == pid), "상품"
+                )
                 return Response(
-                    {"error": f"'{item['product'].name}' 상품의 재고가 부족합니다. (현재 재고: {inventory.stock_quantity}개)"},
+                    {"error": f"'{product_name}' 상품의 재고가 부족합니다. (현재 재고: {inventory.stock_quantity}개, 요청 수량: {total_qty}개)"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        # 재고 차감
-        for item in items:
-            inventory = inventories.get(item["product"].id)
+        # 재고 차감 (집계된 수량 기준)
+        for pid, total_qty in product_quantity_map.items():
+            inventory = inventories.get(pid)
             if inventory:
-                ProductInventory.objects.filter(product_id=item["product"].id).update(
-                    stock_quantity=F("stock_quantity") - item["quantity"]
+                ProductInventory.objects.filter(product_id=pid).update(
+                    stock_quantity=F("stock_quantity") - total_qty
                 )
+                inventory_deducted = True
 
         # 금액 계산
         subtotal = sum(item["product"].price * item["quantity"] for item in items)
@@ -365,6 +389,7 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
             guest_name=guest_name,
             guest_phone=guest_phone,
             status=OrderStatus.PENDING,
+            inventory_deducted=inventory_deducted,
         )
 
         # 3) 주문 상품 항목 생성
