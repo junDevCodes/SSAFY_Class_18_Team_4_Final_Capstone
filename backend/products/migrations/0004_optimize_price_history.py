@@ -3,6 +3,36 @@
 from django.db import migrations, models
 
 
+def set_current_price_flags(apps, schema_editor):
+    """기존 데이터 마이그레이션: 각 상품의 최신 레코드를 is_current=True로 설정
+
+    SQLite와 PostgreSQL 모두 호환되는 Python 기반 마이그레이션
+    """
+    ProductPriceHistory = apps.get_model('products', 'ProductPriceHistory')
+
+    # 모든 상품 ID 조회
+    product_ids = ProductPriceHistory.objects.values_list(
+        'product_id', flat=True
+    ).distinct()
+
+    # 각 상품별로 최신 레코드를 is_current=True로 설정
+    for product_id in product_ids:
+        # 해당 상품의 최신 레코드 조회
+        latest = ProductPriceHistory.objects.filter(
+            product_id=product_id
+        ).order_by('-recorded_at').first()
+
+        if latest:
+            latest.is_current = True
+            latest.save(update_fields=['is_current'])
+
+
+def unset_current_price_flags(apps, schema_editor):
+    """역방향 마이그레이션: 모든 is_current를 False로 설정"""
+    ProductPriceHistory = apps.get_model('products', 'ProductPriceHistory')
+    ProductPriceHistory.objects.all().update(is_current=False)
+
+
 class Migration(migrations.Migration):
     """가격 히스토리 테이블 최적화 마이그레이션
 
@@ -11,8 +41,7 @@ class Migration(migrations.Migration):
     2. previous_price 필드 추가: 이전 가격 (변동폭 계산용)
     3. price_change 필드 추가: 가격 변동액 (이전 대비)
     4. price_change_rate 필드 추가: 가격 변동률 (%)
-    5. 복합 유니크 제약: (product, recorded_at) - 같은 시점 중복 방지
-    6. 부분 인덱스: is_current=True인 레코드만 인덱싱
+    5. 인덱스 추가: 현재 가격 조회 및 가격 분석용
     """
 
     dependencies = [
@@ -70,8 +99,7 @@ class Migration(migrations.Migration):
             ),
         ),
 
-        # 5. 현재 가격 빠른 조회를 위한 부분 인덱스
-        # PostgreSQL: WHERE is_current = true 조건부 인덱스
+        # 5. 현재 가격 빠른 조회를 위한 인덱스
         migrations.AddIndex(
             model_name='productpricehistory',
             index=models.Index(
@@ -89,21 +117,9 @@ class Migration(migrations.Migration):
             ),
         ),
 
-        # 7. 기존 데이터 마이그레이션: 각 상품의 최신 레코드를 is_current=True로 설정
-        migrations.RunSQL(
-            sql="""
-            UPDATE product_price_histories pph
-            SET is_current = TRUE
-            WHERE pph.id = (
-                SELECT pph2.id
-                FROM product_price_histories pph2
-                WHERE pph2.product_id = pph.product_id
-                ORDER BY pph2.recorded_at DESC
-                LIMIT 1
-            );
-            """,
-            reverse_sql="""
-            UPDATE product_price_histories SET is_current = FALSE;
-            """,
+        # 7. 기존 데이터 마이그레이션 (Python 함수 사용 - DB 호환)
+        migrations.RunPython(
+            set_current_price_flags,
+            unset_current_price_flags,
         ),
     ]
