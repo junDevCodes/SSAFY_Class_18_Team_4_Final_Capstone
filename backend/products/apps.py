@@ -15,6 +15,9 @@ class ProductsConfig(AppConfig):
 
     def ready(self):
         """앱 초기화 시 실행 (runserver 시작 시)"""
+        # 시그널 핸들러 등록 (Product 생성 시 관련 모델 자동 생성)
+        import products.signals  # noqa: F401
+
         # 마이그레이션 중이거나 다른 명령어 실행 중이면 스킵
         skip_commands = [
             'migrate', 'makemigrations', 'shell', 'createsuperuser',
