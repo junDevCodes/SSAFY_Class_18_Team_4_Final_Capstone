@@ -17,11 +17,14 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       REDIS_URL: redis://redis:6379/0
+      ML_API_URL: http://pred:8001
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      pred:
+        condition: service_started
     ports:
       - "8000:8000"
     volumes:
@@ -44,6 +47,24 @@ services:
     ports:
       - "80:80"
       - "443:443" # HTTPS 포트 추가
+    restart: unless-stopped
+
+  pred:
+    image: ${ECR_REPO_ML:-733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-pred}:${IMAGE_TAG:-latest}
+    container_name: self-pred
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
     restart: unless-stopped
 
   db:
