@@ -50,7 +50,7 @@ services:
     restart: unless-stopped
 
   pred:
-    image: ${ECR_REPO_ML:-733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-pred}:${IMAGE_TAG:-latest}
+    image: ${ECR_REPO_PRED:-733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-pred}:${IMAGE_TAG:-latest}
     container_name: self-pred
     env_file:
       - .env
