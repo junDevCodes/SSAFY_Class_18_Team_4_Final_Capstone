@@ -85,7 +85,7 @@ class Product(models.Model):
 
     seller = models.ForeignKey(
         'sellers.Seller',
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,  # 판매자 삭제 시 상품이 있으면 삭제 차단 (데이터 보호)
         related_name='products',
         verbose_name="판매자",
     )
