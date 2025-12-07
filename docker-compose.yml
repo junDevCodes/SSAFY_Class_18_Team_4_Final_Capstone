@@ -1,4 +1,4 @@
-services:
+﻿services:
   backend:
     build: ./backend
     container_name: self-backend
@@ -15,7 +15,7 @@ services:
       DB_PORT: "5432"
       REDIS_URL: redis://redis:6379/0
     volumes:
-      # data 폴더 마운트 (CSV/JSON 파일 접근 및 파이프라인 처리용)
+      # data 폴더 마운트 (JSON 파이프라인 및 파일 접근)
       - ./data:/app/data
     depends_on:
       db:
@@ -25,11 +25,11 @@ services:
     ports:
       - "8000:8000"
     # 컨테이너 시작 시 migrate + Site 설정 + CSV 임포트 + gunicorn 실행
-    # 주의: import_products의 fallback(|| echo)이 migrate/shell 실패까지 잡지 않도록 괄호로 그룹화
+    # 주의: JSON 파이프라인 실패 시 gunicorn 실행을 막기 위해 || 처리
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py shell -c \"from django.contrib.sites.models import Site; Site.objects.update_or_create(id=1, defaults={'domain': 'localhost:8000', 'name': 'SelF Local'})\" &&
-             (python manage.py import_products /app/data/merged_all_naver.csv --skip-if-exists 2>/dev/null || echo '[INIT] CSV 임포트 스킵') &&
+             (python manage.py process_json_data --show-details 2>/dev/null || echo '[INIT] JSON 임포트 스킵') &&
              gunicorn project_self.wsgi:application --bind 0.0.0.0:8000"
 
   frontend:
@@ -40,6 +40,9 @@ services:
       - backend
     ports:
       - "8080:80"
+    volumes:
+      # 로컬 개발용 Nginx 설정(HTTP, SSL 미사용)
+      - ./frontend/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
 
   db:
     image: postgres:16-alpine
