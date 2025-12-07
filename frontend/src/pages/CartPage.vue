@@ -179,9 +179,9 @@ import { getProductImage, formatPrice, DEFAULT_PRODUCT_IMAGE, type Product } fro
 const router = useRouter()
 const cartStore = useCartStore()
 
-const selectedItems = ref<number[]>([])
-const updating = ref<number | null>(null)
-const deleting = ref<number | null>(null)
+const selectedItems = ref<Array<CartItem['id']>>([])
+const updating = ref<CartItem['id'] | null>(null)
+const deleting = ref<CartItem['id'] | null>(null)
 
 // 전체 선택 체크박스
 const selectAll = computed({

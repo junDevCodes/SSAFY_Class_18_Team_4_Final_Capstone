@@ -2,17 +2,31 @@ import { reactive, onMounted, onUnmounted } from 'vue'
 
 // 타이머 컴포저블
 export function useTimer() {
-  const timer = reactive({ hours: '12', minutes: '34', seconds: '56' })
+  const timer = reactive({ hours: '00', minutes: '00', seconds: '00' })
 
   let intervalId: ReturnType<typeof setInterval> | null = null
 
+
+  const tick = () => {
+    const now = new Date()
+    const target = new Date()
+    target.setHours(24, 0, 0, 0)
+
+    const totalSeconds = Math.max(0, Math.floor((target.getTime() - now.getTime()) / 1000))
+    timer.hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0')
+    timer.minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0')
+    timer.seconds = String(totalSeconds % 60).padStart(2, '0')
+
+    if (totalSeconds === 0 && intervalId) {
+      clearInterval(intervalId)
+      intervalId = null
+    }
+  }
+
   const startTimer = () => {
-    intervalId = setInterval(() => {
-      const now = new Date()
-      timer.hours = String(23 - now.getHours()).padStart(2, '0')
-      timer.minutes = String(59 - now.getMinutes()).padStart(2, '0')
-      timer.seconds = String(59 - now.getSeconds()).padStart(2, '0')
-    }, 1000)
+    if (intervalId) return
+    tick()
+    intervalId = setInterval(tick, 1000)
   }
 
   const stopTimer = () => {
