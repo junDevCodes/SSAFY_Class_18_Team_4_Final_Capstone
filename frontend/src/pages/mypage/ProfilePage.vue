@@ -31,12 +31,12 @@
           </div>
 
           <div class="form-group">
-            <label for="name">이름 *</label>
+            <label for="username">닉네임 *</label>
             <input
-              id="name"
-              v-model="formData.name"
+              id="username"
+              v-model="formData.username"
               type="text"
-              placeholder="이름을 입력하세요"
+              placeholder="닉네임을 입력하세요"
               required
             />
           </div>
@@ -45,10 +45,13 @@
             <label for="phone">연락처</label>
             <input
               id="phone"
-              v-model="formData.phone"
               type="tel"
-              placeholder="010-0000-0000"
+              :value="authStore.phoneNumber"
+              class="input-disabled"
+              placeholder="연락처는 프로필에서 제공됩니다"
+              disabled
             />
+            <p class="field-hint">백엔드 프로필 수정 미지원 - 표시 전용</p>
           </div>
         </div>
 
@@ -167,12 +170,12 @@
               </span>
             </div>
             <div class="info-item">
-              <span class="label">가입일</span>
-              <span class="value">{{ formatDate(authStore.user?.created_at) }}</span>
+              <span class="label">이메일</span>
+              <span class="value">{{ authStore.user?.email || '-' }}</span>
             </div>
             <div class="info-item">
-              <span class="label">마지막 로그인</span>
-              <span class="value">{{ formatDate(authStore.user?.last_login) }}</span>
+              <span class="label">시간대</span>
+              <span class="value">{{ authStore.user?.timezone || '-' }}</span>
             </div>
           </div>
         </div>
@@ -223,8 +226,7 @@ const successMessage = ref<string | null>(null)
 
 // Form data (배송지 필드 제거 - 별도 배송지 관리 페이지 사용)
 const formData = reactive({
-  name: '',
-  phone: ''
+  username: '',
 })
 
 // Password change data
@@ -245,8 +247,7 @@ const loadUserData = async () => {
     const userData = response.data
 
     // Fill form with user data
-    formData.name = userData.name || ''
-    formData.phone = userData.phone || ''
+    formData.username = userData.username || ''
 
     // 배송지 목록 로드
     await addressesStore.loadAddresses()
@@ -291,8 +292,7 @@ const handleSubmit = async () => {
   try {
     // Update profile (배송지 필드 제거)
     await authAPI.updateProfile({
-      name: formData.name,
-      phone: formData.phone
+      username: formData.username,
     })
 
     // Update password if provided
@@ -363,17 +363,6 @@ const handleDeleteAccount = async () => {
 }
 
 // Format date
-const formatDate = (dateString?: string): string => {
-  if (!dateString) return '-'
-
-  const date = new Date(dateString)
-  return date.toLocaleDateString('ko-KR', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  })
-}
-
 // Initialize
 onMounted(() => {
   loadUserData()
