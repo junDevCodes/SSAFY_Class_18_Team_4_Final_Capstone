@@ -16,6 +16,7 @@ permissions:
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   AWS_IAM_ROLE_ARN: ${{ secrets.AWS_IAM_ROLE_ARN }}
+  ECR_REPO_PRED: ${{ secrets.ECR_REPO_PRED }}
 
 jobs:
   backend-image:
@@ -90,8 +91,8 @@ jobs:
           context: ./pred
           push: true
           tags: |
-            ${{ secrets.ECR_REPO_ML }}:latest
-            ${{ secrets.ECR_REPO_ML }}:${{ github.sha }}
+            ${{ env.ECR_REPO_PRED }}:latest
+            ${{ env.ECR_REPO_PRED }}:${{ github.sha }}
 
   deploy-dev:
     needs: [backend-image, frontend-image, pred-image]
