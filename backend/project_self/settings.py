@@ -104,6 +104,7 @@ DB_USER = os.getenv('DB_USER', '')
 DB_PASSWORD = os.getenv('DB_PASSWORD', '')
 DB_HOST = os.getenv('DB_HOST', '')
 DB_PORT = os.getenv('DB_PORT', '')
+ML_API_URL = os.getenv('ML_API_URL', 'http://localhost:8001')
 
 # 환경변수 값에 따라 SQLite(기본) 또는 Postgres 등으로 분기
 if DB_ENGINE == 'django.db.backends.sqlite3':
