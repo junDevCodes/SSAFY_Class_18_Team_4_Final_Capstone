@@ -476,8 +476,8 @@ const loadCheckoutData = async () => {
 
     // Pre-fill user info if available (새 배송지 입력 시 기본값)
     if (authStore.user) {
-      shippingInfo.value.recipient_name = authStore.user.name || ''
-      shippingInfo.value.phone = authStore.user.phone || ''
+      shippingInfo.value.recipient_name = authStore.displayName || ''
+      shippingInfo.value.phone = authStore.phoneNumber || ''
     }
   } catch (err: any) {
     console.error('결제 페이지 로드 실패:', err)
@@ -491,8 +491,8 @@ const loadCheckoutData = async () => {
 const onAddressSelect = () => {
   // 새 배송지 입력으로 전환 시 사용자 정보 기본값 설정
   if (!selectedAddressId.value && authStore.user) {
-    shippingInfo.value.recipient_name = authStore.user.name || ''
-    shippingInfo.value.phone = authStore.user.phone || ''
+    shippingInfo.value.recipient_name = authStore.displayName || ''
+    shippingInfo.value.phone = authStore.phoneNumber || ''
   }
   // 배송 요청사항 초기화
   shippingInfo.value.delivery_request = ''
