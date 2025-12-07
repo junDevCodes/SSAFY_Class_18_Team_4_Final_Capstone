@@ -40,6 +40,9 @@ services:
       - backend
     ports:
       - "8080:80"
+    volumes:
+      # 로컬 개발용 Nginx 설정(HTTP, SSL 미사용)
+      - ./frontend/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
 
   db:
     image: postgres:16-alpine
