@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { Product, Category, ProductFilterParams } from '@/types/product'
-import { productsAPI, categoriesAPI } from '@/api/products'
+import { productsAPI } from '@/services/api'
 
 // 상품 스토어
 export const useProductStore = defineStore('products', () => {
@@ -18,11 +18,11 @@ export const useProductStore = defineStore('products', () => {
     loading.value = true
     error.value = null
     try {
-      const response = await productsAPI.getProducts(params)
-      products.value = response.results
-      return response
+      const { data } = await productsAPI.getProducts(params)
+      products.value = data.results
+      return data
     } catch (err) {
-      error.value = '제품 목록을 불러오는데 실패했습니다.'
+      error.value = '상품 목록을 불러오는 데 실패했습니다.'
       console.error('Failed to fetch products:', err)
       throw err
     } finally {
@@ -33,15 +33,17 @@ export const useProductStore = defineStore('products', () => {
   /**
    * 카테고리 목록 조회
    */
+  
+
   const fetchCategories = async () => {
     loading.value = true
     error.value = null
     try {
-      const response = await categoriesAPI.getCategories()
-      categories.value = response.results
-      return response
+      const { data } = await productsAPI.getCategories()
+      categories.value = data.results
+      return data
     } catch (err) {
-      error.value = '카테고리 목록을 불러오는데 실패했습니다.'
+      error.value = '카테고리 목록을 불러오는 데 실패했습니다.'
       console.error('Failed to fetch categories:', err)
       throw err
     } finally {
