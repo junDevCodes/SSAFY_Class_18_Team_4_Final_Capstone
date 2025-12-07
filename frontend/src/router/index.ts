@@ -191,6 +191,12 @@ const router = createRouter({
 router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
 
+
+  // 토큰 있는데 user 없는 경우 한 번 복구 시도
+  if (!authStore.user && localStorage.getItem('access_token')) {
+    await authStore.loadUser()
+  }
+
   // 페이지 타이틀 설정
   document.title = to.meta.title
     ? `${to.meta.title} | 농산물 전자상거래`
@@ -200,7 +206,7 @@ router.beforeEach(async (to, _from, next) => {
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     // 로그인 모달 열기 이벤트 발생
     window.dispatchEvent(new CustomEvent('auth:required', { detail: { to: to.fullPath } }))
-    return next(false)
+    return next({ name: 'home', query: { redirect: to.fullPath } })
   }
 
   // 판매자 권한이 필요한 페이지
