@@ -281,8 +281,8 @@ class DataProcessor:
                     seller, _ = Seller.objects.get_or_create(
                         user=user,
                         defaults={
-                            'brand_name': '크롤러 시스템',
-                            'brand_slug': 'crawler-system',
+                            'brand_name': 'SelF',
+                            'brand_slug': 'self',
                             'status': 'active',
                         }
                     )
