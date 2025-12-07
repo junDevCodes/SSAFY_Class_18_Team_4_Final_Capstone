@@ -295,10 +295,17 @@ class ProductInventory(models.Model):
 
 
 class ProductPriceHistory(models.Model):
-    """상품 가격 변동 이력 (사용자 요청 추가)
+    """상품 가격 변동 이력 (최적화된 설계)
 
-    상품의 가격 변화를 누적 기록하여 가격 추이를 추적.
-    예: 1번 상품이 1000원 → 900원 → 1100원으로 변경된 이력 저장
+    핵심 원칙:
+    1. 가격이 변동된 시점에만 새 레코드 생성 (중복 방지)
+    2. is_current=True인 레코드는 상품당 하나만 존재
+    3. 변동폭/변동률을 미리 계산하여 저장 (쿼리 최적화)
+
+    사용 예시:
+    - 현재 가격 조회: ProductPriceHistory.objects.filter(product=p, is_current=True)
+    - 가격 추이 조회: ProductPriceHistory.objects.filter(product=p).order_by('recorded_at')
+    - 최근 할인 상품: ProductPriceHistory.objects.filter(is_current=True, price_change__lt=0)
     """
 
     product = models.ForeignKey(
@@ -308,6 +315,7 @@ class ProductPriceHistory(models.Model):
         verbose_name="상품",
     )
 
+    # 가격 정보
     price = models.IntegerField(
         verbose_name="가격",
         help_text="해당 시점의 가격",
@@ -319,6 +327,37 @@ class ProductPriceHistory(models.Model):
         help_text="해당 시점의 원가 (할인 전 가격)",
     )
 
+    # 변동 정보 (미리 계산하여 저장)
+    previous_price = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="이전 가격",
+        help_text="변경 전 가격 (첫 기록은 NULL)",
+    )
+    price_change = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="가격 변동액",
+        help_text="현재가격 - 이전가격 (양수=인상, 음수=인하)",
+    )
+    price_change_rate = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="가격 변동률",
+        help_text="변동률 % (양수=인상, 음수=인하)",
+    )
+
+    # 상태 관리
+    is_current = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="현재 가격 여부",
+        help_text="True면 현재 유효한 가격 (상품당 하나만 True)",
+    )
+
+    # 메타 정보
     recorded_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="기록 시각",
@@ -340,10 +379,92 @@ class ProductPriceHistory(models.Model):
         indexes = [
             models.Index(fields=['product', '-recorded_at'], name='ix_price_history_product'),
             models.Index(fields=['recorded_at'], name='ix_price_history_recorded'),
+            models.Index(fields=['product', 'is_current'], name='ix_price_hist_current'),
+            models.Index(fields=['product', 'recorded_at', 'price'], name='ix_price_hist_analysis'),
         ]
 
     def __str__(self):
-        return f"{self.product.name}: {self.price}원 ({self.recorded_at.strftime('%Y-%m-%d %H:%M')})"
+        change_str = ""
+        if self.price_change is not None:
+            sign = "+" if self.price_change > 0 else ""
+            change_str = f" ({sign}{self.price_change:,}원)"
+        current_str = " [현재]" if self.is_current else ""
+        return f"{self.product.name}: {self.price:,}원{change_str}{current_str}"
+
+    @classmethod
+    def record_price_change(cls, product, new_price, new_original_price=None, source='crawl'):
+        """가격 변동 기록 (변동이 있을 때만)
+
+        Args:
+            product: Product 인스턴스
+            new_price: 새 가격
+            new_original_price: 새 원가 (선택)
+            source: 변경 출처
+
+        Returns:
+            tuple: (생성된 히스토리 또는 None, 'new'|'updated'|'skipped')
+        """
+        from django.db import transaction
+
+        with transaction.atomic():
+            # 현재 가격 레코드 조회 (잠금)
+            current = cls.objects.select_for_update().filter(
+                product=product,
+                is_current=True
+            ).first()
+
+            # 가격 변동 없으면 스킵
+            if current and current.price == new_price:
+                # original_price만 변경된 경우도 체크
+                if current.original_price == new_original_price:
+                    return None, 'skipped'
+
+            # 이전 레코드의 is_current를 False로 변경
+            if current:
+                current.is_current = False
+                current.save(update_fields=['is_current'])
+
+            # 변동폭 계산
+            previous_price = current.price if current else None
+            price_change = None
+            price_change_rate = None
+
+            if previous_price is not None:
+                price_change = new_price - previous_price
+                if previous_price > 0:
+                    price_change_rate = round((price_change / previous_price) * 100, 2)
+
+            # 새 레코드 생성
+            history = cls.objects.create(
+                product=product,
+                price=new_price,
+                original_price=new_original_price,
+                previous_price=previous_price,
+                price_change=price_change,
+                price_change_rate=price_change_rate,
+                is_current=True,
+                source=source,
+            )
+
+            action = 'new' if previous_price is None else 'updated'
+            return history, action
+
+    @classmethod
+    def get_current_price(cls, product):
+        """현재 가격 조회 (최적화된 쿼리)"""
+        return cls.objects.filter(product=product, is_current=True).first()
+
+    @classmethod
+    def get_price_trend(cls, product, days=30):
+        """최근 N일간 가격 추이 조회"""
+        from django.utils import timezone
+        from datetime import timedelta
+
+        since = timezone.now() - timedelta(days=days)
+        return cls.objects.filter(
+            product=product,
+            recorded_at__gte=since
+        ).order_by('recorded_at').values('price', 'recorded_at', 'price_change')
 
 
 class ProductImage(models.Model):
