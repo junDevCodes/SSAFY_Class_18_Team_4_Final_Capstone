@@ -9,23 +9,34 @@ import type { Product } from '@/types/product'
 // 로컬 스토리지 키
 const LOCAL_CART_KEY = 'guest_cart'
 
+const generateLocalId = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+  return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
 export interface CartItem {
-  id: number
+  id: number | string
   product: Product
   quantity: number
   subtotal: number
   created_at: string
   updated_at: string
+  origin?: 'server' | 'local'
+  clientId?: string
 }
 
 // 비회원 장바구니 아이템 (로컬용)
 export interface LocalCartItem {
-  id: number  // 로컬에서는 product.id를 사용
+  id: string  // 로컬에서는 product.id를 사용
   product: Product
   quantity: number
   subtotal: number
   created_at: string
   updated_at: string
+  origin: 'local'
+  clientId: string
 }
 
 export const useCartStore = defineStore('cart', () => {
@@ -46,36 +57,62 @@ export const useCartStore = defineStore('cart', () => {
   const totalQuantity = computed(() => summary.value.total_quantity)
   const total = computed(() => summary.value.total)
 
+  const getLocalCartItems = (): LocalCartItem[] => {
+    const saved = localStorage.getItem(LOCAL_CART_KEY)
+    if (!saved) return []
+    try {
+      const parsed = JSON.parse(saved) as Partial<LocalCartItem>[]
+      return parsed
+        .filter(item => item?.product)
+        .map((item) => {
+          const clientId = item.clientId || (typeof item.id === 'string' ? item.id : generateLocalId())
+          const quantity = item.quantity ?? 0
+          const product = item.product as Product
+          const subtotal = item.subtotal || (product?.price || 0) * quantity
+          return {
+            ...item,
+            id: clientId,
+            clientId,
+            product,
+            quantity,
+            subtotal,
+            created_at: item.created_at || new Date().toISOString(),
+            updated_at: item.updated_at || new Date().toISOString(),
+            origin: 'local'
+          } as LocalCartItem
+        })
+    } catch {
+      return []
+    }
+  }
+
   // 로컬 장바구니 저장
-  const saveLocalCart = () => {
-    localStorage.setItem(LOCAL_CART_KEY, JSON.stringify(items.value))
-    updateLocalSummary()
+  const saveLocalCart = (localItems?: LocalCartItem[]) => {
+    const itemsToSave = localItems ?? (items.value.filter(item => item.origin === 'local') as LocalCartItem[])
+    localStorage.setItem(LOCAL_CART_KEY, JSON.stringify(itemsToSave))
+    if (isGuest.value) {
+      updateLocalSummary(itemsToSave)
+    }
   }
 
   // 로컬 장바구니 로드
   const loadLocalCart = () => {
-    const saved = localStorage.getItem(LOCAL_CART_KEY)
-    if (saved) {
-      try {
-        items.value = JSON.parse(saved)
-      } catch {
-        items.value = []
-      }
-    }
-    updateLocalSummary()
+    const localItems = getLocalCartItems()
+    items.value = localItems
+    updateLocalSummary(localItems)
   }
 
   // 로컬 요약 정보 업데이트
-  const updateLocalSummary = () => {
+  const updateLocalSummary = (source: CartItem[] = items.value) => {
     // subtotal이 없거나 0인 경우 product.price * quantity로 계산
-    const totalPrice = items.value.reduce((sum, item) => {
+    const totalPrice = source.reduce((sum, item) => {
       const itemSubtotal = item.subtotal || (item.product?.price || 0) * item.quantity
       return sum + itemSubtotal
     }, 0)
-    const totalQty = items.value.reduce((sum, item) => sum + item.quantity, 0)
+    const totalQty = source.reduce((sum, item) => sum + item.quantity, 0)
     summary.value = {
       total: totalPrice,
-      count: items.value.length,
+      count: source.length,
       total_quantity: totalQty
     }
   }
@@ -87,6 +124,7 @@ export const useCartStore = defineStore('cart', () => {
 
     // 로그인 여부 확인
     const accessToken = localStorage.getItem('access_token')
+    const hasLocalGuestCart = !!localStorage.getItem(LOCAL_CART_KEY)
 
     if (!accessToken) {
       // 비회원: 로컬 장바구니 사용
@@ -99,13 +137,23 @@ export const useCartStore = defineStore('cart', () => {
     // 회원: API 호출
     isGuest.value = false
     try {
+      if (hasLocalGuestCart) {
+        try {
+          await syncGuestCartToServer({ reload: false })
+        } catch (syncError) {
+          console.error('게스트 장바구니 동기화 중 오류:', syncError)
+        }
+      }
+
       const response = await cartAPI.getCart({ page_size: 100 })
       const cartData = response.data.results || response.data
 
       // subtotal이 없는 경우 직접 계산
       items.value = cartData.map((item: CartItem) => ({
         ...item,
-        subtotal: item.subtotal || (item.product?.price || 0) * item.quantity
+        subtotal: item.subtotal || (item.product?.price || 0) * item.quantity,
+        origin: 'server',
+        clientId: item.clientId || String(item.id)
       }))
 
       // 요약 정보도 로드
@@ -140,7 +188,12 @@ export const useCartStore = defineStore('cart', () => {
       }
       // 요약에서 items도 반환되면 업데이트
       if (response.data.items) {
-        items.value = response.data.items
+        items.value = response.data.items.map((item: CartItem) => ({
+          ...item,
+          subtotal: item.subtotal || (item.product?.price || 0) * item.quantity,
+          origin: 'server',
+          clientId: item.clientId || String(item.id)
+        }))
       }
     } catch (err: any) {
       if (err.response?.status === 401) {
@@ -199,18 +252,27 @@ export const useCartStore = defineStore('cart', () => {
 
     if (existingIndex >= 0) {
       // 이미 있으면 수량 증가
-      items.value[existingIndex].quantity += quantity
-      items.value[existingIndex].subtotal = items.value[existingIndex].product.price * items.value[existingIndex].quantity
-      items.value[existingIndex].updated_at = now
+      const existing = items.value[existingIndex]
+      existing.quantity += quantity
+      existing.subtotal = existing.product.price * existing.quantity
+      existing.updated_at = now
+      existing.origin = 'local'
+      if (!existing.clientId) {
+        existing.clientId = typeof existing.id === 'string' ? existing.id : generateLocalId()
+      }
+      existing.id = existing.clientId
     } else {
-      // 새로 추가 (id는 음수로 설정하여 서버 ID와 구분)
-      const newItem: CartItem = {
-        id: -Date.now(),  // 음수로 로컬 ID 생성
+      // 새로 추가 (클라이언트 ID로 서버 ID와 구분)
+      const clientId = generateLocalId()
+      const newItem: LocalCartItem = {
+        id: clientId,
+        clientId,
         product,
         quantity,
         subtotal: product.price * quantity,
         created_at: now,
-        updated_at: now
+        updated_at: now,
+        origin: 'local'
       }
       items.value.push(newItem)
     }
@@ -219,7 +281,7 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   // 수량 변경
-  const updateQuantity = async (id: number, quantity: number) => {
+  const updateQuantity = async (id: number | string, quantity: number) => {
     if (quantity < 1) {
       // 수량이 1 미만이면 삭제
       return removeFromCart(id)
@@ -228,9 +290,11 @@ export const useCartStore = defineStore('cart', () => {
     loading.value = true
     error.value = null
 
-    // 비회원: 로컬 장바구니 업데이트
-    if (isGuest.value) {
-      const item = items.value.find(i => i.id === id)
+    const item = items.value.find(i => i.id === id)
+    const isLocalItem = isGuest.value || item?.origin === 'local' || typeof id === 'string'
+
+    // 비회원 또는 로컬 아이템은 로컬에서만 업데이트
+    if (isLocalItem) {
       if (item) {
         item.quantity = quantity
         item.subtotal = item.product.price * quantity
@@ -243,10 +307,9 @@ export const useCartStore = defineStore('cart', () => {
 
     // 회원: API 호출
     try {
-      await cartAPI.updateCartItem(id, quantity)
+      await cartAPI.updateCartItem(Number(id), quantity)
 
       // 로컬 상태 업데이트
-      const item = items.value.find(i => i.id === id)
       if (item) {
         item.quantity = quantity
         // v2.1: discount_rate가 없으므로 price를 직접 사용 (price가 이미 최종 가격)
@@ -265,7 +328,7 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   // 수량 증가
-  const increaseQuantity = async (id: number) => {
+  const increaseQuantity = async (id: number | string) => {
     const item = items.value.find(i => i.id === id)
     if (item) {
       await updateQuantity(id, item.quantity + 1)
@@ -273,7 +336,7 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   // 수량 감소
-  const decreaseQuantity = async (id: number) => {
+  const decreaseQuantity = async (id: number | string) => {
     const item = items.value.find(i => i.id === id)
     if (item) {
       await updateQuantity(id, item.quantity - 1)
@@ -281,12 +344,15 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   // 장바구니에서 삭제
-  const removeFromCart = async (id: number) => {
+  const removeFromCart = async (id: number | string) => {
     loading.value = true
     error.value = null
 
-    // 비회원: 로컬 장바구니에서 삭제
-    if (isGuest.value) {
+    const target = items.value.find(item => item.id === id)
+    const isLocalItem = isGuest.value || target?.origin === 'local' || typeof id === 'string'
+
+    // 비회원 또는 로컬 아이템: 로컬 장바구니에서 삭제
+    if (isLocalItem) {
       items.value = items.value.filter(item => item.id !== id)
       saveLocalCart()
       loading.value = false
@@ -295,7 +361,7 @@ export const useCartStore = defineStore('cart', () => {
 
     // 회원: API 호출
     try {
-      await cartAPI.removeFromCart(id)
+      await cartAPI.removeFromCart(Number(id))
 
       // 로컬 상태 업데이트
       items.value = items.value.filter(item => item.id !== id)
@@ -332,6 +398,7 @@ export const useCartStore = defineStore('cart', () => {
       // 로컬 상태 초기화
       items.value = []
       summary.value = { total: 0, count: 0, total_quantity: 0 }
+      localStorage.removeItem(LOCAL_CART_KEY)
     } catch (err: any) {
       error.value = err.response?.data?.message || '장바구니 비우기에 실패했습니다.'
       console.error('장바구니 비우기 실패:', err)
@@ -351,25 +418,38 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   // 비회원 장바구니를 서버로 동기화 (로그인 후)
-  const syncGuestCartToServer = async () => {
-    const guestCart = localStorage.getItem(LOCAL_CART_KEY)
-    if (!guestCart) return
+  const syncGuestCartToServer = async (options: { reload?: boolean } = {}) => {
+    const guestItems = getLocalCartItems()
+    if (!guestItems.length) return { synced: 0, failed: 0 }
 
-    try {
-      const guestItems: CartItem[] = JSON.parse(guestCart)
-      for (const item of guestItems) {
+    const failedItems: LocalCartItem[] = []
+    let syncedCount = 0
+
+    for (const item of guestItems) {
+      try {
         await cartAPI.addToCart({
           product_id: item.product.id,
           quantity: item.quantity
         })
+        syncedCount += 1
+      } catch (err) {
+        console.error('비회원 장바구니 동기화 실패:', err)
+        failedItems.push(item)
       }
-      // 동기화 완료 후 로컬 장바구니 삭제
-      localStorage.removeItem(LOCAL_CART_KEY)
-      // 서버 장바구니 다시 로드
-      await loadCart()
-    } catch (err) {
-      console.error('비회원 장바구니 동기화 실패:', err)
     }
+
+    if (failedItems.length === 0) {
+      localStorage.removeItem(LOCAL_CART_KEY)
+    } else {
+      // 실패한 항목만 남겨서 재시도할 수 있게 유지
+      saveLocalCart(failedItems)
+    }
+
+    if (options.reload) {
+      await loadCart()
+    }
+
+    return { synced: syncedCount, failed: failedItems.length }
   }
 
   // 비회원 장바구니 비우기 (로컬만)
