@@ -73,6 +73,19 @@ jobs:
     if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: docker-compose.prod.yml 동기화 (EC2)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT }}
+          source: "docker-compose.prod.yml"
+          target: "/home/ubuntu/self-app/"
+
       - name: EC2로 배포 (SSH + Docker Compose)
         uses: appleboy/ssh-action@v1.0.0
         with:
