@@ -16,7 +16,6 @@ permissions:
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   AWS_IAM_ROLE_ARN: ${{ secrets.AWS_IAM_ROLE_ARN }}
-  ECR_REPO_ML: ${{ secrets.ECR_REPO_PRED }}
 
 jobs:
   backend-image:
