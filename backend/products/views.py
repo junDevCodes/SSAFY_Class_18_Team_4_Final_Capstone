@@ -105,7 +105,7 @@ class ProductListView(generics.ListAPIView):
         from django.db.models import Q
 
         queryset = Product.objects.filter(status='active').select_related(
-            'category', 'stats'
+            'category', 'stats', 'inventory'
         )
 
         # 커스텀 필터: is_featured (추천 상품 - quality_score 기준)

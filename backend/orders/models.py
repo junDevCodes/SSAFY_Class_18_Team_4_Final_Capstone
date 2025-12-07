@@ -114,6 +114,13 @@ class Order(models.Model):
         verbose_name="환불 시각",
     )
 
+    # 재고 차감 여부 (취소 시 복원 판단용)
+    inventory_deducted = models.BooleanField(
+        default=False,
+        verbose_name="재고 차감 여부",
+        help_text="주문 생성 시 재고가 차감되었는지 여부 (취소 시 복원 판단용)",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
 
@@ -145,8 +152,8 @@ class Order(models.Model):
 class OrderItem(models.Model):
     """주문 품목 (ERD: order_items)
 
-    주문 시점의 상품명/단가/수량/할인만 저장.
-    판매자는 products를 통해 계산.
+    주문 시점의 상품명/단가/수량/할인/판매자 정보를 스냅샷으로 저장.
+    판매자 정보 변경/삭제 시에도 주문 당시 정보가 보존됨.
     """
 
     order = models.ForeignKey(
@@ -162,12 +169,31 @@ class OrderItem(models.Model):
         verbose_name="상품",
     )
 
+    # 상품 스냅샷
     product_name_snapshot = models.CharField(
         max_length=500,
         verbose_name="상품명 스냅샷",
     )
     unit_price_snapshot = models.IntegerField(
         verbose_name="단가 스냅샷",
+    )
+
+    # 판매자 스냅샷 (주문 시점의 판매자 정보 보존)
+    seller = models.ForeignKey(
+        "sellers.Seller",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="order_items",
+        verbose_name="판매자",
+        help_text="판매자 참조 (정산/쿼리용, 삭제 시 NULL)",
+    )
+    seller_name_snapshot = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        verbose_name="판매자명 스냅샷",
+        help_text="주문 시점의 브랜드명 (판매자 정보 변경/삭제되어도 유지)",
     )
 
     quantity = models.IntegerField(
@@ -195,10 +221,12 @@ class OrderItem(models.Model):
         indexes = [
             models.Index(fields=["order"], name="ix_order_items_order"),
             models.Index(fields=["product"], name="ix_order_items_product"),
+            models.Index(fields=["seller"], name="ix_order_items_seller"),
         ]
 
     def __str__(self):
-        return f"{self.order.order_no} - {self.product_name_snapshot} x {self.quantity}"
+        seller_info = f" ({self.seller_name_snapshot})" if self.seller_name_snapshot else ""
+        return f"{self.order.order_no} - {self.product_name_snapshot}{seller_info} x {self.quantity}"
 
     @property
     def subtotal(self):

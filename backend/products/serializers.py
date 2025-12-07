@@ -299,6 +299,9 @@ class ProductListSerializerV2(serializers.ModelSerializer):
     wishlist_count = serializers.SerializerMethodField()
     quality_score = serializers.SerializerMethodField()
 
+    # 재고 정보
+    stock_quantity = serializers.SerializerMethodField()
+
     class Meta:
         model = Product
         fields = [
@@ -318,6 +321,7 @@ class ProductListSerializerV2(serializers.ModelSerializer):
             'review_count',
             'wishlist_count',
             'quality_score',
+            'stock_quantity',
             'created_at',
         ]
 
@@ -363,6 +367,12 @@ class ProductListSerializerV2(serializers.ModelSerializer):
         if hasattr(obj, 'stats') and obj.stats:
             return obj.stats.quality_score
         return 50.00
+
+    def get_stock_quantity(self, obj):
+        """재고 수량 (ProductInventory에서, 없으면 null = 무제한)"""
+        if hasattr(obj, 'inventory') and obj.inventory:
+            return obj.inventory.stock_quantity
+        return None
 
 
 class ProductDetailSerializerV2(serializers.ModelSerializer):
