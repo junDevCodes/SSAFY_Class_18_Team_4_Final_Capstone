@@ -23,6 +23,8 @@ class OrderItemSerializer(serializers.ModelSerializer):
     - unit_price: unit_price_snapshot 매핑
     - total_price: unit_price * quantity 계산 필드
     - image_url: 연관 상품의 대표 이미지 (있으면)
+    - seller_name: 주문 시점의 판매자명 스냅샷
+    - seller_id: 판매자 ID (정산/쿼리용)
     """
 
     product = ProductListSerializer(read_only=True)
@@ -32,6 +34,9 @@ class OrderItemSerializer(serializers.ModelSerializer):
     price = serializers.IntegerField(source="unit_price_snapshot", read_only=True)
     total_price = serializers.SerializerMethodField()
     image_url = serializers.SerializerMethodField()
+    # 판매자 정보 (스냅샷 기반)
+    seller_name = serializers.CharField(source="seller_name_snapshot", read_only=True)
+    seller_id = serializers.IntegerField(source="seller.id", read_only=True, allow_null=True)
 
     class Meta:
         model = OrderItem
@@ -46,6 +51,8 @@ class OrderItemSerializer(serializers.ModelSerializer):
             "discount_amount",
             "total_price",
             "status",
+            "seller_id",
+            "seller_name",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
