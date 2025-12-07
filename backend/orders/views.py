@@ -67,7 +67,7 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         """현재 로그인한 사용자의 주문만 조회"""
         return (
             Order.objects.filter(user=self.request.user)
-            .prefetch_related("items", "items__product", "shipments", "payments")
+            .prefetch_related("items", "items__product", "items__seller", "shipments", "payments")
             .order_by("-created_at")
         )
 
@@ -149,14 +149,19 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
             inventory_deducted=inventory_deducted,
         )
 
-        # 3) 주문 상품 항목 생성
+        # 3) 주문 상품 항목 생성 (판매자 스냅샷 포함)
         for cart_item in cart_items:
             product = cart_item.product
+            # 판매자 정보 스냅샷 (주문 시점 정보 보존)
+            seller = getattr(product, 'seller', None)
+            seller_name = seller.brand_name if seller else None
             OrderItem.objects.create(
                 order=order,
                 product=product,
                 product_name_snapshot=product.name,
                 unit_price_snapshot=product.price,
+                seller=seller,
+                seller_name_snapshot=seller_name,
                 quantity=cart_item.quantity,
                 discount_amount=0,
                 status=OrderItemStatus.PENDING,
@@ -392,14 +397,19 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
             inventory_deducted=inventory_deducted,
         )
 
-        # 3) 주문 상품 항목 생성
+        # 3) 주문 상품 항목 생성 (판매자 스냅샷 포함)
         for item in items:
             product = item["product"]
+            # 판매자 정보 스냅샷 (주문 시점 정보 보존)
+            seller = getattr(product, 'seller', None)
+            seller_name = seller.brand_name if seller else None
             OrderItem.objects.create(
                 order=order,
                 product=product,
                 product_name_snapshot=product.name,
                 unit_price_snapshot=product.price,
+                seller=seller,
+                seller_name_snapshot=seller_name,
                 quantity=item["quantity"],
                 discount_amount=0,
                 status=OrderItemStatus.PENDING,
@@ -457,7 +467,7 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
 
         try:
             order = Order.objects.prefetch_related(
-                "items", "items__product", "shipments", "payments"
+                "items", "items__product", "items__seller", "shipments", "payments"
             ).get(
                 order_no=order_no,
                 guest_email=guest_email,
