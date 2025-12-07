@@ -114,6 +114,13 @@ class Order(models.Model):
         verbose_name="환불 시각",
     )
 
+    # 재고 차감 여부 (취소 시 복원 판단용)
+    inventory_deducted = models.BooleanField(
+        default=False,
+        verbose_name="재고 차감 여부",
+        help_text="주문 생성 시 재고가 차감되었는지 여부 (취소 시 복원 판단용)",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
 

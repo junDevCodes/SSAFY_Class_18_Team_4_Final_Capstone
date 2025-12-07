@@ -17,7 +17,9 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 
-from products.models import Cart
+from django.db.models import F
+
+from products.models import Cart, ProductInventory
 
 from .models import (
     Order,
@@ -78,11 +80,12 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
     def create_order(self, request):
         """장바구니에서 주문 생성 (MVP)
 
-        1) Order 생성
-        2) OrderItem 생성 (Cart 기반)
-        3) Shipment 생성 (배송 정보)
-        4) Payment 생성 (모의 결제)
-        5) Cart 항목 삭제
+        1) 재고 확인 및 차감 (동시성 제어)
+        2) Order 생성
+        3) OrderItem 생성 (Cart 기반)
+        4) Shipment 생성 (배송 정보)
+        5) Payment 생성 (모의 결제)
+        6) Cart 항목 삭제
         """
 
         serializer = OrderCreateSerializer(data=request.data, context={"request": request})
@@ -95,19 +98,58 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         shipping_memo = serializer.validated_data.get("shipping_memo", "")
         payment_method_type = serializer.validated_data.get("payment_method_type", "card")
 
+        # 1) 재고 확인 및 차감 (select_for_update로 동시성 제어)
+        # 상품별 총 주문 수량 집계 (중복 상품 처리)
+        product_quantity_map = {}
+        for cart_item in cart_items:
+            pid = cart_item.product_id
+            product_quantity_map[pid] = product_quantity_map.get(pid, 0) + cart_item.quantity
+
+        product_ids = list(product_quantity_map.keys())
+        inventories = {
+            inv.product_id: inv
+            for inv in ProductInventory.objects.filter(
+                product_id__in=product_ids
+            ).select_for_update()
+        }
+
+        # 재고 부족 체크 (집계된 수량 기준)
+        inventory_deducted = False
+        for pid, total_qty in product_quantity_map.items():
+            inventory = inventories.get(pid)
+            # inventory가 없으면 재고 무제한으로 간주 (기존 동작 유지)
+            if inventory and inventory.stock_quantity < total_qty:
+                product_name = next(
+                    (item.product.name for item in cart_items if item.product_id == pid), "상품"
+                )
+                return Response(
+                    {"error": f"'{product_name}' 상품의 재고가 부족합니다. (현재 재고: {inventory.stock_quantity}개, 요청 수량: {total_qty}개)"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # 재고 차감 (집계된 수량 기준)
+        for pid, total_qty in product_quantity_map.items():
+            inventory = inventories.get(pid)
+            if inventory:
+                ProductInventory.objects.filter(product_id=pid).update(
+                    stock_quantity=F("stock_quantity") - total_qty
+                )
+                inventory_deducted = True
+
         # 금액 계산
         subtotal = sum(item.product.price * item.quantity for item in cart_items)
         shipping_fee = 3000 if subtotal < 30000 else 0
         discount_amount = 0
         total_amount = subtotal + shipping_fee - discount_amount
 
-        # 1) 주문 헤더 생성
+        # 2) 주문 헤더 생성
         order = Order.objects.create(
             user=request.user,
             status=OrderStatus.PENDING,
+            inventory_deducted=inventory_deducted,
         )
 
-        # 2) 주문 상품 항목 생성
+        # 3) 주문 상품 항목 생성
         for cart_item in cart_items:
             product = cart_item.product
             OrderItem.objects.create(
@@ -120,7 +162,7 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
                 status=OrderItemStatus.PENDING,
             )
 
-        # 3) 배송 정보 생성 (단일 Shipment 기준)
+        # 4) 배송 정보 생성 (단일 Shipment 기준)
         Shipment.objects.create(
             order=order,
             recipient_name=recipient_name,
@@ -130,7 +172,7 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
             shipping_fee=shipping_fee,
         )
 
-        # 4) 결제 정보 생성 (모의 결제: 성공 처리)
+        # 5) 결제 정보 생성 (모의 결제: 성공 처리)
         Payment.objects.create(
             order=order,
             method_type=payment_method_type or PaymentMethodType.CARD,
@@ -144,7 +186,7 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         order.status = OrderStatus.PAID
         order.save(update_fields=["status", "updated_at"])
 
-        # 5) 장바구니 항목 삭제
+        # 6) 장바구니 항목 삭제
         Cart.objects.filter(id__in=[item.id for item in cart_items]).delete()
 
         response_serializer = OrderSerializer(order)
@@ -167,6 +209,7 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
 
         - 가능한 상태: pending, paid, processing
         - 결제 상태가 success 인 경우 Payment.status 를 cancelled 로 변경
+        - 재고 복원 처리
         """
 
         order: Order = self.get_object()
@@ -179,6 +222,13 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
 
         serializer = OrderCancelSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        # 재고 복원 (재고 차감된 주문만 복원)
+        if order.inventory_deducted:
+            for order_item in order.items.all():
+                ProductInventory.objects.filter(product_id=order_item.product_id).update(
+                    stock_quantity=F("stock_quantity") + order_item.quantity
+                )
 
         # 주문 상태 갱신
         order.status = OrderStatus.CANCELLED
@@ -268,7 +318,11 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
     def create_order(self, request):
         """비회원 주문 생성
 
-        로컬 장바구니 정보를 받아서 주문 생성
+        1) 재고 확인 및 차감 (동시성 제어)
+        2) Order 생성
+        3) OrderItem 생성
+        4) Shipment 생성 (배송 정보)
+        5) Payment 생성 (모의 결제)
         """
 
         serializer = GuestOrderCreateSerializer(data=request.data)
@@ -284,22 +338,61 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
         shipping_memo = serializer.validated_data.get("shipping_memo", "")
         payment_method_type = serializer.validated_data.get("payment_method_type", "card")
 
+        # 1) 재고 확인 및 차감 (select_for_update로 동시성 제어)
+        # 상품별 총 주문 수량 집계 (중복 상품 처리)
+        product_quantity_map = {}
+        for item in items:
+            pid = item["product"].id
+            product_quantity_map[pid] = product_quantity_map.get(pid, 0) + item["quantity"]
+
+        product_ids = list(product_quantity_map.keys())
+        inventories = {
+            inv.product_id: inv
+            for inv in ProductInventory.objects.filter(
+                product_id__in=product_ids
+            ).select_for_update()
+        }
+
+        # 재고 부족 체크 (집계된 수량 기준)
+        inventory_deducted = False
+        for pid, total_qty in product_quantity_map.items():
+            inventory = inventories.get(pid)
+            # inventory가 없으면 재고 무제한으로 간주 (기존 동작 유지)
+            if inventory and inventory.stock_quantity < total_qty:
+                product_name = next(
+                    (item["product"].name for item in items if item["product"].id == pid), "상품"
+                )
+                return Response(
+                    {"error": f"'{product_name}' 상품의 재고가 부족합니다. (현재 재고: {inventory.stock_quantity}개, 요청 수량: {total_qty}개)"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # 재고 차감 (집계된 수량 기준)
+        for pid, total_qty in product_quantity_map.items():
+            inventory = inventories.get(pid)
+            if inventory:
+                ProductInventory.objects.filter(product_id=pid).update(
+                    stock_quantity=F("stock_quantity") - total_qty
+                )
+                inventory_deducted = True
+
         # 금액 계산
         subtotal = sum(item["product"].price * item["quantity"] for item in items)
         shipping_fee = 3000 if subtotal < 30000 else 0
         discount_amount = 0
         total_amount = subtotal + shipping_fee - discount_amount
 
-        # 1) 비회원 주문 헤더 생성
+        # 2) 비회원 주문 헤더 생성
         order = Order.objects.create(
             user=None,  # 비회원
             guest_email=guest_email,
             guest_name=guest_name,
             guest_phone=guest_phone,
             status=OrderStatus.PENDING,
+            inventory_deducted=inventory_deducted,
         )
 
-        # 2) 주문 상품 항목 생성
+        # 3) 주문 상품 항목 생성
         for item in items:
             product = item["product"]
             OrderItem.objects.create(
@@ -312,7 +405,7 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
                 status=OrderItemStatus.PENDING,
             )
 
-        # 3) 배송 정보 생성
+        # 4) 배송 정보 생성
         Shipment.objects.create(
             order=order,
             recipient_name=recipient_name,
@@ -322,7 +415,7 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
             shipping_fee=shipping_fee,
         )
 
-        # 4) 결제 정보 생성 (모의 결제: 성공 처리)
+        # 5) 결제 정보 생성 (모의 결제: 성공 처리)
         Payment.objects.create(
             order=order,
             method_type=payment_method_type or PaymentMethodType.CARD,
