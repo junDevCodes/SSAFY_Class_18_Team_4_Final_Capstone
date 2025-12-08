@@ -75,9 +75,6 @@ jobs:
         with:
           registries: 733002311297
 
-      - name: Who am I (STS)
-        run: aws sts get-caller-identity
-
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
         with:
