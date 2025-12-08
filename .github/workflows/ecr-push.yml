@@ -7,7 +7,7 @@ on:
       - "backend/**"
       - "frontend/**"
       - "pred/**"
-      - ".github/workflows/ecr-push.yml"
+      - ".github/workflows/**"
 
 permissions:
   id-token: write
@@ -63,9 +63,6 @@ jobs:
           role-to-assume: ${{ env.AWS_IAM_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Log in to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
         with:
@@ -73,9 +70,8 @@ jobs:
           push: true
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
-          # 프로덕션: 빈 문자열 → 상대 경로 사용 → Nginx 프록시로 Backend 연결
           build-args: |
-            VITE_API_BASE_URL=
+            VITE_API_BASE_URL=/api
           tags: |
             ${{ secrets.ECR_REPO_FRONTEND }}:latest
             ${{ secrets.ECR_REPO_FRONTEND }}:${{ github.sha }}
