@@ -75,9 +75,6 @@ jobs:
         with:
           registries: 733002311297
 
-      - name: Who am I (STS)
-        run: aws sts get-caller-identity
-
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
         with:
@@ -85,8 +82,6 @@ jobs:
           push: true
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
-          build-args: |
-            VITE_API_BASE_URL=/api
           tags: |
             ${{ secrets.ECR_REPO_FRONTEND }}:latest
             ${{ secrets.ECR_REPO_FRONTEND }}:${{ github.sha }}
