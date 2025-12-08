@@ -115,6 +115,7 @@
         :discount-rate="discountRate"
         :quantity="quantity"
         :sold-out="isSoldOut"
+        :stock-label="stockLeftLabel"
         @change-qty="quantity = $event"
         @toggle-wish="toggleWishlist"
         @add-cart="addToCart"
@@ -164,22 +165,30 @@ const discountRate = computed(() => {
   return calculateDiscountRate(product.value.original_price ?? 0, product.value.price)
 })
 
+const isSellerOutOfStock = (p: ProductDetail | null) => {
+  if (!p || p.product_type !== 'seller') return false
+  const stock = p.inventory?.stock_quantity
+  if (stock === null) return true
+  if (typeof stock === 'number') return stock <= 0
+  return false
+}
+
 const stockQuantity = computed(() => {
-  const stock = product.value?.inventory?.stock_quantity
-  return typeof stock === 'number' ? stock : null // 숫자만 인정, 나머지는 null
+  if (!product.value || product.value.product_type !== 'seller') return null
+  const stock = product.value.inventory?.stock_quantity
+  return typeof stock === 'number' ? stock : null
 })
 
-const isSoldOut = computed(() => {
-  const stock = stockQuantity.value
-  if (stock === null) return false
-  return stock <= 0
-})
+const isSoldOut = computed(() => isSellerOutOfStock(product.value))
 const stockLeftLabel = computed(() => {
-  if (stockQuantity.value === null) return null
-  if (stockQuantity.value <= 0) return '품절'
-  if (stockQuantity.value <= 5) return `${stockQuantity.value}개 남음`
-  return `${stockQuantity.value}개 남음`
+  if (!product.value || product.value.product_type !== 'seller') return null
+  const stock = product.value.inventory?.stock_quantity
+  if (stock === null || stock === 0) return '품절'
+  if (typeof stock === 'number' && stock <= 20) return `${stock}개 남음`
+  return null
 })
+
+
 
 const shortDescription = computed(() => product.value?.detail?.short_description ?? null)
 const fullDescription = computed(() => product.value?.detail?.full_description ?? null)
