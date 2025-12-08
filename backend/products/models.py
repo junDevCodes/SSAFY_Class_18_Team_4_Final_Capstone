@@ -277,6 +277,11 @@ class ProductInventory(models.Model):
         default=10,
         verbose_name="안전 재고 수준",
     )
+    is_unlimited = models.BooleanField(
+        default=False,
+        verbose_name="무제한 재고",
+        help_text="크롤링 상품 등 재고 추적이 불가능한 상품은 True",
+    )
 
     updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
 
@@ -290,8 +295,23 @@ class ProductInventory(models.Model):
 
     @property
     def is_low_stock(self):
-        """재고 부족 여부"""
+        """재고 부족 여부 (무제한 재고는 항상 False)"""
+        if self.is_unlimited:
+            return False
         return self.stock_quantity <= self.safe_stock_level
+
+    def has_sufficient_stock(self, quantity: int) -> bool:
+        """주문 가능한 재고가 있는지 확인
+
+        Args:
+            quantity: 주문하려는 수량
+
+        Returns:
+            무제한 재고이거나 재고가 충분하면 True
+        """
+        if self.is_unlimited:
+            return True
+        return self.stock_quantity >= quantity
 
 
 class ProductPriceHistory(models.Model):
