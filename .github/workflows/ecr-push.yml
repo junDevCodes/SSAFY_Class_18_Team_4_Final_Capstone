@@ -7,7 +7,7 @@ on:
       - "backend/**"
       - "frontend/**"
       - "pred/**"
-      - ".github/workflows/ecr-push.yml"
+      - ".github/workflows/**"
 
 permissions:
   id-token: write
