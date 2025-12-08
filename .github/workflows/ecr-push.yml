@@ -67,6 +67,13 @@ jobs:
         with:
           role-to-assume: ${{ env.AWS_IAM_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+      - name: Who am I (STS)
+        run: aws sts get-caller-identity
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registries: 733002311297
 
       - name: Who am I (STS)
         run: aws sts get-caller-identity
