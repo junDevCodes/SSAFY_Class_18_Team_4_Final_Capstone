@@ -87,7 +87,7 @@
           </div>
         </div>
 
-        <div class="form-section">
+        <div v-if="isPasswordChangeAvailable" class="form-section">
           <h3 class="section-title">비밀번호 변경</h3>
           <p class="section-description">비밀번호를 변경하려면 아래 필드를 입력하세요</p>
 
@@ -123,6 +123,10 @@
               autocomplete="new-password"
             />
           </div>
+        </div>
+        <div v-else class="form-section">
+          <h3 class="section-title">비밀번호 변경</h3>
+          <p class="section-description">Google/Kakao 소셜 로그인 계정은 비밀번호 변경이 필요 없습니다.</p>
         </div>
 
         <!-- Error Message -->
@@ -236,6 +240,10 @@ const passwordData = reactive({
   new_password_confirm: ''
 })
 
+const isPasswordChangeAvailable = computed(() => {
+  return !authStore.authProvider || authStore.authProvider === 'email'
+})
+
 // Load user data
 const loadUserData = async () => {
   loading.value = true
@@ -264,8 +272,14 @@ const handleSubmit = async () => {
   error.value = null
   successMessage.value = null
 
+  const shouldChangePassword = isPasswordChangeAvailable.value && (
+    passwordData.current_password ||
+    passwordData.new_password ||
+    passwordData.new_password_confirm
+  )
+
   // Validate password change if provided
-  if (passwordData.current_password || passwordData.new_password || passwordData.new_password_confirm) {
+  if (shouldChangePassword) {
     if (!passwordData.current_password) {
       error.value = '현재 비밀번호를 입력해주세요.'
       return
@@ -296,7 +310,7 @@ const handleSubmit = async () => {
     })
 
     // Update password if provided
-    if (passwordData.current_password && passwordData.new_password) {
+    if (shouldChangePassword && passwordData.current_password && passwordData.new_password) {
       try {
         await authAPI.changePassword({
           old_password: passwordData.current_password,
