@@ -46,6 +46,27 @@ const onUserAction = () => {
   removeCancelListeners()
 }
 
+const smoothScrollTo = (targetY: number, duration = 1200) => {
+  const startY = window.scrollY
+  const delta = targetY - startY
+  if (delta === 0) return
+
+  const startTime = performance.now()
+  const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t)
+
+  const step = (now: number) => {
+    const elapsed = now - startTime
+    const progress = Math.min(1, elapsed / duration)
+    const eased = easeInOut(progress)
+    window.scrollTo({ top: startY + delta * eased })
+    if (progress < 1) {
+      requestAnimationFrame(step)
+    }
+  }
+
+  requestAnimationFrame(step)
+}
+
 const scrollToRecommend = () => {
   const el = document.getElementById('recommend')
   if (!el) return
@@ -59,7 +80,7 @@ const scrollToRecommend = () => {
   const offset = stickyHeaderHeight + navHeight + 8 // 소량 여유만 추가
 
   const top = el.getBoundingClientRect().top + window.scrollY - offset
-  window.scrollTo({ top, behavior: 'smooth' })
+  smoothScrollTo(top, 1200)
 }
 
 const startIdleScroll = () => {
