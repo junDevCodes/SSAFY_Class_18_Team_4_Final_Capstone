@@ -6,6 +6,7 @@ export const useUIStore = defineStore('ui', () => {
   const isScrolled = ref(false)
   const isCartOpen = ref(false)
   const isLoginOpen = ref(false)
+  const headerState = ref<'hero' | 'light' | 'green'>('hero')
   const activeTab = ref('추천')
   const authMode = ref<'login' | 'signup'>('login')
   const showVerification = ref(false)
@@ -17,6 +18,11 @@ export const useUIStore = defineStore('ui', () => {
   // 스크롤 상태 업데이트
   const setScrolled = (value: boolean) => {
     isScrolled.value = value
+  }
+
+  // 헤더 컬러 상태 관리
+  const setHeaderState = (state: 'hero' | 'light' | 'green') => {
+    headerState.value = state
   }
 
   // 장바구니 열기/닫기
@@ -75,12 +81,14 @@ export const useUIStore = defineStore('ui', () => {
     isScrolled,
     isCartOpen,
     isLoginOpen,
+    headerState,
     activeTab,
     authMode,
     showVerification,
     toast,
     redirectPath,
     setScrolled,
+    setHeaderState,
     openCart,
     closeCart,
     openLogin,

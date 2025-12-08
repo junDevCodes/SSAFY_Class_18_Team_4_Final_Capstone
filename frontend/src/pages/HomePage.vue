@@ -1,6 +1,7 @@
 <template>
   <main class="flex-grow">
     <HeroSection />
+    <div id="nav-sentinel" class="h-4"></div>
     <CategoryNav />
     <QuickCategories />
     <TimeDeal />
