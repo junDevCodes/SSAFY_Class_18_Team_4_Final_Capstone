@@ -27,7 +27,6 @@ COMPOSE_FILE=/home/ubuntu/self-app/docker-compose.prod.yml \
 ```bash
 ls -lt /home/ubuntu/backups/selfdb_*.sql.gz | head -1
 ```
-
 - 복구 실행:
 ```bash
 gunzip -c /home/ubuntu/backups/selfdb_YYYYMMDD_HHMMSS.sql.gz | \

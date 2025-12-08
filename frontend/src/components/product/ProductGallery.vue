@@ -1,13 +1,14 @@
 <template>
   <div class="gallery">
-    <div class="main">
+    <div class="main" :class="{ 'is-sold-out': isOutOfStock }">
       <img :src="activeImage" :alt="product.name" @error="onError" />
+      <div v-if="isOutOfStock" class="sold-out-overlay">SOLD OUT</div>
     </div>
     <div v-if="images.length > 1" class="thumbs">
       <button
         v-for="(img, i) in images"
         :key="i"
-        :class="['thumb', { active: i === activeIdx }]"
+        :class="['thumb', { active: i === activeIdx, 'is-sold-out': isOutOfStock }]"
         @click="activeIdx = i"
       >
         <img :src="img" :alt="`${product.name}-${i}`" @error="onError" />
@@ -28,18 +29,25 @@ const images = computed(() => {
   return list.length ? list.map((img) => img.image_url) : [getProductImage(props.product)]
 })
 const activeImage = computed(() => images.value[activeIdx.value] || DEFAULT_PRODUCT_IMAGE)
+
+const isSellerOutOfStock = (product: ProductDetail | null | undefined) => {
+  if (!product || product.product_type !== 'seller') return false
+  const stock = product.inventory?.stock_quantity
+  if (stock === null) return true
+  if (typeof stock === 'number') return stock <= 0
+  return false
+}
+
+const isOutOfStock = computed(() => isSellerOutOfStock(props.product))
 const onError = (e: Event) => {
   ;(e.target as HTMLImageElement).src = DEFAULT_PRODUCT_IMAGE
 }
 </script>
 
 <style scoped>
-.gallery {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+.gallery { display: flex; flex-direction: column; gap: 12px; }
 .main {
+  position: relative;
   border: 1px solid var(--gray-200, #e5e7eb);
   border-radius: 12px;
   overflow: hidden;
@@ -48,24 +56,22 @@ const onError = (e: Event) => {
 .main img {
   width: 100%;
   display: block;
+  transition: filter 0.2s ease, opacity 0.2s ease;
 }
-.thumbs {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
-  gap: 8px;
+.main.is-sold-out img { filter: grayscale(1); opacity: 0.55; }
+.sold-out-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(17, 24, 39, 0.55);
+  color: #fff; font-weight: 800; letter-spacing: 2px; font-size: 1.1rem;
 }
+.thumbs { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 8px; }
 .thumb {
   border: 1px solid var(--gray-200, #e5e7eb);
-  border-radius: 8px;
-  padding: 4px;
-  background: white;
+  border-radius: 8px; padding: 4px; background: white;
+  transition: filter 0.2s ease, opacity 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
-.thumb.active {
-  border-color: var(--brand-500, #00a86b);
-  box-shadow: 0 0 0 2px rgba(0, 168, 107, 0.2);
-}
-.thumb img {
-  width: 100%;
-  display: block;
-}
+.thumb.active { border-color: var(--brand-500, #00a86b); box-shadow: 0 0 0 2px rgba(0, 168, 107, 0.2); }
+.thumb.is-sold-out { filter: grayscale(1); opacity: 0.6; }
+.thumb img { width: 100%; display: block; }
 </style>
