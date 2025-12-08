@@ -9,6 +9,7 @@
           <span class="now">{{ formatPrice(product.price) }}</span>
         </p>
         <p v-if="isOutOfStock" class="soldout-hint">품절된 상품입니다</p>
+        <p v-else-if="stockLabel" class="stock-badge">{{ stockLabel }}</p>
       </div>
     </div>
 
@@ -42,14 +43,24 @@ const props = defineProps<{
   discountRate: number
   quantity: number
   soldOut?: boolean
+  stockLabel?: string | null
 }>()
 
 const thumb = computed(() => getProductImage(props.product))
+
+const isSellerOutOfStock = (product: ProductDetail | null | undefined) => {
+  if (!product || product.product_type !== 'seller') return false
+  const stock = product.inventory?.stock_quantity
+  if (stock === null) return true
+  if (typeof stock === 'number') return stock <= 0
+  return false
+}
+
 const isOutOfStock = computed(() => {
   if (typeof props.soldOut === 'boolean') return props.soldOut
-  const stock = props.product?.inventory?.stock_quantity
-  return typeof stock === 'number' ? stock <= 0 : false
+  return isSellerOutOfStock(props.product)
 })
+
 const onError = (e: Event) => {
   ;(e.target as HTMLImageElement).src = DEFAULT_PRODUCT_IMAGE
 }
@@ -64,6 +75,7 @@ const onError = (e: Event) => {
 .discount { color: #d32f2f; font-weight: 800; }
 .now { font-weight: 800; color: var(--brand-900, #0f3a2a); }
 .soldout-hint { color: #ef4444; font-size: 12px; margin-top: 4px; }
+.stock-badge { color: #b45309; background: #fff5e6; display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; margin-top: 4px; }
 .controls { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .qty { display: inline-flex; border: 1px solid var(--gray-200, #e5e7eb); border-radius: 8px; overflow: hidden; }
 .qty.disabled { opacity: 0.6; }

@@ -29,10 +29,16 @@ const images = computed(() => {
   return list.length ? list.map((img) => img.image_url) : [getProductImage(props.product)]
 })
 const activeImage = computed(() => images.value[activeIdx.value] || DEFAULT_PRODUCT_IMAGE)
-const isOutOfStock = computed(() => {
-  const stock = props.product?.inventory?.stock_quantity
-  return typeof stock === 'number' ? stock <= 0 : false
-})
+
+const isSellerOutOfStock = (product: ProductDetail | null | undefined) => {
+  if (!product || product.product_type !== 'seller') return false
+  const stock = product.inventory?.stock_quantity
+  if (stock === null) return true
+  if (typeof stock === 'number') return stock <= 0
+  return false
+}
+
+const isOutOfStock = computed(() => isSellerOutOfStock(props.product))
 const onError = (e: Event) => {
   ;(e.target as HTMLImageElement).src = DEFAULT_PRODUCT_IMAGE
 }
