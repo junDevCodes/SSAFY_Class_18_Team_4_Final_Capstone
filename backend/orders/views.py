@@ -114,11 +114,12 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         }
 
         # 재고 부족 체크 (집계된 수량 기준)
+        # - inventory가 없으면 재고 무제한으로 간주
+        # - is_unlimited=True이면 재고 체크 스킵 (크롤링 상품 등)
         inventory_deducted = False
         for pid, total_qty in product_quantity_map.items():
             inventory = inventories.get(pid)
-            # inventory가 없으면 재고 무제한으로 간주 (기존 동작 유지)
-            if inventory and inventory.stock_quantity < total_qty:
+            if inventory and not inventory.is_unlimited and inventory.stock_quantity < total_qty:
                 product_name = next(
                     (item.product.name for item in cart_items if item.product_id == pid), "상품"
                 )
@@ -128,9 +129,10 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
                 )
 
         # 재고 차감 (집계된 수량 기준)
+        # - is_unlimited=True인 상품은 재고 차감하지 않음
         for pid, total_qty in product_quantity_map.items():
             inventory = inventories.get(pid)
-            if inventory:
+            if inventory and not inventory.is_unlimited:
                 ProductInventory.objects.filter(product_id=pid).update(
                     stock_quantity=F("stock_quantity") - total_qty
                 )
@@ -359,11 +361,12 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
         }
 
         # 재고 부족 체크 (집계된 수량 기준)
+        # - inventory가 없으면 재고 무제한으로 간주
+        # - is_unlimited=True이면 재고 체크 스킵 (크롤링 상품 등)
         inventory_deducted = False
         for pid, total_qty in product_quantity_map.items():
             inventory = inventories.get(pid)
-            # inventory가 없으면 재고 무제한으로 간주 (기존 동작 유지)
-            if inventory and inventory.stock_quantity < total_qty:
+            if inventory and not inventory.is_unlimited and inventory.stock_quantity < total_qty:
                 product_name = next(
                     (item["product"].name for item in items if item["product"].id == pid), "상품"
                 )
@@ -373,9 +376,10 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
                 )
 
         # 재고 차감 (집계된 수량 기준)
+        # - is_unlimited=True인 상품은 재고 차감하지 않음
         for pid, total_qty in product_quantity_map.items():
             inventory = inventories.get(pid)
-            if inventory:
+            if inventory and not inventory.is_unlimited:
                 ProductInventory.objects.filter(product_id=pid).update(
                     stock_quantity=F("stock_quantity") - total_qty
                 )

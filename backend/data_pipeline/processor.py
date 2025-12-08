@@ -548,6 +548,7 @@ class DataProcessor:
                 product=new_product,
                 stock_quantity=0,
                 safe_stock_level=10,
+                is_unlimited=True,  # 크롤링 상품은 재고 추적 불가능 → 무제한
             )
 
             ProductStats.objects.create(
