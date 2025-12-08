@@ -136,12 +136,13 @@ class ProductInventorySerializer(serializers.ModelSerializer):
     """상품 재고 정보 Serializer (ERD V2.1)
 
     ProductInventory 테이블의 데이터를 직렬화합니다.
+    - is_unlimited: 무제한 재고 여부 (크롤링 상품 등)
     """
     is_low_stock = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = ProductInventory
-        fields = ['stock_quantity', 'safe_stock_level', 'is_low_stock', 'updated_at']
+        fields = ['stock_quantity', 'safe_stock_level', 'is_unlimited', 'is_low_stock', 'updated_at']
 
 
 class ProductStatsSerializer(serializers.ModelSerializer):
