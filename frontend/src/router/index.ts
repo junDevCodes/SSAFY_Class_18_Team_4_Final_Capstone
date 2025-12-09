@@ -25,6 +25,7 @@ const SellerProducts = () => import('@/pages/seller/ProductsPage.vue')
 const SellerProductCreate = () => import('@/pages/seller/ProductCreatePage.vue')
 const SellerProductEdit = () => import('@/pages/seller/ProductEditPage.vue')
 const SellerRegister = () => import('@/pages/seller/RegisterPage.vue')
+const SellerAnalytics = () => import('@/pages/seller/AnalyticsPage.vue')
 
 // Brand Mall
 const BrandMallPage = () => import('@/pages/brand/BrandMallPage.vue')
@@ -130,6 +131,14 @@ const routes: RouteRecordRaw[] = [
     name: 'seller-dashboard',
     component: SellerDashboard,
     meta: { title: '판매자 대시보드', requiresAuth: true, requiresSeller: true }
+  },
+
+  // 판매자 분석
+  {
+    path: '/seller/analytics',
+    name: 'seller-analytics',
+    component: SellerAnalytics,
+    meta: { title: '유입·전환 분석', requiresAuth: true, requiresSeller: true }
   },
 
   // 판매자 상품 관리
