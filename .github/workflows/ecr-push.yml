@@ -122,7 +122,7 @@ jobs:
 
   deploy-dev:
     needs: [backend-image, frontend-image, pred-image]
-    if: github.ref == 'refs/heads/dev'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
