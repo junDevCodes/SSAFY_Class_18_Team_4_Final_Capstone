@@ -333,6 +333,10 @@
                 <span>주문 내용을 확인했으며, 개인정보 처리 및 결제에 동의합니다.</span>
               </label>
             </div>
+
+            <div class="recommendation-card">
+              <CartRecommendations :limit="6" />
+            </div>
           </div>
         </aside>
       </div>
@@ -350,6 +354,7 @@ import { useAddressesStore } from '@/stores/addresses'
 import { guestOrdersAPI } from '@/services/api'
 import { getProductImage, formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 import type { UserAddress } from '@/types/auth'
+import CartRecommendations from '@/components/ui/CartRecommendations.vue'
 
 const router = useRouter()
 const cartStore = useCartStore()
@@ -1134,6 +1139,15 @@ onMounted(() => {
   border-radius: 8px;
   padding: 2rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .summary-title {
@@ -1196,6 +1210,10 @@ onMounted(() => {
 .free-shipping-badge svg {
   width: 20px;
   height: 20px;
+}
+
+.recommendation-card {
+  margin-top: 0.25rem;
 }
 
 .btn-place-order {

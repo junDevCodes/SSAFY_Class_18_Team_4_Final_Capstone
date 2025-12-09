@@ -6,7 +6,8 @@ ERD V2.1: ProductDetail, ProductInventory, ProductStats 분리 테이블 지원
 from rest_framework import serializers
 from .models import (
     Category, Product, ProductImage, Wishlist, Cart,
-    ProductDetail, ProductInventory, ProductStats
+    ProductDetail, ProductInventory, ProductStats,
+    Review, ReviewImage
 )
 
 
@@ -457,3 +458,81 @@ class ProductDetailSerializerV2(serializers.ModelSerializer):
         ).exclude(id=obj.id).select_related('category', 'stats')[:6]
 
         return ProductListSerializerV2(related, many=True, context=self.context).data
+
+
+# ========================= 리뷰 Serializers =========================
+
+class ReviewImageSerializer(serializers.ModelSerializer):
+    """리뷰 이미지 Serializer"""
+
+    class Meta:
+        model = ReviewImage
+        fields = ['id', 'image_url', 'display_order']
+        read_only_fields = ['id']
+
+
+class ReviewSerializer(serializers.ModelSerializer):
+    """리뷰 Serializer (조회용)"""
+    user_name = serializers.CharField(source='user.username', read_only=True)
+    images = ReviewImageSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Review
+        fields = [
+            'id', 'product', 'user', 'user_name', 'order_item',
+            'rating', 'content', 'has_photos', 'status',
+            'images', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'user', 'has_photos', 'status', 'created_at', 'updated_at']
+
+
+class ReviewCreateSerializer(serializers.ModelSerializer):
+    """리뷰 생성 Serializer"""
+    image_urls = serializers.ListField(
+        child=serializers.URLField(),
+        required=False,
+        write_only=True,
+        help_text="리뷰 이미지 URL 목록"
+    )
+
+    class Meta:
+        model = Review
+        fields = ['product', 'order_item', 'rating', 'content', 'image_urls']
+
+    def validate_rating(self, value):
+        """평점 유효성 검사 (1-5)"""
+        if value < 1 or value > 5:
+            raise serializers.ValidationError("평점은 1~5 사이여야 합니다.")
+        return value
+
+    def validate(self, attrs):
+        """중복 리뷰 방지"""
+        request = self.context.get('request')
+        product = attrs.get('product')
+
+        # 같은 상품에 이미 리뷰를 작성했는지 확인
+        if Review.objects.filter(user=request.user, product=product).exists():
+            raise serializers.ValidationError("이미 이 상품에 리뷰를 작성하셨습니다.")
+
+        return attrs
+
+    def create(self, validated_data):
+        """리뷰 생성 + 이미지 처리"""
+        image_urls = validated_data.pop('image_urls', [])
+        request = self.context.get('request')
+
+        # has_photos 자동 설정
+        validated_data['has_photos'] = len(image_urls) > 0
+        validated_data['user'] = request.user
+
+        review = Review.objects.create(**validated_data)
+
+        # 이미지 생성
+        for i, url in enumerate(image_urls):
+            ReviewImage.objects.create(
+                review=review,
+                image_url=url,
+                display_order=i
+            )
+
+        return review

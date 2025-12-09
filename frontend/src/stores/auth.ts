@@ -8,8 +8,33 @@ import type { User } from '@/types/auth'
 import { useCartStore } from './cart'
 import { useWishlistStore } from './wishlist'
 
+type AuthProvider = 'email' | 'google' | 'kakao' | null
+
+const decodeProviderFromToken = (token?: string | null): AuthProvider => {
+  if (!token) return null
+  const parts = token.split('.')
+  if (parts.length < 2) return null
+  try {
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+    const provider = payload?.provider
+    if (provider === 'email' || provider === 'google' || provider === 'kakao') {
+      return provider
+    }
+  } catch (err) {
+    console.warn('Failed to decode token provider', err)
+  }
+  return null
+}
+
+const syncAuthProvider = (access?: string | null, refresh?: string | null): AuthProvider => {
+  const accessToken = access ?? localStorage.getItem('access_token')
+  const refreshToken = refresh ?? localStorage.getItem('refresh_token')
+  return decodeProviderFromToken(accessToken) || decodeProviderFromToken(refreshToken)
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
+  const authProvider = ref<AuthProvider>(null)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
@@ -49,6 +74,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (response.data.refresh) {
         localStorage.setItem('refresh_token', response.data.refresh)
       }
+      authProvider.value = syncAuthProvider(response.data.access, response.data.refresh)
 
       // 로그인 후 비회원 장바구니 동기화 및 장바구니/찜 목록 로드
       const cartStore = useCartStore()
@@ -139,6 +165,7 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = null
       localStorage.removeItem('access_token')
       localStorage.removeItem('refresh_token')
+      authProvider.value = null
 
       // 다른 store 초기화
       const cartStore = useCartStore()
@@ -154,8 +181,11 @@ export const useAuthStore = defineStore('auth', () => {
   const loadUser = async () => {
     if (!localStorage.getItem('access_token')) {
       user.value = null
+      authProvider.value = null
       return null
     }
+
+    authProvider.value = syncAuthProvider()
 
     isLoading.value = true
     error.value = null
@@ -211,12 +241,14 @@ export const useAuthStore = defineStore('auth', () => {
   // 초기화
   const reset = () => {
     user.value = null
+    authProvider.value = null
     isLoading.value = false
     error.value = null
   }
 
   return {
     user,
+    authProvider,
     isLoading,
     error,
     isAuthenticated,

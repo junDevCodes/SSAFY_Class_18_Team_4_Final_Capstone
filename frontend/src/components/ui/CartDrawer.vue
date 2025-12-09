@@ -14,8 +14,8 @@
         </button>
       </div>
       
-      <div class="flex-1 overflow-y-auto p-5 bg-gray-50">
-        <div v-if="cartStore.items.length === 0" class="h-full flex flex-col items-center justify-center text-gray-400 space-y-3">
+      <div class="flex-1 overflow-y-auto p-5 bg-gray-50 space-y-4">
+        <div v-if="cartStore.items.length === 0" class="flex flex-col items-center justify-center text-gray-400 space-y-3 py-10">
           <ShoppingBag :size="48" class="opacity-20" />
           <p class="text-sm font-medium">담긴 상품이 없습니다.</p>
           <button @click="uiStore.closeCart" class="text-xs bg-white border border-gray-300 px-4 py-2 rounded hover:bg-gray-100 text-gray-700 font-medium">쇼핑 계속하기</button>
@@ -43,6 +43,8 @@
             </button>
           </div>
         </div>
+
+        <CartRecommendations />
       </div>
 
       <div class="bg-white p-5 border-t border-gray-100 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
@@ -74,6 +76,7 @@ import { useCartStore } from '@/stores/cart'
 import { useAuthStore } from '@/stores/auth'
 import { formatPrice } from '@/utils/formatters'
 import { getProductImage } from '@/types/product'
+import CartRecommendations from './CartRecommendations.vue'
 
 const router = useRouter()
 const uiStore = useUIStore()

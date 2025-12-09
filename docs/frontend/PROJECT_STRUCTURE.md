@@ -23,9 +23,9 @@
 | **페이지** | 17개 |
 | **컴포넌트** | 12개 (Layout 2, Section 6, UI 4) |
 | **Store** | 6개 |
-| **API 서비스** | 7개 도메인 |
+| **API 서비스** | 9개 도메인 |
 | **TypeScript 타입** | 2개 주요 파일 |
-| **Composables** | 2개 |
+| **Composables** | 3개 |
 | **총 라우트** | 21개 |
 
 ## 📁 디렉토리 구조
@@ -86,7 +86,8 @@ frontend/
 │   │
 │   ├── composables/                     # 재사용 로직
 │   │   ├── useTimer.ts                  # 타임딜 카운트다운
-│   │   └── useScroll.ts                 # 스크롤 유틸리티
+│   │   ├── useScroll.ts                 # 스크롤 유틸리티
+│   │   └── useRecentProducts.ts         # 최근 본 상품 (REC-005)
 │   │
 │   ├── types/                           # TypeScript 타입 정의
 │   │   ├── product.ts                   # Product, ProductDetail, Category 등
@@ -362,6 +363,40 @@ const { scrollToTop, scrollToContent } = useScroll()
 
 **기능**: scrollY > 50px 시 UI 상태 변경 감지
 
+### useRecentProducts.ts (REC-005)
+**목적**: 최근 본 상품 목록 조회 및 관리
+
+```typescript
+const { recentProducts, isLoading, error, refresh } = useRecentProducts(5)
+// recentProducts: Product[] - 최근 본 상품 목록 (반응형)
+// isLoading: boolean - 로딩 상태
+// error: Error | null - 에러 정보
+// refresh(): Promise<void> - 목록 새로고침
+```
+
+**특징**:
+- 컴포넌트 마운트 시 자동 조회
+- 로그인 사용자 전용 (401 에러 시 조용히 처리)
+- limit 파라미터로 조회 개수 지정 가능 (기본 10개)
+
+**사용 예시**:
+```vue
+<script setup lang="ts">
+import { useRecentProducts } from '@/composables/useRecentProducts'
+
+const { recentProducts, isLoading } = useRecentProducts(5)
+</script>
+
+<template>
+  <section v-if="recentProducts.length > 0">
+    <h2>최근 본 상품</h2>
+    <ProductCard v-for="p in recentProducts" :key="p.id" :product="p" />
+  </section>
+</template>
+```
+
+**관련 API**: `GET /api/recommendations/recent/`
+
 ---
 
 ## 🌐 API 통신 전략
@@ -391,12 +426,14 @@ timeout: 30000 // 30초 (이메일 발송 고려)
 | API 도메인 | 엔드포인트 | 주요 메서드 |
 |-----------|-----------|-----------|
 | **authAPI** | `/auth/` | register, verifyEmail, login, logout, getCurrentUser, updateUser, changePassword, refreshToken |
-| **productsAPI** | `/api/products/` | getProducts (필터링), getProduct (slug), getCategories |
+| **productsAPI** | `/api/products/` | getProducts (필터링), getProduct (slug), getCategories, recordRecommendClick |
 | **wishlistAPI** | `/api/wishlist/` | getWishlist, addToWishlist, removeFromWishlist, toggleWishlist |
 | **cartAPI** | `/api/cart/` | getCart, getCartSummary, addToCart, updateCartItem, removeFromCart, clearCart |
 | **ordersAPI** | `/api/orders/` | getOrders, getOrder, createOrder, cancelOrder, confirmDelivery |
 | **sellersAPI** | `/api/sellers/` | getSellers, getSeller, getMySellerProfile, registerAsSeller, updateSeller, getDashboard |
 | **sellerProductsAPI** | `/api/seller-products/` | getMyProducts, createProduct, updateProduct, deleteProduct, publishProduct, unpublishProduct, addProductImages |
+| **recommendationAPI** | `/api/recommendations/` | getRecentViewedProducts |
+| **reviewAPI** | `/api/reviews/` | getProductReviews, getReview, createReview, updateReview, deleteReview, getMyReviews |
 
 ---
 

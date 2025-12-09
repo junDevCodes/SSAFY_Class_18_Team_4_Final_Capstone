@@ -23,4 +23,6 @@ urlpatterns = [
     path('api/', include('products.urls')),
     path('api/sellers/', include('sellers.urls')),
     path('api/orders/', include('orders.urls')),
+    # 추천 API (REC-005)
+    path('api/recommendations/', include('products.recommendations_urls')),
 ]
