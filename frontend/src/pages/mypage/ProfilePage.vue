@@ -40,19 +40,6 @@
               required
             />
           </div>
-
-          <div class="form-group">
-            <label for="phone">연락처</label>
-            <input
-              id="phone"
-              type="tel"
-              :value="authStore.phoneNumber"
-              class="input-disabled"
-              placeholder="연락처는 프로필에서 제공됩니다"
-              disabled
-            />
-            <p class="field-hint">백엔드 프로필 수정 미지원 - 표시 전용</p>
-          </div>
         </div>
 
         <div class="form-section">
