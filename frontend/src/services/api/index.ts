@@ -21,7 +21,7 @@ import type {
   ProductFilterParams,
   CategoryListResponse,
 } from '@/types/product'
-import { analyticsAPI } from './analytics'
+import { analyticsAPI, adminAnalyticsAPI } from './analytics'
 
 // ==================== Auth API ====================
 export const authAPI = {
@@ -370,6 +370,7 @@ export const api = {
   sellers: sellersAPI,
   sellerProducts: sellerProductsAPI,
   analytics: analyticsAPI,
+  adminAnalytics: adminAnalyticsAPI,
 }
 
 export default api
