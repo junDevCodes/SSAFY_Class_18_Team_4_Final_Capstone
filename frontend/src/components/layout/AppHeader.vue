@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <header 
     :class="[
       'fixed w-full z-50 top-0 left-0 header-transition px-4 lg:px-12 flex items-center justify-between',
@@ -15,10 +15,10 @@
       
       <!-- Desktop Nav (Minimal) -->
       <nav class="hidden xl:flex gap-8 text-[15px] font-medium tracking-tight" :class="isLightMode ? 'text-gray-600' : 'text-white/90'">
-        <a href="#" class="hover:opacity-70 transition-opacity">브랜드 스토리</a>
-        <a href="#" class="hover:opacity-70 transition-opacity">베스트</a>
-        <a href="#" class="hover:opacity-70 transition-opacity">신상품</a>
-        <a href="#" class="hover:opacity-70 transition-opacity">이벤트</a>
+        <RouterLink :to="{ name: 'home' }" class="hover:opacity-70 transition-opacity">홈</RouterLink>
+        <RouterLink :to="{ name: 'brand-story' }" class="hover:opacity-70 transition-opacity">브랜드 스토리</RouterLink>
+        <RouterLink :to="{ name: 'brand-mall' }" class="hover:opacity-70 transition-opacity">브랜드 몰</RouterLink>
+        <RouterLink :to="{ name: 'search' }" class="hover:opacity-70 transition-opacity">검색</RouterLink>
       </nav>
     </div>
 
@@ -53,7 +53,7 @@
           class="hidden md:block text-sm font-medium hover:opacity-70 transition-opacity mr-2"
           :class="isLightMode ? 'text-gray-600' : 'text-white'"
         >
-          판매자센터
+          판매자 센터
         </button>
         <button
           @click="goTo('/mypage/profile')"
@@ -233,4 +233,3 @@ watch(
   }
 )
 </script>
-
