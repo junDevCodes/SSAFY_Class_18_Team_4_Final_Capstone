@@ -47,12 +47,12 @@ docker compose -f /home/ubuntu/self-app/docker-compose.prod.yml exec -T db \
 
 #### 수동 정리 예시
 ```bash
-find /home/ubuntu/self-app/data/json/backup -name "*_done_*.json" -mtime +30 -delete
+/home/ubuntu/self-app/scripts/cleanup_json.sh
 ```
 
 #### 크론(운영 적용: root)
 ```bash
-20 3 * * * find /home/ubuntu/self-app/data/json/backup -name "*_done_*.json" -mtime +30 -delete
+20 3 * * * /home/ubuntu/self-app/scripts/cleanup_json.sh >> /home/ubuntu/cleanup_json.log 2>&1
 ```
 
 ---
@@ -113,6 +113,6 @@ python manage.py process_json_data --show-details
 ```bash
 0 3 1 * * certbot renew --quiet --pre-hook "docker compose -f /home/ubuntu/self-app/docker-compose.prod.yml stop frontend" --post-hook "docker compose -f /home/ubuntu/self-app/docker-compose.prod.yml start frontend"
 10 3 * * * /home/ubuntu/self-app/scripts/backup_db.sh >> /home/ubuntu/backup.log 2>&1
-20 3 * * * find /home/ubuntu/self-app/data/json/backup -name "*_done_*.json" -mtime +30 -delete
+20 3 * * * /home/ubuntu/self-app/scripts/cleanup_json.sh >> /home/ubuntu/cleanup_json.log 2>&1
 30 3 3 * * /home/ubuntu/self-app/scripts/backup_json_monthly.sh >> /home/ubuntu/json_backup_monthly.log 2>&1
 ```
