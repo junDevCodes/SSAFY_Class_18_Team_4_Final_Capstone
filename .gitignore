@@ -133,6 +133,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.prod
 .venv
 env/
 venv/
@@ -413,8 +414,22 @@ test/
 
 
 ### CUSTOM ###
+# 데이터 폴더 - JSON/CSV 파일은 무시하되 폴더 구조는 유지
+data/*.csv
+data/*.json
+data/json/incoming/*.json
+data/json/processed/*.json
+data/json/backup/*.json
+# .gitkeep 파일은 추적
+!data/.gitkeep
+!data/json/.gitkeep
+!data/json/incoming/.gitkeep
+!data/json/processed/.gitkeep
+!data/json/backup/.gitkeep
+
 AGENTS.md
-storage/
 CLAUDE.md
 .claude/
-
+storage/
+plan/
+.claude-workspace/
