@@ -225,6 +225,7 @@ const handleLogin = async () => {
     const target = uiStore.redirectPath
     // 권한 기반 기본 경로
     const fallback =
+      authStore.isAdmin ? '/admin/analytics' :
       authStore.isSeller ? '/seller/dashboard' :
       '/mypage/profile'
 

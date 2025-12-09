@@ -26,6 +26,7 @@ const SellerProductCreate = () => import('@/pages/seller/ProductCreatePage.vue')
 const SellerProductEdit = () => import('@/pages/seller/ProductEditPage.vue')
 const SellerRegister = () => import('@/pages/seller/RegisterPage.vue')
 const SellerAnalytics = () => import('@/pages/seller/AnalyticsPage.vue')
+const AdminAnalytics = () => import('@/pages/admin/AdminAnalyticsPage.vue')
 
 // Brand Mall
 const BrandMallPage = () => import('@/pages/brand/BrandMallPage.vue')
@@ -38,6 +39,14 @@ const routes: RouteRecordRaw[] = [
     name: 'home',
     component: HomePage,
     meta: { title: '홈' }
+  },
+
+  // 관리자 분석
+  {
+    path: '/admin/analytics',
+    name: 'admin-analytics',
+    component: AdminAnalytics,
+    meta: { title: '관리자 분석', requiresAuth: true, requiresAdmin: true }
   },
 
   // 검색
@@ -212,10 +221,15 @@ router.beforeEach(async (to, _from, next) => {
     : '농산물 전자상거래'
 
   // 인증이 필요한 페이지
-  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     // 로그인 모달 열기 이벤트 발생
     window.dispatchEvent(new CustomEvent('auth:required', { detail: { to: to.fullPath } }))
     return next({ name: 'home', query: { redirect: to.fullPath } })
+  }
+
+  // 관리자 권한이 필요한 페이지
+  if (to.meta.requiresAdmin && !authStore.isAdmin) {
+    return next({ name: 'home', query: { redirect: '/' } })
   }
 
   // 판매자 권한이 필요한 페이지
