@@ -142,5 +142,16 @@ export const productApi = {
   incrementViewCount: async (productId: number): Promise<void> => {
     await apiClient.post(`/api/products/${productId}/view/`)
   },
+
+  // ========================= 추천 클릭 =========================
+
+  /**
+   * 추천 상품 클릭 기록
+   *
+   * 추천 섹션에서 상품을 클릭했을 때 호출하여 추천 클릭 수를 증가시킵니다.
+   */
+  recordRecommendClick: async (productId: number): Promise<void> => {
+    await apiClient.post(`/api/products/${productId}/recommend-click/`)
+  },
 }
 
