@@ -169,27 +169,22 @@ class ProductDetailView(generics.RetrieveAPIView):
 
         # REC-005: 로그인 사용자일 경우 UserProductStats 업데이트
         if request.user.is_authenticated:
-            from django.db import IntegrityError
-            # Race condition 방지: update_or_create 사용
-            try:
-                stats, created = UserProductStats.objects.update_or_create(
+            # UPDATE 먼저 시도 (기존 레코드가 있는 경우)
+            rows_updated = UserProductStats.objects.filter(
+                user=request.user,
+                product=instance
+            ).update(
+                view_count=F('view_count') + 1,
+                last_interacted_at=timezone.now()
+            )
+
+            # 기존 레코드가 없으면 생성 (최초 조회)
+            if rows_updated == 0:
+                # get_or_create로 race condition 방지
+                UserProductStats.objects.get_or_create(
                     user=request.user,
                     product=instance,
-                    defaults={'last_interacted_at': timezone.now()}
-                )
-                if not created:
-                    # 기존 레코드가 있으면 view_count 증가
-                    UserProductStats.objects.filter(pk=stats.pk).update(
-                        view_count=F('view_count') + 1
-                    )
-            except IntegrityError:
-                # 극히 드문 경우: 동시 요청으로 인한 충돌 시 UPDATE만 시도
-                UserProductStats.objects.filter(
-                    user=request.user,
-                    product=instance
-                ).update(
-                    view_count=F('view_count') + 1,
-                    last_interacted_at=timezone.now()
+                    defaults={'view_count': 1}
                 )
 
         # instance를 다시 가져와서 업데이트된 view_count 반영
