@@ -863,6 +863,8 @@ class UserProductStats(models.Model):
             models.Index(fields=['user', 'product'], name='ix_user_product_stats_pair'),
             models.Index(fields=['user'], name='ix_user_product_stats_user'),
             models.Index(fields=['product'], name='ix_user_product_stats_product'),
+            # 최근 본 상품 조회 최적화 (REC-005)
+            models.Index(fields=['user', '-last_interacted_at'], name='ix_ups_user_recent'),
         ]
 
     def __str__(self):
