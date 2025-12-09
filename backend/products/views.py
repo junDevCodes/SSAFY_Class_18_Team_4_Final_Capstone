@@ -12,14 +12,18 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from decimal import Decimal
+from django.db.models import Avg
 from .models import (
     Category, Product, ProductImage, Wishlist, Cart,
-    ProductDetail as ProductDetailModel, ProductStats
+    ProductDetail as ProductDetailModel, ProductStats, UserProductStats,
+    Review, ReviewImage, ReviewStatus
 )
 from .serializers import (
     CategorySerializer, ProductSerializer, ProductDetailSerializer,
     ProductListSerializer, ProductImageSerializer, WishlistSerializer, CartSerializer,
-    ProductListSerializerV2, ProductDetailSerializerV2
+    ProductListSerializerV2, ProductDetailSerializerV2,
+    ReviewSerializer, ReviewCreateSerializer
 )
 
 
@@ -158,10 +162,35 @@ class ProductDetailView(generics.RetrieveAPIView):
         """조회수 증가 (ERD V2.1: ProductStats 테이블 사용)"""
         instance = self.get_object()
 
-        # ERD V2.1: ProductStats 테이블의 view_count 증가
+        # ERD V2.1: ProductStats 테이블의 view_count 증가 (전체 조회수)
         ProductStats.objects.filter(product_id=instance.id).update(
             view_count=F('view_count') + 1
         )
+
+        # REC-005: 로그인 사용자일 경우 UserProductStats 업데이트
+        if request.user.is_authenticated:
+            from django.db import IntegrityError
+            # Race condition 방지: update_or_create 사용
+            try:
+                stats, created = UserProductStats.objects.update_or_create(
+                    user=request.user,
+                    product=instance,
+                    defaults={'last_interacted_at': timezone.now()}
+                )
+                if not created:
+                    # 기존 레코드가 있으면 view_count 증가
+                    UserProductStats.objects.filter(pk=stats.pk).update(
+                        view_count=F('view_count') + 1
+                    )
+            except IntegrityError:
+                # 극히 드문 경우: 동시 요청으로 인한 충돌 시 UPDATE만 시도
+                UserProductStats.objects.filter(
+                    user=request.user,
+                    product=instance
+                ).update(
+                    view_count=F('view_count') + 1,
+                    last_interacted_at=timezone.now()
+                )
 
         # instance를 다시 가져와서 업데이트된 view_count 반영
         instance.refresh_from_db()
@@ -439,6 +468,30 @@ class CartViewSet(viewsets.ModelViewSet):
             cart_item.quantity += quantity
             cart_item.save()
 
+        # 통계 업데이트: 새로 장바구니에 추가된 경우에만 cart_event_count 증가
+        if created:
+            # 전체 상품 통계 (ProductStats)
+            ProductStats.objects.filter(product_id=product.id).update(
+                cart_event_count=F('cart_event_count') + 1
+            )
+
+            # 사용자별 상품 통계 (UserProductStats)
+            rows_updated = UserProductStats.objects.filter(
+                user=self.request.user,
+                product=product
+            ).update(
+                cart_event_count=F('cart_event_count') + 1,
+                last_interacted_at=timezone.now()
+            )
+
+            # 기존 레코드가 없으면 생성
+            if rows_updated == 0:
+                UserProductStats.objects.create(
+                    user=self.request.user,
+                    product=product,
+                    cart_event_count=1
+                )
+
     @action(detail=False, methods=['get'])
     def summary(self, request):
         """장바구니 요약 (총 금액 등)"""
@@ -461,4 +514,141 @@ class CartViewSet(viewsets.ModelViewSet):
         deleted_count, _ = self.get_queryset().delete()
         return Response({
             'message': f'{deleted_count}개 상품이 장바구니에서 제거되었습니다.'
+        })
+
+
+class ReviewViewSet(viewsets.ModelViewSet):
+    """리뷰 ViewSet
+
+    - GET /api/reviews/                    : 리뷰 목록 (상품별 필터링 가능)
+    - GET /api/reviews/{id}/               : 리뷰 상세
+    - POST /api/reviews/                   : 리뷰 작성 (로그인 필수)
+    - PUT/PATCH /api/reviews/{id}/         : 리뷰 수정 (본인만)
+    - DELETE /api/reviews/{id}/            : 리뷰 삭제 (본인만)
+    - GET /api/reviews/my/                 : 내 리뷰 목록
+    """
+
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['product', 'rating']
+    ordering_fields = ['created_at', 'rating']
+    ordering = ['-created_at']
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return ReviewCreateSerializer
+        return ReviewSerializer
+
+    def get_permissions(self):
+        """액션별 권한 설정"""
+        from rest_framework.permissions import IsAuthenticated, AllowAny
+
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        """조회 가능한 리뷰 (visible 상태만)"""
+        queryset = Review.objects.filter(
+            status=ReviewStatus.VISIBLE
+        ).select_related('user', 'product').prefetch_related('images')
+
+        # 상품별 필터링
+        product_id = self.request.query_params.get('product')
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        """리뷰 생성 + ProductStats 업데이트"""
+        review = serializer.save()
+        self._update_product_stats(review.product)
+
+    def perform_update(self, serializer):
+        """리뷰 수정 + ProductStats 업데이트 (평점 변경 시)"""
+        old_rating = serializer.instance.rating
+        review = serializer.save()
+
+        # 평점이 변경된 경우에만 통계 업데이트
+        if old_rating != review.rating:
+            self._update_product_stats(review.product)
+
+    def perform_destroy(self, instance):
+        """리뷰 삭제 + ProductStats 업데이트"""
+        product = instance.product
+        instance.delete()
+        self._update_product_stats(product)
+
+    def _update_product_stats(self, product):
+        """상품의 리뷰 통계 재계산
+
+        - review_count: 총 리뷰 수
+        - average_rating: 평균 평점
+        - photo_review_count: 사진 리뷰 수
+        - first_review_at: 첫 리뷰 시각
+        """
+        reviews = Review.objects.filter(
+            product=product,
+            status=ReviewStatus.VISIBLE
+        )
+
+        # 집계 계산
+        review_count = reviews.count()
+        avg_rating = reviews.aggregate(avg=Avg('rating'))['avg'] or Decimal('0.00')
+        photo_review_count = reviews.filter(has_photos=True).count()
+        first_review = reviews.order_by('created_at').first()
+        first_review_at = first_review.created_at if first_review else None
+
+        # ProductStats 업데이트
+        ProductStats.objects.filter(product=product).update(
+            review_count=review_count,
+            average_rating=round(Decimal(str(avg_rating)), 2),
+            photo_review_count=photo_review_count,
+            first_review_at=first_review_at
+        )
+
+    @action(detail=False, methods=['get'])
+    def my(self, request):
+        """내 리뷰 목록"""
+        if not request.user.is_authenticated:
+            return Response(
+                {'detail': '로그인이 필요합니다.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        reviews = Review.objects.filter(
+            user=request.user
+        ).select_related('product').prefetch_related('images').order_by('-created_at')
+
+        page = self.paginate_queryset(reviews)
+        if page is not None:
+            serializer = ReviewSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = ReviewSerializer(reviews, many=True)
+        return Response(serializer.data)
+
+
+class ProductRecommendClickView(APIView):
+    """추천 상품 클릭 기록 API
+
+    POST /api/products/{id}/recommend-click/
+
+    추천 섹션에서 상품을 클릭했을 때 호출하여
+    recommend_clicked_count를 증가시킵니다.
+    """
+
+    def post(self, request, pk):
+        """추천 클릭 수 증가"""
+        product = get_object_or_404(Product, pk=pk)
+
+        # ProductStats 업데이트
+        ProductStats.objects.filter(product=product).update(
+            recommend_clicked_count=F('recommend_clicked_count') + 1
+        )
+
+        return Response({
+            'message': '추천 클릭이 기록되었습니다.',
+            'product_id': product.id
         })

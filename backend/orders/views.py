@@ -19,7 +19,7 @@ from rest_framework.response import Response
 
 from django.db.models import F
 
-from products.models import Cart, ProductInventory
+from products.models import Cart, ProductInventory, ProductStats, UserProductStats
 
 from .models import (
     Order,
@@ -195,6 +195,33 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
 
         # 6) 장바구니 항목 삭제
         Cart.objects.filter(id__in=[item.id for item in cart_items]).delete()
+
+        # 7) 통계 업데이트: 주문 완료 시 order_event_count 증가
+        for cart_item in cart_items:
+            product = cart_item.product
+
+            # 전체 상품 통계 (ProductStats)
+            ProductStats.objects.filter(product_id=product.id).update(
+                order_event_count=F('order_event_count') + 1
+            )
+
+            # 사용자별 상품 통계 (UserProductStats) - 로그인 사용자인 경우
+            if request.user.is_authenticated:
+                rows_updated = UserProductStats.objects.filter(
+                    user=request.user,
+                    product=product
+                ).update(
+                    order_event_count=F('order_event_count') + 1,
+                    last_interacted_at=timezone.now()
+                )
+
+                # 기존 레코드가 없으면 생성
+                if rows_updated == 0:
+                    UserProductStats.objects.create(
+                        user=request.user,
+                        product=product,
+                        order_event_count=1
+                    )
 
         response_serializer = OrderSerializer(order)
         return Response(
@@ -442,6 +469,14 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
         # 주문 상태 갱신
         order.status = OrderStatus.PAID
         order.save(update_fields=["status", "updated_at"])
+
+        # 6) 통계 업데이트: 주문 완료 시 order_event_count 증가 (비회원)
+        for item in items:
+            product = item["product"]
+            # 전체 상품 통계 (ProductStats) - 비회원도 전체 통계에는 반영
+            ProductStats.objects.filter(product_id=product.id).update(
+                order_event_count=F('order_event_count') + 1
+            )
 
         response_serializer = OrderSerializer(order)
         return Response(
