@@ -35,6 +35,11 @@ services:
              python manage.py shell -c \"from django.contrib.sites.models import Site; Site.objects.update_or_create(id=1, defaults={'domain': '${EC2_PUBLIC_IP:-localhost}', 'name': 'SelF Production'})\" &&
              (python manage.py process_json_data --show-details 2>/dev/null || echo '[INIT] JSON 데이터 처리 스킵') &&
              gunicorn project_self.wsgi:application --bind 0.0.0.0:8000 --workers 2"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
   frontend:
@@ -47,6 +52,11 @@ services:
     ports:
       - "80:80"
       - "443:443" # HTTPS 포트 추가
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
   pred:
@@ -65,6 +75,11 @@ services:
         condition: service_healthy
     ports:
       - "8001:8001"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
   db:
@@ -87,6 +102,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
   redis:
@@ -97,6 +117,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
 volumes:
