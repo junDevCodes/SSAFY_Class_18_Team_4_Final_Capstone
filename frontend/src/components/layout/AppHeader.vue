@@ -13,12 +13,39 @@
         </span>
       </a>
       
-      <!-- Desktop Nav (Minimal) -->
-      <nav class="hidden xl:flex gap-8 text-[15px] font-medium tracking-tight" :class="isLightMode ? 'text-gray-600' : 'text-white/90'">
-        <RouterLink :to="{ name: 'home' }" class="hover:opacity-70 transition-opacity">홈</RouterLink>
-        <RouterLink :to="{ name: 'brand-story' }" class="hover:opacity-70 transition-opacity">브랜드 스토리</RouterLink>
-        <RouterLink :to="{ name: 'brand-mall' }" class="hover:opacity-70 transition-opacity">브랜드 몰</RouterLink>
-        <RouterLink :to="{ name: 'search' }" class="hover:opacity-70 transition-opacity">검색</RouterLink>
+      <!-- Desktop Nav -->
+      <nav class="hidden xl:flex gap-7 text-[15px] font-semibold tracking-tight" :class="isLightMode ? 'text-gray-700' : 'text-white/90'">
+        <RouterLink
+          v-for="link in navLinks"
+          :key="link.name"
+          :to="link.to"
+          :class="linkClass(link.name)"
+        >
+          <template v-if="link.name === 'self-mall'">
+            <span class="whitespace-nowrap">
+              <span
+                class="font-display font-bold text-[15px] transition-colors"
+                :class="selfBaseClass(link.name)"
+              >
+                Sel
+              </span><span
+                class="font-display font-bold text-[15px] italic transition-colors -ml-1"
+                :class="selfAccentClass(link.name)"
+              >
+                F
+              </span>
+            </span>
+            <span
+              class="ml-1 font-semibold transition-colors"
+              :class="selfBaseClass(link.name)"
+            >
+              Mall
+            </span>
+          </template>
+          <template v-else>
+            {{ link.label }}
+          </template>
+        </RouterLink>
       </nav>
     </div>
 
@@ -118,6 +145,14 @@ const navState = computed({
   set: (state: 'hero' | 'light' | 'green') => uiStore.setHeaderState(state)
 })
 
+const navLinks = [
+  { name: 'brand-story', label: '브랜드 스토리', to: { name: 'brand-story' } },
+  { name: 'best-products', label: '베스트', to: { name: 'best-products' } },
+  { name: 'new-products', label: '신상품', to: { name: 'new-products' } },
+  { name: 'self-mall', label: 'SelF Mall', to: { name: 'self-mall' } },
+  { name: 'fresh-mall', label: 'Fresh Mall', to: { name: 'fresh-mall' } }
+] as const
+
 const isHome = computed(() => route.name === 'home')
 const isLightMode = computed(() => navState.value === 'light')
 
@@ -148,6 +183,30 @@ const handleLogoClick = () => {
 
 const goTo = (path: string) => {
   router.push(path)
+}
+
+const linkClass = (name: string) => {
+  const isActive = route.name === name
+  const base = 'pb-2 border-b-2 transition-colors'
+  const color = isLightMode.value ? 'hover:text-brand-500' : 'hover:text-brand-200'
+  const active = isActive
+    ? isLightMode.value
+      ? 'text-brand-600 border-brand-600'
+      : 'text-white border-white/80'
+    : 'border-transparent'
+  return [base, color, active]
+}
+
+const selfBaseClass = (name: string) => {
+  const isActive = route.name === name
+  if (isActive) return isLightMode.value ? 'text-brand-600' : 'text-white'
+  return isLightMode.value ? 'text-gray-800' : 'text-white/80'
+}
+
+const selfAccentClass = (name: string) => {
+  const isActive = route.name === name
+  if (isActive) return isLightMode.value ? 'text-brand-500' : 'text-brand-200'
+  return isLightMode.value ? 'text-brand-500' : 'text-brand-200'
 }
 
 const handleLogout = async () => {
