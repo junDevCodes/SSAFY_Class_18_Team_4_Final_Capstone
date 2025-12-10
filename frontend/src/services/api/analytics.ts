@@ -15,3 +15,16 @@ export const analyticsAPI = {
       params
     })
 }
+
+export const adminAnalyticsAPI = {
+  getOverview: (params: {
+    start_date: string
+    end_date: string
+    granularity: Granularity
+    segment?: string
+    region?: string
+  }) =>
+    apiClient.get<AnalyticsOverview>('/api/admin/analytics/overview/', {
+      params
+    })
+}
