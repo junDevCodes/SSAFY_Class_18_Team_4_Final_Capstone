@@ -11,6 +11,7 @@ const ProductDetailPage = () => import('@/pages/ProductDetailPage.vue')
 const CartPage = () => import('@/pages/CartPage.vue')
 const WishlistPage = () => import('@/pages/WishlistPage.vue')
 const CheckoutPage = () => import('@/pages/CheckoutPage.vue')
+const AllProductsPage = () => import('@/pages/AllProductsPage.vue')
 
 // MyPage
 const MyPageLayout = () => import('@/pages/mypage/MyPageLayout.vue')
@@ -51,6 +52,12 @@ const routes: RouteRecordRaw[] = [
     name: 'search',
     component: SearchPage,
     meta: { title: '검색' }
+  },
+  {
+    path: '/products',
+    name: 'products',
+    component: AllProductsPage,
+    meta: { title: '전체 상품' }
   },
   {
     path: '/products/:slug',
