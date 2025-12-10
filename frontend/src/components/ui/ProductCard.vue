@@ -88,7 +88,7 @@ const handleAddToCart = async () => {
   try {
     await cartStore.addToCart(props.product, 1)
     const message = cartStore.isGuest
-      ? '장바구니에 담았어요! 로그인 후 주문가능! '
+      ? '장바구니에 담았어요! 로그인 후 주문가능해요!'
       : '장바구니에 담았어요!'
     uiStore.showToast(message)
   } catch {
