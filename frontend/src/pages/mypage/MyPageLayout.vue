@@ -83,6 +83,24 @@
               </ul>
             </div>
 
+            <div v-if="authStore.isAdmin" class="nav-section">
+              <h2 class="nav-title">관리자</h2>
+              <ul class="nav-list">
+                <li>
+                  <router-link
+                    to="/admin/analytics"
+                    class="nav-link"
+                    active-class="active"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.5h3.75L9 21l3-15 3 10.5 1.5-6H21" />
+                    </svg>
+                    <span>관리자 페이지</span>
+                  </router-link>
+                </li>
+              </ul>
+            </div>
+
             <div v-if="authStore.isSeller" class="nav-section">
               <h2 class="nav-title">판매자 메뉴</h2>
               <ul class="nav-list">
@@ -113,7 +131,7 @@
               </ul>
             </div>
 
-            <div v-else class="seller-cta">
+            <div v-else-if="!authStore.isAdmin" class="seller-cta">
               <div class="seller-cta-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.911 3.69A3 3 0 017.5 3.75h9a3 3 0 012.589 1.44l1.21 1.389a3 3 0 01.621 4.72m-16.5 0a3 3 0 00-.621 4.72L4.911 12.75m0 0l1.529 1.756m0 0l1.39 1.597m-2.919-3.353l-1.39-1.597m0 0A3.001 3.001 0 003.75 9.75a3 3 0 00-.621 4.72" />

@@ -173,11 +173,15 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCartStore } from '@/stores/cart'
+import { useAuthStore } from '@/stores/auth'
+import { useUIStore } from '@/stores/ui'
 import type { CartItem } from '@/stores/cart'
 import { getProductImage, formatPrice, DEFAULT_PRODUCT_IMAGE, type Product } from '@/types/product'
 
 const router = useRouter()
 const cartStore = useCartStore()
+const authStore = useAuthStore()
+const uiStore = useUIStore()
 
 const selectedItems = ref<Array<CartItem['id']>>([])
 const updating = ref<CartItem['id'] | null>(null)
@@ -322,6 +326,13 @@ function goToProduct(product: Product) {
 function goToCheckout() {
   if (selectedItems.value.length === 0) {
     alert('주문할 상품을 선택해주세요.')
+    return
+  }
+
+  // 비로그인 상태면 로그인 모달을 열고 리다이렉트 경로 저장
+  if (!authStore.isAuthenticated) {
+    uiStore.setRedirectPath('/checkout')
+    uiStore.openLogin()
     return
   }
 
