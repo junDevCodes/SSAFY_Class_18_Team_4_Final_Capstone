@@ -74,7 +74,7 @@ const routes: RouteRecordRaw[] = [
     path: '/checkout',
     name: 'checkout',
     component: CheckoutPage,
-    meta: { title: '주문/결제' }
+    meta: { title: '주문/결제', requiresAuth: true }
   },
   {
     path: '/mypage',
