@@ -7,6 +7,7 @@ ProductData 매핑 → CrawlBatch 생성/저장을 담당한다.
 
 import os
 from datetime import datetime
+import json
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,6 +20,7 @@ from crawler.homeplus.filters import FilterCollector
 from crawler.homeplus.mappers import map_item_to_product
 from crawler.homeplus.parsers import GrainCategory, extract_grain_categories
 from crawler.s3_uploader import S3Uploader
+from crawler.raw_storage import RawStorage
 
 
 class BatchWriter:
@@ -34,7 +36,9 @@ class BatchWriter:
 
         self.base_dir = Path(base_dir) if base_dir else data_root / "json"
         self.processed_dir = self.base_dir / "processed"
+        self.meta_dir = self.base_dir / "meta"
         self.processed_dir.mkdir(parents=True, exist_ok=True)
+        self.meta_dir.mkdir(parents=True, exist_ok=True)
 
     def save(self, batch: CrawlBatch) -> Path:
         """CrawlBatch를 processed 폴더에 JSON으로 저장"""
@@ -48,13 +52,20 @@ class BatchWriter:
 class HomeplusService:
     """홈플러스 크롤링 서비스"""
 
-    def __init__(self, config: Optional[AppConfig] = None, client: Optional[HomeplusClient] = None):
+    def __init__(
+        self,
+        config: Optional[AppConfig] = None,
+        client: Optional[HomeplusClient] = None,
+        raw_storage: Optional[RawStorage] = None,
+    ):
         self.config = config or AppConfig.load()
         self.client = client or HomeplusClient(self.config)
         self.writer = BatchWriter()
         self.filter_collector = FilterCollector(self.config, self.client)
         self.alert_client = AlertClient(self.config.alert)
         self.s3 = S3Uploader(self.config) if self.config.crawl.s3_upload_enabled else None
+        self.raw_storage = raw_storage or RawStorage()
+        self.current_batch_id: Optional[str] = None
 
     def collect_grain_categories(self) -> List[GrainCategory]:
         """카테고리 맵을 조회하고 쌀/잡곡 관련 노드를 반환"""
@@ -112,7 +123,14 @@ class HomeplusService:
             if self.config.crawl.fetch_detail:
                 try:
                     detail_html = self.client.fetch_detail_html(item.get("itemNo"))
-                except Exception:
+                except Exception as exc:
+                    if self.config.crawl.store_html and self.raw_storage:
+                        self.raw_storage.save_error(
+                            self.current_batch_id or "adhoc",
+                            str(item.get("itemNo") or "unknown"),
+                            "detail_fetch_failure",
+                            {"error": str(exc)},
+                        )
                     detail_html = None
             product = map_item_to_product(item, self.config.store, detail_html=detail_html)
             # S3 업로드 시 presigned URL로 교체
@@ -122,13 +140,32 @@ class HomeplusService:
                     new_url = self.s3.upload_and_presign(img.image_url, self.config.crawl.target, item.get("itemNo"), idx)
                     new_images.append(type(img)(image_url=new_url, display_order=img.display_order))
                 product.images = new_images
+            if (
+                self.config.crawl.store_html
+                and self.raw_storage
+                and (not product.images or product.price is None or not product.name)
+            ):
+                if detail_html:
+                    self.raw_storage.save_html(
+                        self.current_batch_id or "adhoc",
+                        str(item.get("itemNo") or "unknown"),
+                        detail_html,
+                    )
+                else:
+                    self.raw_storage.save_error(
+                        self.current_batch_id or "adhoc",
+                        str(item.get("itemNo") or "unknown"),
+                        "missing_required_fields",
+                        {"item": item},
+                    )
             mapped.append(product)
         return mapped
 
     def build_batch(self, products: List[ProductData], total_count: Optional[int] = None) -> CrawlBatch:
         """상품 리스트로 CrawlBatch 생성"""
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        batch_id = f"{self.config.crawl.target}_{timestamp}"
+        if not self.current_batch_id:
+            self.current_batch_id = f"{self.config.crawl.target}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        batch_id = self.current_batch_id
         return CrawlBatch(
             batch_id=batch_id,
             source=self.config.crawl.target,
@@ -140,10 +177,13 @@ class HomeplusService:
     def run(self) -> Path:
         """전체 쌀/잡곡 배치를 수집하고 JSON으로 저장"""
         start_ts = datetime.utcnow()
+        self.current_batch_id = f"{self.config.crawl.target}_{start_ts.strftime('%Y%m%d_%H%M%S')}"
         errors: List[str] = []
         failed_cates: List[Dict[str, Any]] = []
         try:
             categories = self.collect_grain_categories()
+            if self.config.crawl.scope == "sample":
+                categories = categories[:1]
         except Exception as exc:
             errors.append(f"카테고리 맵 조회 실패: {exc}")
             self.alert_client.notify(f"[CRAWL-ERROR] source=homeplus error={exc}")
@@ -181,9 +221,11 @@ class HomeplusService:
         batch = self.build_batch(batch_products, total_count=len(batch_products))
         batch_path = self.writer.save(batch)
 
-        # 필터/패싯 메타를 별도 파일로 저장
+        # 필터/패싯 메타를 별도 파일로 저장 (필터 데이터가 있을 때만)
+        filter_path = None
         filters = self.filter_collector.collect_all(categories)
-        filter_path = self.filter_collector.save(filters)
+        if filters:
+            filter_path = self.filter_collector.save(filters, out_dir=self.writer.meta_dir)
 
         # 요약 로그 및 알림
         failure_ratio = (len(failed_cates) / len(categories)) if categories else 0
@@ -198,7 +240,7 @@ class HomeplusService:
             self.alert_client.notify(f"{summary} details={err_text}")
         # 실패 카테고리 로그 파일
         if failed_cates:
-            fail_log = batch_path.parent / f"homeplus_failed_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+            fail_log = self.writer.meta_dir / f"homeplus_failed_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
             with open(fail_log, "w", encoding="utf-8") as f:
                 json.dump({"source": "homeplus", "failed": failed_cates}, f, ensure_ascii=False, indent=2)
 
@@ -214,7 +256,7 @@ class HomeplusService:
             "started_at": start_ts.isoformat(),
             "finished_at": datetime.utcnow().isoformat(),
         }
-        log_path = batch_path.parent / f"homeplus_log_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+        log_path = self.writer.meta_dir / f"homeplus_log_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
         with open(log_path, "w", encoding="utf-8") as f:
             json.dump(log_payload, f, ensure_ascii=False, indent=2)
 
