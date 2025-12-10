@@ -77,11 +77,13 @@ class FilterCollector:
             results.append(self.collect_for_category(cate))
         return results
 
-    def save(self, data: List[Dict[str, Any]]) -> Path:
+    def save(self, data: List[Dict[str, Any]], out_dir: Optional[Path] = None) -> Path:
         """필터 메타를 JSON 파일로 저장"""
         ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         filename = f"homeplus_filters_{ts}.json"
-        path = self.processed_dir / filename
+        target_dir = out_dir if out_dir else self.processed_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        path = target_dir / filename
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return path
