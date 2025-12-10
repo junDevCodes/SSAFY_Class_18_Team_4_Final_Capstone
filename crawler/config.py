@@ -30,6 +30,7 @@ class CrawlConfig:
     scope: str = "full"
     fetch_detail: bool = True
     s3_upload_enabled: bool = False
+    store_html: bool = False
 
     @classmethod
     def from_env(cls) -> "CrawlConfig":
@@ -41,6 +42,7 @@ class CrawlConfig:
             scope=os.getenv("CRAWL_SCOPE", "full"),
             fetch_detail=os.getenv("FETCH_DETAIL", "true").lower() in ("1", "true", "yes"),
             s3_upload_enabled=os.getenv("S3_UPLOAD_ENABLED", "false").lower() in ("1", "true", "yes"),
+            store_html=os.getenv("CRAWL_STORE_HTML", "false").lower() in ("1", "true", "yes"),
         )
 
 
