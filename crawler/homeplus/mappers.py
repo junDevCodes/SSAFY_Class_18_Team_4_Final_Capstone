@@ -4,7 +4,7 @@
 `docs/CATEGORY_MAPPING_HOMEPLUS.md` 규칙에 따라 서비스 카테고리를 결정한다.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 import html
 import re
 from typing import Any, Dict, List, Optional
@@ -41,10 +41,10 @@ def _build_source_url(item_no: Any, store: StoreConfig) -> str:
     )
 
 
-def _parse_detail_html(detail_html: Optional[str]) -> (List[ProductImage], Optional[str]):
+def _parse_detail_html(detail_html: Optional[str]) -> (List[ProductImage], Optional[str], Optional[str]):
     """상세 HTML에서 이미지와 본문을 추출"""
     if not detail_html:
-        return [], None
+        return [], None, None
     unescaped = html.unescape(detail_html)
     raw_imgs = re.findall(r'<img[^>]+src=[\"\\\']([^\"\\\']+)', unescaped, flags=re.IGNORECASE)
     filtered = []
@@ -55,7 +55,9 @@ def _parse_detail_html(detail_html: Optional[str]) -> (List[ProductImage], Optio
             continue
         filtered.append(url)
     images = [ProductImage(image_url=url, display_order=idx) for idx, url in enumerate(filtered)]
-    return images, unescaped
+    text_desc = re.sub(r"<[^>]+>", " ", unescaped)
+    text_desc = " ".join(text_desc.split())
+    return images, unescaped, text_desc
 
 
 def _detect_processing_level(name: str, category: Optional[str]) -> Optional[str]:
@@ -77,17 +79,15 @@ def map_item_to_product(item: Dict[str, Any], store: StoreConfig, detail_html: O
 
     original_price = sale_price if dc_price is not None else None
 
-    detail_images, detail_full_desc = _parse_detail_html(detail_html)
+    detail_images, detail_full_desc, detail_text = _parse_detail_html(detail_html)
     image_url = item.get("imageUrl") or item.get("imgUrl") or item.get("image_url")
     images: List[ProductImage] = []
-    # 대표 이미지 우선: 리스트 응답의 메인 이미지 사용
+    # 대표 이미지 우선: 리스트 응답의 메인 이미지만 사용 (상세 설명 이미지는 images에 넣지 않음)
     if image_url:
         images.append(ProductImage(image_url=image_url, display_order=0))
-    # 상세 이미지 모두 추가 (display_order 연속)
-    for idx, img in enumerate(detail_images, start=len(images)):
-        # 중복 제거
-        if all(img.image_url != existing.image_url for existing in images):
-            images.append(ProductImage(image_url=img.image_url, display_order=idx))
+    # 메인 이미지가 없으면 상세 이미지 첫 장을 대표로 대체
+    if not images and detail_images:
+        images.append(detail_images[0])
 
     unit = _build_unit(item)
 
@@ -106,23 +106,19 @@ def map_item_to_product(item: Dict[str, Any], store: StoreConfig, detail_html: O
         service_subcategory = mcate_nm
 
     processing_level = _detect_processing_level(str(item.get("itemNm", "")), scate_nm)
-    text_desc = None
-    if detail_full_desc:
-        text_desc = re.sub(r"<[^>]+>", " ", detail_full_desc)
-        text_desc = " ".join(text_desc.split())
 
     return ProductData(
         name=str(item.get("itemNm", "")).strip(),
         price=price,
         source_site="homeplus",
         source_url=_build_source_url(item_no, store),
-        crawled_at=datetime.utcnow().isoformat(),
-        category_name=lcate_nm or mcate_nm or scate_nm,
+        crawled_at=datetime.now(timezone.utc).isoformat(),
+        category_name=scate_nm or mcate_nm or lcate_nm,
         unit=unit,
         short_description=item.get("recomMsg") or item.get("itemAttrTop"),
-        full_description=None,  # 호환 필드는 비워두고 확장 필드 사용
-        full_image_description=detail_full_desc or item.get("itemDtlDscr"),
-        full_text_description=text_desc or item.get("itemDtlDscr"),
+        full_description=detail_full_desc,  # HTML 전체
+        full_image_description="\n".join([img.image_url for img in detail_images]) if detail_images else None,
+        full_text_description=detail_text or item.get("itemDtlDscr"),
         images=images,
         original_price=original_price,
         brand_name=item.get("brandNm"),
