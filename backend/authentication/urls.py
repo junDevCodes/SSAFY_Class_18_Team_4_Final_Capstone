@@ -25,6 +25,7 @@ from .views import (
     EmailVerificationConfirmView,
     UserAddressViewSet,
     UserPaymentMethodViewSet,
+    AccountDeleteView,
 )
 
 app_name = "authentication"
@@ -44,6 +45,7 @@ urlpatterns = [
     path("auth/user/", UserMeView.as_view(), name="user_me"),
     path("auth/password/change/", PasswordChangeView.as_view(), name="password_change"),
     path("auth/password/reset/", PasswordResetRequestView.as_view(), name="password_reset"),
+    path("auth/account/", AccountDeleteView.as_view(), name="account_delete"),
     path(
         "auth/password/reset/confirm/",
         PasswordResetConfirmView.as_view(),

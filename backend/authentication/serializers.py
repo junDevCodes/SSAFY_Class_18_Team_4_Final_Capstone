@@ -274,3 +274,125 @@ class UserPaymentMethodSerializer(serializers.ModelSerializer):
             if not UserPaymentMethod.objects.filter(user=user).exists():
                 attrs['is_default'] = True
         return attrs
+
+
+class AccountDeleteSerializer(serializers.Serializer):
+    """계정 삭제 요청 시리얼라이저
+
+    보안을 위해 비밀번호 확인 또는 OAuth 사용자는 confirm_text 확인 필요.
+    판매자 계정의 경우 활성 상품/미완료 주문이 있으면 삭제 불가.
+    """
+
+    password = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="이메일 로그인 사용자의 경우 현재 비밀번호 입력"
+    )
+    confirm_text = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="OAuth 사용자의 경우 '계정삭제' 입력"
+    )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500,
+        help_text="탈퇴 사유 (선택)"
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        user: User = self.context["request"].user
+        password = attrs.get("password", "").strip()
+        confirm_text = attrs.get("confirm_text", "").strip()
+
+        # 1. 본인 확인 검증
+        has_email_credential = hasattr(user, 'email_credential') and user.email_credential
+        has_oauth = (
+            hasattr(user, 'google_accounts') and user.google_accounts.exists()
+        ) or (
+            hasattr(user, 'kakao_accounts') and user.kakao_accounts.exists()
+        )
+
+        if has_email_credential:
+            # 이메일 로그인 사용자: 비밀번호 확인 필수
+            if not password:
+                raise serializers.ValidationError({
+                    "password": _("계정 삭제를 위해 현재 비밀번호를 입력해주세요.")
+                })
+            if not check_password(password, user.email_credential.password_hash):
+                raise serializers.ValidationError({
+                    "password": _("비밀번호가 일치하지 않습니다.")
+                })
+        elif has_oauth:
+            # OAuth 사용자: 확인 텍스트 필수
+            if confirm_text != "계정삭제":
+                raise serializers.ValidationError({
+                    "confirm_text": _("계정 삭제를 확인하려면 '계정삭제'를 입력해주세요.")
+                })
+        else:
+            # 둘 다 없는 경우 (비정상 상태)
+            raise serializers.ValidationError({
+                "detail": _("계정 인증 정보를 확인할 수 없습니다. 고객센터에 문의해주세요.")
+            })
+
+        # 2. 판매자 계정 검증
+        if hasattr(user, 'seller_profile') and user.seller_profile:
+            seller = user.seller_profile
+
+            # 활성 상품 확인 (draft/inactive 상태가 아닌 상품)
+            from products.models import Product, ProductStatus
+            active_products = Product.objects.filter(
+                seller=seller,
+                status__in=[ProductStatus.ACTIVE, ProductStatus.OUT_OF_STOCK]
+            ).count()
+
+            if active_products > 0:
+                raise serializers.ValidationError({
+                    "detail": _(
+                        f"활성 상품이 {active_products}개 있습니다. "
+                        "모든 상품을 비공개(판매중지) 처리한 후 계정을 삭제할 수 있습니다."
+                    )
+                })
+
+            # 미완료 주문 확인 (pending, paid, processing, shipped 상태)
+            from orders.models import Order, OrderItem, OrderItemStatus
+            incomplete_orders = OrderItem.objects.filter(
+                seller=seller,
+                status__in=[
+                    OrderItemStatus.PENDING,
+                    OrderItemStatus.PAID,
+                    OrderItemStatus.SHIPPING
+                ]
+            ).count()
+
+            if incomplete_orders > 0:
+                raise serializers.ValidationError({
+                    "detail": _(
+                        f"처리 중인 주문이 {incomplete_orders}건 있습니다. "
+                        "모든 주문 처리가 완료된 후 계정을 삭제할 수 있습니다."
+                    )
+                })
+
+        # 3. 구매자의 미완료 주문 확인
+        from orders.models import Order, OrderStatus
+        user_incomplete_orders = Order.objects.filter(
+            user=user,
+            status__in=[
+                OrderStatus.PENDING,
+                OrderStatus.PAID,
+                OrderStatus.PROCESSING,
+                OrderStatus.SHIPPED
+            ]
+        ).count()
+
+        if user_incomplete_orders > 0:
+            raise serializers.ValidationError({
+                "detail": _(
+                    f"처리 중인 주문이 {user_incomplete_orders}건 있습니다. "
+                    "모든 주문 배송이 완료된 후 계정을 삭제할 수 있습니다."
+                )
+            })
+
+        return attrs
