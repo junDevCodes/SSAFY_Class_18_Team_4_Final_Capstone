@@ -11,6 +11,11 @@ const ProductDetailPage = () => import('@/pages/ProductDetailPage.vue')
 const CartPage = () => import('@/pages/CartPage.vue')
 const WishlistPage = () => import('@/pages/WishlistPage.vue')
 const CheckoutPage = () => import('@/pages/CheckoutPage.vue')
+const AllProductsPage = () => import('@/pages/AllProductsPage.vue')
+const BestPage = () => import('@/pages/BestPage.vue')
+const NewPage = () => import('@/pages/NewPage.vue')
+const SelfMallPage = () => import('@/pages/SelfMallPage.vue')
+const FreshMallPage = () => import('@/pages/FreshMallPage.vue')
 
 // MyPage
 const MyPageLayout = () => import('@/pages/mypage/MyPageLayout.vue')
@@ -51,6 +56,36 @@ const routes: RouteRecordRaw[] = [
     name: 'search',
     component: SearchPage,
     meta: { title: '검색' }
+  },
+  {
+    path: '/products',
+    name: 'products',
+    component: AllProductsPage,
+    meta: { title: '전체 상품' }
+  },
+  {
+    path: '/best',
+    name: 'best-products',
+    component: BestPage,
+    meta: { title: '베스트' }
+  },
+  {
+    path: '/new',
+    name: 'new-products',
+    component: NewPage,
+    meta: { title: '신상품' }
+  },
+  {
+    path: '/self-mall',
+    name: 'self-mall',
+    component: SelfMallPage,
+    meta: { title: 'SelF 몰' }
+  },
+  {
+    path: '/fresh-mall',
+    name: 'fresh-mall',
+    component: FreshMallPage,
+    meta: { title: 'Fresh 몰' }
   },
   {
     path: '/products/:slug',
