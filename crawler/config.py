@@ -6,7 +6,28 @@
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
+
+try:
+    from dotenv import load_dotenv  # type: ignore
+except ImportError:  # pragma: no cover
+    load_dotenv = None
+
+
+_ENV_LOADED = False
+
+
+def _load_env() -> None:
+    """환경 변수 파일(.env/backed/.env) 로드"""
+    global _ENV_LOADED
+    if _ENV_LOADED or load_dotenv is None:
+        return
+    for cand in (Path(".env"), Path("backend/.env")):
+        if cand.exists():
+            load_dotenv(dotenv_path=cand)
+            _ENV_LOADED = True
+            break
 
 
 def _get_int_env(key: str, default: int) -> int:
@@ -116,6 +137,7 @@ class AppConfig:
     @classmethod
     def load(cls) -> "AppConfig":
         """환경변수에서 모든 설정을 로드한다."""
+        _load_env()
         return cls(
             crawl=CrawlConfig.from_env(),
             store=StoreConfig.from_env(),

@@ -6,6 +6,7 @@ S3 업로더 유틸
 
 import hashlib
 import os
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -13,6 +14,9 @@ import boto3
 import httpx
 
 from crawler.config import AppConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 class S3Uploader:
@@ -41,6 +45,7 @@ class S3Uploader:
     def upload_and_presign(self, url: str, batch_id: str, item_no: str, idx: int) -> Optional[str]:
         """이미지 다운로드 → S3 업로드 → presigned URL 반환"""
         if not self._s3 or not self.bucket:
+            logger.info("S3 비활성화 또는 버킷 미설정으로 원본 URL을 사용합니다: %s", url)
             return url
         try:
             resp = self._http.get(url)
@@ -52,7 +57,9 @@ class S3Uploader:
                 Params={"Bucket": self.bucket, "Key": key},
                 ExpiresIn=self.presign_expires,
             )
+            logger.info("S3 업로드/프리사인 성공: bucket=%s key=%s", self.bucket, key)
             return presigned
-        except Exception:
+        except Exception as exc:
             # 업로드 실패 시 원본 URL을 그대로 사용
+            logger.warning("S3 업로드 실패로 원본 URL을 사용합니다: %s error=%s", url, exc)
             return url

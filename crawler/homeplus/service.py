@@ -6,6 +6,7 @@ ProductData 매핑 → CrawlBatch 생성/저장을 담당한다.
 """
 
 import os
+import logging
 from datetime import datetime
 import json
 import time
@@ -17,7 +18,7 @@ from crawler.alert import AlertClient
 from crawler.config import AppConfig
 from crawler.homeplus.client import HomeplusClient
 from crawler.homeplus.filters import FilterCollector
-from crawler.homeplus.mappers import map_item_to_product
+from crawler.homeplus.mappers import map_item_to_product, SkipProduct
 from crawler.homeplus.parsers import GrainCategory, extract_grain_categories
 from crawler.s3_uploader import S3Uploader
 from crawler.raw_storage import RawStorage
@@ -49,6 +50,9 @@ class BatchWriter:
         return path
 
 
+logger = logging.getLogger(__name__)
+
+
 class HomeplusService:
     """홈플러스 크롤링 서비스"""
 
@@ -57,13 +61,14 @@ class HomeplusService:
         config: Optional[AppConfig] = None,
         client: Optional[HomeplusClient] = None,
         raw_storage: Optional[RawStorage] = None,
+        s3_uploader: Optional[S3Uploader] = None,
     ):
         self.config = config or AppConfig.load()
         self.client = client or HomeplusClient(self.config)
         self.writer = BatchWriter()
         self.filter_collector = FilterCollector(self.config, self.client)
         self.alert_client = AlertClient(self.config.alert)
-        self.s3 = S3Uploader(self.config) if self.config.crawl.s3_upload_enabled else None
+        self.s3 = s3_uploader or (S3Uploader(self.config) if self.config.crawl.s3_upload_enabled else None)
         self.raw_storage = raw_storage or RawStorage()
         self.current_batch_id: Optional[str] = None
 
@@ -119,6 +124,17 @@ class HomeplusService:
         """상품 리스트를 ProductData로 매핑"""
         mapped: List[ProductData] = []
         for item in items:
+            item_no = item.get("itemNo")
+            # 판매/노출 불가 상품 및 item_no 누락 스킵
+            doc_disp = str(item.get("docDispYn", "Y")).upper()
+            sold_out = str(item.get("soldOutYn", "N")).upper()
+            item_sold_out = str(item.get("itemSoldOutYn", "N")).upper()
+            if not item_no:
+                logger.info("item_no가 없어 스킵합니다: %s", item)
+                continue
+            if doc_disp == "N" or sold_out == "Y" or item_sold_out == "Y":
+                logger.info("품절/비노출 상품 스킵: item_no=%s docDispYn=%s soldOutYn=%s itemSoldOutYn=%s", item_no, doc_disp, sold_out, item_sold_out)
+                continue
             detail_html = None
             if self.config.crawl.fetch_detail:
                 try:
@@ -132,12 +148,26 @@ class HomeplusService:
                             {"error": str(exc)},
                         )
                     detail_html = None
-            product = map_item_to_product(item, self.config.store, detail_html=detail_html)
+            try:
+                product = map_item_to_product(
+                    item,
+                    self.config.store,
+                    detail_html=detail_html,
+                    store_html=self.config.crawl.store_html,
+                )
+            except SkipProduct as exc:
+                logger.info("판매중지/제외 상품 스킵: item_no=%s reason=%s", item_no, exc)
+                continue
             # S3 업로드 시 presigned URL로 교체
             if self.s3 and self.config.crawl.s3_upload_enabled and product.images:
                 new_images = []
                 for idx, img in enumerate(product.images):
-                    new_url = self.s3.upload_and_presign(img.image_url, self.config.crawl.target, item.get("itemNo"), idx)
+                    new_url = self.s3.upload_and_presign(
+                        img.image_url,
+                        self.current_batch_id or self.config.crawl.target,
+                        item.get("itemNo"),
+                        idx,
+                    )
                     new_images.append(type(img)(image_url=new_url, display_order=img.display_order))
                 product.images = new_images
             if (
@@ -235,6 +265,8 @@ class HomeplusService:
             f"total={len(batch_products)} errors={len(errors)} batch={batch_path.name}"
         )
         print(summary)
+        # 크롤 실행 결과를 슬랙으로 통지(성공/실패 공통)
+        self.alert_client.notify(summary)
         if errors:
             err_text = "; ".join(errors)
             self.alert_client.notify(f"{summary} details={err_text}")

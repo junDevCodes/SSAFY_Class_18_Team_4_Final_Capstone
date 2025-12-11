@@ -39,6 +39,8 @@ def extract_grain_categories(map_json: Dict[str, Any]) -> List[GrainCategory]:
         cate_nm = node.get("cateNm") or node.get("name")
 
         path = dict(parent_path)
+        children = _get_children(node)
+        has_scate_child = any(str(child.get("cateDepth") or "").upper() == "S" for child in children)
         if cate_depth in ("R", "L"):
             path["lcateNm"] = cate_nm
             path["lcateCd"] = _to_int(cate_cd)
@@ -50,7 +52,14 @@ def extract_grain_categories(map_json: Dict[str, Any]) -> List[GrainCategory]:
             path["scateCd"] = _to_int(cate_cd)
 
         # lcateNm 이 쌀/잡곡이면 하위 조합을 결과로 수집
-        if path.get("lcateNm") == "쌀/잡곡" and (path.get("mcateNm") or path.get("scateNm")):
+        should_collect = False
+        if path.get("lcateNm") == "쌀/잡곡":
+            if path.get("scateNm"):
+                should_collect = True
+            elif path.get("mcateNm") and not has_scate_child:
+                should_collect = True
+
+        if should_collect:
             results.append(
                 GrainCategory(
                     rcateNm=path.get("rcateNm") or path.get("lcateNm") or "쌀/잡곡",
@@ -63,7 +72,7 @@ def extract_grain_categories(map_json: Dict[str, Any]) -> List[GrainCategory]:
                 )
             )
 
-        for child in _get_children(node):
+        for child in children:
             _walk(child, path)
 
     roots = _extract_roots(map_json)
