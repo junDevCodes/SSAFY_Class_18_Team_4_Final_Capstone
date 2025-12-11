@@ -8,7 +8,12 @@
         <h3 class="text-3xl font-display font-bold text-gray-900 mb-3">MD's Pick</h3>
         <p class="text-gray-500">전문 MD가 엄선한 가장 신선한 제철 상품</p>
       </div>
-      <a href="#" class="text-sm font-bold border-b border-gray-900 pb-0.5 hover:text-brand-600 hover:border-brand-600 transition-colors">전체보기</a>
+      <RouterLink
+        :to="{ name: 'products' }"
+        class="text-sm font-bold border-b border-gray-900 pb-0.5 hover:text-brand-600 hover:border-brand-600 transition-colors"
+      >
+        전체보기
+      </RouterLink>
     </div>
 
     <div v-if="productStore.loading" class="flex justify-center items-center py-20">
