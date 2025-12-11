@@ -53,6 +53,26 @@ export const authAPI = {
   changePassword: (data: { old_password: string; new_password: string }) =>
     apiClient.post('/auth/password/change/', data),
 
+  // 계정 삭제 가능 여부 조회
+  checkAccountDeletion: () =>
+    apiClient.get<{
+      can_delete: boolean
+      blockers: Array<{
+        type: string
+        count: number
+        message: string
+      }>
+      auth_method: 'email' | 'google' | 'kakao' | 'unknown'
+      is_seller: boolean
+    }>('/auth/account/'),
+
+  // 계정 삭제
+  deleteAccount: (data: {
+    password?: string
+    confirm_text?: string
+    reason?: string
+  }) => apiClient.delete('/auth/account/', { data }),
+
   // 토큰 갱신
   refreshToken: (refresh: string) =>
     apiClient.post<{ access: string }>('/auth/token/refresh/', { refresh }),
