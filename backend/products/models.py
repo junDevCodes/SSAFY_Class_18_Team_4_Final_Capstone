@@ -232,6 +232,19 @@ class ProductDetail(models.Model):
         blank=True,
         verbose_name="상세 설명",
     )
+    full_image_description = models.JSONField(
+        null=True,
+        blank=True,
+        default=list,
+        verbose_name="상세 이미지 리스트",
+        help_text="본문 설명 영역의 이미지 URL 목록",
+    )
+    full_text_description = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="상세 텍스트 설명",
+        help_text="본문 설명 영역의 텍스트",
+    )
 
     meta_title = models.CharField(
         max_length=200,

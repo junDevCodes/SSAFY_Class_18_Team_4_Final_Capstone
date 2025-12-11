@@ -430,12 +430,34 @@ class DataProcessor:
                     source='crawl',
                 )
 
+                # 가격 변동이 없더라도 상세 정보는 항상 최신으로 덮어쓴다
                 if action == 'updated':
-                    # 상품 테이블도 업데이트
                     existing.price = product.price
                     if product.original_price:
                         existing.original_price = product.original_price
                     existing.save(update_fields=['price', 'original_price', 'updated_at'])
+
+                # 상세 정보 업데이트 또는 생성
+                if hasattr(existing, "detail") and existing.detail:
+                    detail = existing.detail
+                    detail.short_description = product.short_description
+                    detail.full_description = product.full_description
+                    detail.full_image_description = product.full_image_description
+                    detail.full_text_description = product.full_text_description
+                    detail.save(update_fields=[
+                        'short_description',
+                        'full_description',
+                        'full_image_description',
+                        'full_text_description',
+                    ])
+                else:
+                    ProductDetailModel.objects.create(
+                        product=existing,
+                        short_description=product.short_description,
+                        full_description=product.full_description,
+                        full_image_description=product.full_image_description,
+                        full_text_description=product.full_text_description,
+                    )
 
                 return action
             else:
@@ -542,6 +564,8 @@ class DataProcessor:
                 product=new_product,
                 short_description=product.short_description,
                 full_description=product.full_description,
+                full_image_description=product.full_image_description,
+                full_text_description=product.full_text_description,
             )
 
             ProductInventory.objects.create(
