@@ -420,12 +420,14 @@ data/*.json
 data/json/incoming/*.json
 data/json/processed/*.json
 data/json/backup/*.json
+data/json/meta/
 # .gitkeep 파일은 추적
 !data/.gitkeep
 !data/json/.gitkeep
 !data/json/incoming/.gitkeep
 !data/json/processed/.gitkeep
 !data/json/backup/.gitkeep
+
 
 AGENTS.md
 CLAUDE.md
