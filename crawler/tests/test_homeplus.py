@@ -1,9 +1,11 @@
+import json
 import os
 import unittest
 from datetime import datetime
 
 from crawler.config import AlertConfig, AppConfig, CrawlConfig, S3Config, StoreConfig
 from crawler.homeplus.mappers import map_item_to_product
+from crawler.homeplus.mappers import SkipProduct
 from crawler.homeplus.parsers import GrainCategory, extract_grain_categories
 from crawler.homeplus.service import HomeplusService, _parse_item_list
 from crawler.homeplus.client import HomeplusClient
@@ -123,11 +125,11 @@ class ProductMappingTest(unittest.TestCase):
         <div><img src='http://example.com/detail1.jpg'><img src='https://facebook.com/ignored.png'></div><p>설명</p>
         """
 
-        product = map_item_to_product(item, self.store, detail_html=detail_html)
+        product = map_item_to_product(item, self.store, detail_html=detail_html, store_html=True)
 
-        self.assertEqual("즉석밥", product.category_name)
+        self.assertEqual("쌀/잡곡", product.category_name)
         self.assertEqual("GRAIN", product.service_category)
-        self.assertEqual("백미", product.service_subcategory)
+        self.assertIsNone(product.service_subcategory)
         self.assertEqual(4500, product.price)
         self.assertEqual(5000, product.original_price)
         self.assertEqual("3개", product.unit)
@@ -138,8 +140,59 @@ class ProductMappingTest(unittest.TestCase):
         self.assertEqual("https://mfront.homeplus.co.kr/item?itemNo=123&storeType=TEST&storeId=99", product.source_url)
         self.assertEqual("쌀/잡곡 > 백미 > 즉석밥", product.source_category_path)
         self.assertEqual("https://example.com/og_main.jpg", product.images[0].image_url)
-        self.assertIn("http://example.com/detail1.jpg", product.full_image_description)
+        desc_images = product.full_image_description
+        self.assertIn("http://example.com/detail1.jpg", desc_images)
         self.assertIn("설명", product.full_text_description)
+
+    def test_store_html_false이면_full_description을_비운다(self) -> None:
+        item = {
+            "itemNo": "777",
+            "itemNm": "테스트상품",
+            "salePrice": 1000,
+            "lcateNm": "쌀/잡곡",
+            "mcateNm": "백미",
+        }
+        detail_html = "<html><body><p>본문</p></body></html>"
+
+        product = map_item_to_product(item, self.store, detail_html=detail_html, store_html=False)
+
+        self.assertIsNone(product.full_description)
+        self.assertIn("본문", product.full_text_description)
+
+    def test_판매중지_상세페이지면_이미지와_full필드가_비워진다(self) -> None:
+        item = {
+            "itemNo": "888",
+            "itemNm": "판매중지",
+            "salePrice": 1000,
+            "lcateNm": "쌀/잡곡",
+            "mcateNm": "백미",
+        }
+        detail_html = '<script id="x" type="application/json">{"returnCode": "1007","returnMessage":"현재 판매중인 상품이 아닙니다."}</script>'
+
+        with self.assertRaises(SkipProduct):
+            map_item_to_product(item, self.store, detail_html=detail_html, store_html=True)
+
+    def test_상세_JSON_mainList로_대표이미지_보강한다(self) -> None:
+        item = {
+            "itemNo": "999",
+            "itemNm": "JSON이미지",
+            "salePrice": 1000,
+            "lcateNm": "쌀/잡곡",
+            "mcateNm": "백미",
+        }
+        detail_html = """
+        <html><head></head><body>
+        <script id="/item/getItemDetail.json" type="application/json">
+        {"returnCode":"SUCCESS","data":{"item":{"basic":{"itemStatus":"A"},"sale":{"itemSoldOutYn":"N","stopDealYn":"N"},"img":{"mainList":[{"url":"/td/abc.jpg"}],"labelList":[{"url":"https://image.homeplus.kr/td/def.jpg"}]}}}}
+        </script>
+        </body></html>
+        """
+
+        product = map_item_to_product(item, self.store, detail_html=detail_html, store_html=False)
+
+        urls = [img.image_url for img in product.images]
+        self.assertIn("https://image.homeplus.kr/td/abc.jpg", urls)
+        self.assertIn("https://image.homeplus.kr/td/def.jpg", urls)
 
     def test_대표이미지없으면_상세이미지를_사용한다(self) -> None:
         carousel_html = """
@@ -159,15 +212,36 @@ class ProductMappingTest(unittest.TestCase):
         }
         detail_html = carousel_html + "<div><img src='http://example.com/detail2.jpg'></div>"
 
-        product = map_item_to_product(item, self.store, detail_html=detail_html)
+        product = map_item_to_product(item, self.store, detail_html=detail_html, store_html=True)
 
-        self.assertEqual("현미", product.category_name)
-        self.assertEqual(
-            "https://image.homeplus.kr/rtd/652d0fab-349b-4883-b531-57fa508cfac0?w=750",
-            product.images[0].image_url,
-        )
+        self.assertEqual("쌀/잡곡", product.category_name)
+        self.assertEqual("https://image.homeplus.kr/rtd/652d0fab-349b-4883-b531-57fa508cfac0", product.images[0].image_url)
+        desc_images = product.full_image_description
+        self.assertEqual(["http://example.com/detail2.jpg"], desc_images)
         self.assertEqual(3200, product.price)
         self.assertIsNone(product.original_price)
+
+    def test_이미지_URL에서_쿼리스트링을_제거한다(self) -> None:
+        item = {
+            "itemNo": "333",
+            "itemNm": "쿼리제거",
+            "salePrice": 1000,
+            "lcateNm": "쌀/잡곡",
+            "mcateNm": "백미",
+        }
+        detail_html = """
+        <html><body>
+        <div class="prodDetailThumb"><img src="https://image.homeplus.kr/rtd/abc.jpg?w=750"></div>
+        <script id="/item/getItemDetail.json" type="application/json">
+        {"returnCode":"SUCCESS","data":{"item":{"basic":{"itemStatus":"A"},"sale":{"itemSoldOutYn":"N","stopDealYn":"N"},"img":{"mainList":[{"url":"/td/def.jpg?x=1"}]}}}}
+        </script>
+        </body></html>
+        """
+
+        product = map_item_to_product(item, self.store, detail_html=detail_html, store_html=False)
+        urls = [img.image_url for img in product.images]
+        self.assertIn("https://image.homeplus.kr/rtd/abc.jpg", urls)
+        self.assertIn("https://image.homeplus.kr/td/def.jpg", urls)
 
 
 class AppConfigLoadTest(unittest.TestCase):
@@ -374,6 +448,29 @@ class RawStoreOnMissingTest(unittest.TestCase):
 
         service._map_items(items)
         self.assertTrue(service.raw_storage.saved)
+
+
+class SkipUnavailableTest(unittest.TestCase):
+    def test_품절_또는_비노출이면_스킵한다(self) -> None:
+        cfg = AppConfig(
+            crawl=CrawlConfig(fetch_detail=False, store_html=False),
+            store=StoreConfig(),
+            alert=AlertConfig(),
+            s3=S3Config(),
+        )
+        service = HomeplusService(config=cfg, client=HomeplusClient(cfg), raw_storage=RawStorage())
+        service.current_batch_id = "test_batch"
+        items = [
+            {"itemNo": "1", "itemNm": "품절", "salePrice": 1000, "lcateNm": "쌀/잡곡", "mcateNm": "백미", "soldOutYn": "Y"},
+            {"itemNo": "2", "itemNm": "비노출", "salePrice": 1000, "lcateNm": "쌀/잡곡", "mcateNm": "백미", "docDispYn": "N"},
+            {"itemNo": None, "itemNm": "번호없음", "salePrice": 1000, "lcateNm": "쌀/잡곡", "mcateNm": "백미"},
+            {"itemNo": "3", "itemNm": "정상", "salePrice": 1000, "lcateNm": "쌀/잡곡", "mcateNm": "백미"},
+        ]
+
+        products = service._map_items(items)
+
+        self.assertEqual(1, len(products))
+        self.assertEqual("3", products[0].source_url.split("itemNo=")[1].split("&")[0])
 
 
 class S3UploadToggleTest(unittest.TestCase):
