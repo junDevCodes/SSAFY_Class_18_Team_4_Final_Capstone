@@ -46,6 +46,20 @@ def _parse_detail_html(detail_html: Optional[str]) -> (List[ProductImage], Optio
     if not detail_html:
         return [], None, None
     unescaped = html.unescape(detail_html)
+
+    primary: Optional[str] = None
+    carousel: List[str] = []
+    # 제품 상세 썸네일 영역 우선 추출
+    carousel = re.findall(
+        r'prodDetailThumb.*?<img[^>]+src=[\"\\\']([^\"\\\']+)',
+        unescaped,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    og_match = re.search(r'<meta[^>]+property=["\\\']og:image["\\\'][^>]+content=["\\\']([^"\\\']+)["\\\']', unescaped, flags=re.IGNORECASE)
+    if og_match:
+        primary = og_match.group(1)
+
     raw_imgs = re.findall(r'<img[^>]+src=[\"\\\']([^\"\\\']+)', unescaped, flags=re.IGNORECASE)
     filtered = []
     for url in raw_imgs:
@@ -54,7 +68,18 @@ def _parse_detail_html(detail_html: Optional[str]) -> (List[ProductImage], Optio
         if "facebook.com" in url or "default_logo.svg" in url:
             continue
         filtered.append(url)
-    images = [ProductImage(image_url=url, display_order=idx) for idx, url in enumerate(filtered)]
+
+    ordered_urls: List[str] = []
+    for url in carousel:
+        if url not in ordered_urls:
+            ordered_urls.append(url)
+    if primary:
+        ordered_urls.append(primary)
+    for url in filtered:
+        if url not in ordered_urls:
+            ordered_urls.append(url)
+
+    images = [ProductImage(image_url=url, display_order=idx) for idx, url in enumerate(ordered_urls)]
     text_desc = re.sub(r"<[^>]+>", " ", unescaped)
     text_desc = " ".join(text_desc.split())
     return images, unescaped, text_desc
@@ -82,12 +107,14 @@ def map_item_to_product(item: Dict[str, Any], store: StoreConfig, detail_html: O
     detail_images, detail_full_desc, detail_text = _parse_detail_html(detail_html)
     image_url = item.get("imageUrl") or item.get("imgUrl") or item.get("image_url")
     images: List[ProductImage] = []
-    # 대표 이미지 우선: 리스트 응답의 메인 이미지만 사용 (상세 설명 이미지는 images에 넣지 않음)
-    if image_url:
-        images.append(ProductImage(image_url=image_url, display_order=0))
-    # 메인 이미지가 없으면 상세 이미지 첫 장을 대표로 대체
-    if not images and detail_images:
+    # 상세 HTML에서 추출한 대표 이미지를 우선 사용
+    if detail_images:
         images.append(detail_images[0])
+        for extra in detail_images[1:]:
+            if extra.image_url not in {img.image_url for img in images}:
+                images.append(extra)
+    elif image_url:
+        images.append(ProductImage(image_url=image_url, display_order=0))
 
     unit = _build_unit(item)
 

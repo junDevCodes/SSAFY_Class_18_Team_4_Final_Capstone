@@ -9,6 +9,7 @@ from crawler.homeplus.service import HomeplusService, _parse_item_list
 from crawler.homeplus.client import HomeplusClient
 from crawler.http_client import HttpClient
 from crawler.raw_storage import RawStorage
+from crawler.s3_uploader import S3Uploader
 
 
 class GrainCategoryParserTest(unittest.TestCase):
@@ -113,9 +114,14 @@ class ProductMappingTest(unittest.TestCase):
             "unitMeasure": "개",
             "recomMsg": "추천 문구",
             "brandNm": "브랜드",
-            "imageUrl": "https://example.com/main.jpg",
+            "imageUrl": "https://example.com/list_main.jpg",
         }
-        detail_html = "<div><img src='http://example.com/detail1.jpg'><img src='https://facebook.com/ignored.png'></div><p>설명</p>"
+        detail_html = """
+        <head>
+          <meta property="og:image" content="https://example.com/og_main.jpg" />
+        </head>
+        <div><img src='http://example.com/detail1.jpg'><img src='https://facebook.com/ignored.png'></div><p>설명</p>
+        """
 
         product = map_item_to_product(item, self.store, detail_html=detail_html)
 
@@ -131,11 +137,18 @@ class ProductMappingTest(unittest.TestCase):
         datetime.fromisoformat(product.crawled_at)
         self.assertEqual("https://mfront.homeplus.co.kr/item?itemNo=123&storeType=TEST&storeId=99", product.source_url)
         self.assertEqual("쌀/잡곡 > 백미 > 즉석밥", product.source_category_path)
-        self.assertEqual("https://example.com/main.jpg", product.images[0].image_url)
+        self.assertEqual("https://example.com/og_main.jpg", product.images[0].image_url)
         self.assertIn("http://example.com/detail1.jpg", product.full_image_description)
         self.assertIn("설명", product.full_text_description)
 
     def test_대표이미지없으면_상세이미지를_사용한다(self) -> None:
+        carousel_html = """
+        <div class="prodDetailThumb css-l5yz16">
+          <div class="swiper-container">
+            <img src="https://image.homeplus.kr/rtd/652d0fab-349b-4883-b531-57fa508cfac0?w=750" class="thumb">
+          </div>
+        </div>
+        """
         item = {
             "itemNo": "999",
             "itemNm": "현미",
@@ -144,12 +157,15 @@ class ProductMappingTest(unittest.TestCase):
             "mcateNm": "현미",
             "scateNm": None,
         }
-        detail_html = "<div><img src='http://example.com/detail2.jpg'></div>"
+        detail_html = carousel_html + "<div><img src='http://example.com/detail2.jpg'></div>"
 
         product = map_item_to_product(item, self.store, detail_html=detail_html)
 
         self.assertEqual("현미", product.category_name)
-        self.assertEqual("http://example.com/detail2.jpg", product.images[0].image_url)
+        self.assertEqual(
+            "https://image.homeplus.kr/rtd/652d0fab-349b-4883-b531-57fa508cfac0?w=750",
+            product.images[0].image_url,
+        )
         self.assertEqual(3200, product.price)
         self.assertIsNone(product.original_price)
 
@@ -358,6 +374,74 @@ class RawStoreOnMissingTest(unittest.TestCase):
 
         service._map_items(items)
         self.assertTrue(service.raw_storage.saved)
+
+
+class S3UploadToggleTest(unittest.TestCase):
+    def test_s3_upload_disabled이면_URL_그대로_사용(self) -> None:
+        class DummyS3(S3Uploader):
+            def __init__(self):
+                self.called = False
+
+            def upload_and_presign(self, url, batch_id, item_no, idx):
+                self.called = True
+                return "https://s3/new.jpg"
+
+        cfg = AppConfig(
+            crawl=CrawlConfig(fetch_detail=False, s3_upload_enabled=False),
+            store=StoreConfig(),
+            alert=AlertConfig(),
+            s3=S3Config(),
+        )
+        s3_dummy = DummyS3()
+        service = HomeplusService(config=cfg, client=HomeplusClient(cfg), raw_storage=RawStorage(), s3_uploader=s3_dummy)
+        service.current_batch_id = "test_batch"
+        items = [
+            {
+                "itemNo": "1",
+                "itemNm": "상품",
+                "salePrice": 1000,
+                "imageUrl": "https://img/main.jpg",
+                "lcateNm": "쌀/잡곡",
+                "mcateNm": "백미",
+            }
+        ]
+
+        products = service._map_items(items)
+        self.assertEqual("https://img/main.jpg", products[0].images[0].image_url)
+        self.assertFalse(s3_dummy.called)
+
+    def test_s3_upload_enabled이면_presign_URL로_대체(self) -> None:
+        class DummyS3(S3Uploader):
+            def __init__(self):
+                self.called = False
+
+            def upload_and_presign(self, url, batch_id, item_no, idx):
+                self.called = True
+                return f"https://s3/{item_no}/{idx}.jpg"
+
+        cfg = AppConfig(
+            crawl=CrawlConfig(fetch_detail=False, s3_upload_enabled=True),
+            store=StoreConfig(),
+            alert=AlertConfig(),
+            s3=S3Config(bucket="bucket", prefix="homeplus/raw/{YYYY}/{MM}/{batch_id}/"),
+        )
+        s3_dummy = DummyS3()
+        service = HomeplusService(config=cfg, client=HomeplusClient(cfg), raw_storage=RawStorage(), s3_uploader=s3_dummy)
+        service.current_batch_id = "test_batch"
+        items = [
+            {
+                "itemNo": "2",
+                "itemNm": "상품",
+                "salePrice": 1000,
+                "imageUrl": "https://img/main.jpg",
+                "lcateNm": "쌀/잡곡",
+                "mcateNm": "백미",
+            }
+        ]
+
+        products = service._map_items(items)
+        self.assertTrue(s3_dummy.called)
+        self.assertEqual("https://s3/2/0.jpg", products[0].images[0].image_url)
 
 
 if __name__ == "__main__":

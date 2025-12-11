@@ -69,7 +69,7 @@ class ProductData:
     processing_level: Optional[str] = None
 
     # 상세 설명 분리
-    full_image_description: Optional[str] = None
+    full_image_description: Optional[List[str]] = None
     full_text_description: Optional[str] = None
 
     def to_dict(self) -> dict:
