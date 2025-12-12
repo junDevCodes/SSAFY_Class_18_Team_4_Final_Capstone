@@ -19,7 +19,7 @@ from crawler.config import AppConfig
 from crawler.homeplus.client import HomeplusClient
 from crawler.homeplus.filters import FilterCollector
 from crawler.homeplus.mappers import map_item_to_product, SkipProduct
-from crawler.homeplus.parsers import GrainCategory, extract_grain_categories
+from crawler.homeplus.parsers import CategoryNode, extract_categories
 from crawler.s3_uploader import S3Uploader
 from crawler.raw_storage import RawStorage
 
@@ -72,13 +72,47 @@ class HomeplusService:
         self.raw_storage = raw_storage or RawStorage()
         self.current_batch_id: Optional[str] = None
 
-    def collect_grain_categories(self) -> List[GrainCategory]:
-        """카테고리 맵을 조회하고 쌀/잡곡 관련 노드를 반환"""
-        category_map = self.client.fetch_category_map()
-        return extract_grain_categories(category_map)
+    def collect_categories(self) -> List[CategoryNode]:
+        """카테고리 맵을 조회하고 유효 카테고리 노드를 반환
 
-    def collect_products_for_category(self, cate: GrainCategory) -> List[ProductData]:
-        """단일 쌀/잡곡 카테고리의 상품 리스트를 페이징 수집"""
+        홈플러스 전체 카테고리 트리에서 SelF 서비스에서 사용할
+        식품 관련 상위 카테고리만 필터링한다.
+        `docs/CATEGORY_MAPPING_HOMEPLUS.md` 의 상위 카테고리 예시를 기준으로 한다.
+        """
+        category_map = self.client.fetch_category_map()
+        all_categories = extract_categories(category_map)
+
+        # SelF 표준 카테고리 매핑 문서에 명시된 상위 카테고리 prefix 목록
+        # 쌀/잡곡, 채소, 과일, 정육/계란, 수산물/건어물, 우유/유제품,
+        # 김치/반찬, 양념/오일/소스/장류, 냉동, 베이커리 등
+        allowed_l1_prefixes = (
+            "쌀/잡곡",
+            "채소",
+            "과일",
+            "정육/계란",
+            "수산물/건어물",
+            "우유/유제품",
+            "김치/반찬",
+            "양념/오일/소스/장류",
+            "냉동",
+            "베이커리",
+        )
+
+        filtered: List[CategoryNode] = []
+        for cate in all_categories:
+            l1 = cate.lcateNm or ""
+            if any(l1.startswith(prefix) for prefix in allowed_l1_prefixes):
+                filtered.append(cate)
+
+        logger.info(
+            "카테고리 필터링 적용: 전체 %d개 중 %d개만 수집 대상으로 사용합니다.",
+            len(all_categories),
+            len(filtered),
+        )
+        return filtered
+
+    def collect_products_for_category(self, cate: CategoryNode) -> List[ProductData]:
+        """단일 카테고리의 상품 리스트를 페이징 수집"""
         products: List[ProductData] = []
         # depth 결정: mcateCd 존재 시 2, scateCd 존재 시 3
         if cate.scateCd:
@@ -92,6 +126,9 @@ class HomeplusService:
             add_sub = None
             search_type = None
 
+        # 샘플링 모드: 카테고리당 지정된 개수만 수집
+        sample_limit = self.config.crawl.sample_per_category
+
         # 1페이지 조회 후 totalPage 파악
         first = self.client.fetch_item_list(
             category_depth=depth,
@@ -102,7 +139,19 @@ class HomeplusService:
             search_type=search_type,
         )
         items, total_page, _ = _parse_item_list(first)
-        products.extend(self._map_items(items))
+        # 첫 페이지에서 샘플링 상한을 고려해 매핑
+        if sample_limit:
+            # 이미 수집된 상품 수를 고려해 남은 슬롯 계산
+            remaining = sample_limit - len(products)
+            if remaining <= 0:
+                return products[:sample_limit]
+            products.extend(self._map_items(items, max_items=remaining))
+        else:
+            products.extend(self._map_items(items))
+
+        # 샘플링 모드이고 이미 충분한 상품을 수집했다면 중단
+        if sample_limit and len(products) >= sample_limit:
+            return products[:sample_limit]
 
         for page in range(2, total_page + 1):
             resp = self.client.fetch_item_list(
@@ -114,16 +163,40 @@ class HomeplusService:
                 search_type=search_type,
             )
             page_items, _, _ = _parse_item_list(resp)
-            products.extend(self._map_items(page_items))
+            if sample_limit:
+                remaining = sample_limit - len(products)
+                if remaining <= 0:
+                    return products[:sample_limit]
+                products.extend(self._map_items(page_items, max_items=remaining))
+            else:
+                products.extend(self._map_items(page_items))
+            
+            # 샘플링 모드이고 충분한 상품을 수집했다면 중단
+            if sample_limit and len(products) >= sample_limit:
+                return products[:sample_limit]
+            
             if self.config.crawl.delay_ms > 0:
                 time.sleep(self.config.crawl.delay_ms / 1000)
 
         return products
 
-    def _map_items(self, items: List[Dict[str, Any]]) -> List[ProductData]:
-        """상품 리스트를 ProductData로 매핑"""
+    def _map_items(
+        self,
+        items: List[Dict[str, Any]],
+        max_items: Optional[int] = None,
+    ) -> List[ProductData]:
+        """상품 리스트를 ProductData로 매핑
+
+        Args:
+            items: 홈플러스 상품 리스트 JSON 아이템 배열
+            max_items: 이 함수에서 생성할 최대 ProductData 개수
+                (샘플링 모드에서 카테고리당 상세 조회 수를 제한하기 위해 사용)
+        """
         mapped: List[ProductData] = []
         for item in items:
+            # 샘플링 상한에 도달하면 조기 종료
+            if max_items is not None and len(mapped) >= max_items:
+                break
             item_no = item.get("itemNo")
             # 판매/노출 불가 상품 및 item_no 누락 스킵
             doc_disp = str(item.get("docDispYn", "Y")).upper()
@@ -167,9 +240,24 @@ class HomeplusService:
                         self.current_batch_id or self.config.crawl.target,
                         item.get("itemNo"),
                         idx,
+                        image_type="thumbnail",  # 대표 이미지는 thumbnail prefix 사용
                     )
                     new_images.append(type(img)(image_url=new_url, display_order=img.display_order))
                 product.images = new_images
+            
+            # full_image_description 이미지도 S3 업로드
+            if self.s3 and self.config.crawl.s3_upload_enabled and product.full_image_description:
+                new_desc_images = []
+                for idx, desc_url in enumerate(product.full_image_description):
+                    new_url = self.s3.upload_and_presign(
+                        desc_url,
+                        self.current_batch_id or self.config.crawl.target,
+                        item.get("itemNo"),
+                        idx,
+                        image_type="product_detail",  # 상세 설명 이미지는 product_detail prefix 사용
+                    )
+                    new_desc_images.append(new_url)
+                product.full_image_description = new_desc_images
             if (
                 self.config.crawl.store_html
                 and self.raw_storage
@@ -205,13 +293,13 @@ class HomeplusService:
         )
 
     def run(self) -> Path:
-        """전체 쌀/잡곡 배치를 수집하고 JSON으로 저장"""
+        """전체 배치를 수집하고 JSON으로 저장"""
         start_ts = datetime.utcnow()
         self.current_batch_id = f"{self.config.crawl.target}_{start_ts.strftime('%Y%m%d_%H%M%S')}"
         errors: List[str] = []
         failed_cates: List[Dict[str, Any]] = []
         try:
-            categories = self.collect_grain_categories()
+            categories = self.collect_categories()
             if self.config.crawl.scope == "sample":
                 categories = categories[:1]
         except Exception as exc:

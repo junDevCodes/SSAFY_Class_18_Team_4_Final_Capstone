@@ -9,8 +9,8 @@ from typing import Any, Dict, List, Optional
 
 
 @dataclass
-class GrainCategory:
-    """쌀/잡곡 카테고리 조합"""
+class CategoryNode:
+    """홈플러스 카테고리 조합"""
 
     rcateNm: str
     lcateNm: str
@@ -21,9 +21,9 @@ class GrainCategory:
     scateCd: Optional[int]
 
 
-def extract_grain_categories(map_json: Dict[str, Any]) -> List[GrainCategory]:
-    """카테고리 맵에서 쌀/잡곡 계열 노드를 추출한다."""
-    results: List[GrainCategory] = []
+def extract_categories(map_json: Dict[str, Any]) -> List[CategoryNode]:
+    """카테고리 맵에서 모든 유효 노드를 추출한다."""
+    results: List[CategoryNode] = []
 
     def _get_children(node: Dict[str, Any]) -> List[Dict[str, Any]]:
         """자식 노드 리스트를 반환한다."""
@@ -51,19 +51,18 @@ def extract_grain_categories(map_json: Dict[str, Any]) -> List[GrainCategory]:
             path["scateNm"] = cate_nm
             path["scateCd"] = _to_int(cate_cd)
 
-        # lcateNm 이 쌀/잡곡이면 하위 조합을 결과로 수집
+        # 최하위(또는 scate 없는 mcate) 조합을 결과로 수집
         should_collect = False
-        if path.get("lcateNm") == "쌀/잡곡":
-            if path.get("scateNm"):
-                should_collect = True
-            elif path.get("mcateNm") and not has_scate_child:
-                should_collect = True
+        if path.get("scateNm"):
+            should_collect = True
+        elif path.get("mcateNm") and not has_scate_child:
+            should_collect = True
 
         if should_collect:
             results.append(
-                GrainCategory(
-                    rcateNm=path.get("rcateNm") or path.get("lcateNm") or "쌀/잡곡",
-                    lcateNm=path.get("lcateNm") or "쌀/잡곡",
+                CategoryNode(
+                    rcateNm=path.get("rcateNm") or path.get("lcateNm") or "",
+                    lcateNm=path.get("lcateNm") or "",
                     mcateNm=path.get("mcateNm"),
                     scateNm=path.get("scateNm"),
                     lcateCd=path.get("lcateCd"),
@@ -79,7 +78,7 @@ def extract_grain_categories(map_json: Dict[str, Any]) -> List[GrainCategory]:
     for root in roots:
         _walk(root, {"rcateNm": root.get("rcateNm") or root.get("cateNm")})
 
-    return _deduplicate_grain(results)
+    return _deduplicate_categories(results)
 
 
 def _extract_roots(map_json: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -104,8 +103,8 @@ def _to_int(value: Any) -> Optional[int]:
         return None
 
 
-def _deduplicate_grain(items: List[GrainCategory]) -> List[GrainCategory]:
-    """중복 쌀/잡곡 조합을 제거한다."""
+def _deduplicate_categories(items: List[CategoryNode]) -> List[CategoryNode]:
+    """중복 카테고리 조합을 제거한다."""
     seen = {}
     for item in items:
         key = (item.lcateCd, item.mcateCd, item.scateCd, item.lcateNm, item.mcateNm, item.scateNm)
