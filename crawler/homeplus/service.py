@@ -18,7 +18,12 @@ from crawler.alert import AlertClient
 from crawler.config import AppConfig
 from crawler.homeplus.client import HomeplusClient
 from crawler.homeplus.filters import FilterCollector
-from crawler.homeplus.mappers import map_item_to_product, SkipProduct
+from crawler.homeplus.mappers import (
+    map_item_to_product,
+    SkipProduct,
+    _map_service_category_for_category_node,
+    _service_category_display_name,
+)
 from crawler.homeplus.parsers import CategoryNode, extract_categories
 from crawler.s3_uploader import S3Uploader
 from crawler.raw_storage import RawStorage
@@ -77,43 +82,64 @@ class HomeplusService:
 
         홈플러스 전체 카테고리 트리에서 SelF 서비스에서 사용할
         식품 관련 상위 카테고리만 필터링한다.
-        `docs/CATEGORY_MAPPING_HOMEPLUS.md` 의 상위 카테고리 예시를 기준으로 한다.
+        `docs/CATEGORY_MAPPING_HOMEPLUS.md` / `docs/CATEGORY_STANDARD.md` 를 기준으로 한다.
         """
         category_map = self.client.fetch_category_map()
         all_categories = extract_categories(category_map)
 
-        # SelF 표준 카테고리 매핑 문서에 명시된 상위 카테고리 prefix 목록
-        # 쌀/잡곡, 채소, 과일, 정육/계란, 수산물/건어물, 우유/유제품,
-        # 김치/반찬, 양념/오일/소스/장류, 냉동, 베이커리 등
-        allowed_l1_prefixes = (
-            "쌀/잡곡",
-            "채소",
-            "과일",
-            "정육/계란",
-            "수산물/건어물",
-            "우유/유제품",
-            "김치/반찬",
-            "양념/오일/소스/장류",
-            "냉동",
-            "베이커리",
-        )
+        # 서비스 표준 카테고리 코드 필터 (예: "GRAIN,VEGETABLE"), 없으면 전체 사용
+        raw_service_filter = self.config.crawl.service_category_filter
+        allowed_service_cats = None
+        if raw_service_filter:
+            allowed_service_cats = {
+                code.strip().upper()
+                for code in raw_service_filter.split(",")
+                if code.strip()
+            }
 
         filtered: List[CategoryNode] = []
         for cate in all_categories:
-            l1 = cate.lcateNm or ""
-            if any(l1.startswith(prefix) for prefix in allowed_l1_prefixes):
-                filtered.append(cate)
+            # Depth+ID + 이름 기반 매핑으로 서비스 카테고리 결정
+            service_cat = _map_service_category_for_category_node(
+                cate.lcateNm,
+                cate.mcateNm,
+                cate.scateNm,
+                cate.rcateNm,
+                cate.lcateCd,
+                cate.mcateCd,
+                cate.scateCd,
+            )
+            # 인식 불가(비식품) 카테고리는 건너뜀
+            if service_cat is None:
+                continue
+            # 서비스 표준 카테고리 코드 기준 필터 (선택)
+            if allowed_service_cats is not None and service_cat not in allowed_service_cats:
+                continue
+
+            filtered.append(cate)
 
         logger.info(
-            "카테고리 필터링 적용: 전체 %d개 중 %d개만 수집 대상으로 사용합니다.",
+            "카테고리 필터링 적용: 전체 %d개 중 %d개만 수집 대상으로 사용합니다. service_filter=%s",
             len(all_categories),
             len(filtered),
+            ",".join(sorted(allowed_service_cats)) if allowed_service_cats else "ALL",
         )
         return filtered
 
     def collect_products_for_category(self, cate: CategoryNode) -> List[ProductData]:
         """단일 카테고리의 상품 리스트를 페이징 수집"""
         products: List[ProductData] = []
+        # 이 카테고리가 어떤 SelF 서비스 카테고리에 속하는지 Depth/ID 규칙을 기준으로 한 번 더 계산
+        # 이 값은 아래에서 상품 레벨의 service_category/category_name 을 강제 일관화하는 데 사용
+        forced_service_cat = _map_service_category_for_category_node(
+            cate.lcateNm,
+            cate.mcateNm,
+            cate.scateNm,
+            cate.rcateNm,
+            cate.lcateCd,
+            cate.mcateCd,
+            cate.scateCd,
+        )
         # depth 결정: mcateCd 존재 시 2, scateCd 존재 시 3
         if cate.scateCd:
             depth = 3
@@ -145,9 +171,19 @@ class HomeplusService:
             remaining = sample_limit - len(products)
             if remaining <= 0:
                 return products[:sample_limit]
-            products.extend(self._map_items(items, max_items=remaining))
+            page_products = self._map_items(items, max_items=remaining)
         else:
-            products.extend(self._map_items(items))
+            page_products = self._map_items(items)
+
+        # 카테고리 노드 단위로 결정된 서비스 카테고리를 상품 레벨에 강제 반영
+        if forced_service_cat:
+            display_name = _service_category_display_name(forced_service_cat)
+            for p in page_products:
+                p.service_category = forced_service_cat
+                if display_name:
+                    p.category_name = display_name
+
+        products.extend(page_products)
 
         # 샘플링 모드이고 이미 충분한 상품을 수집했다면 중단
         if sample_limit and len(products) >= sample_limit:
@@ -167,9 +203,19 @@ class HomeplusService:
                 remaining = sample_limit - len(products)
                 if remaining <= 0:
                     return products[:sample_limit]
-                products.extend(self._map_items(page_items, max_items=remaining))
+                page_products = self._map_items(page_items, max_items=remaining)
             else:
-                products.extend(self._map_items(page_items))
+                page_products = self._map_items(page_items)
+
+            # 카테고리 단위 서비스 카테고리를 상품 레벨에 반영
+            if forced_service_cat:
+                display_name = _service_category_display_name(forced_service_cat)
+                for p in page_products:
+                    p.service_category = forced_service_cat
+                    if display_name:
+                        p.category_name = display_name
+
+            products.extend(page_products)
             
             # 샘플링 모드이고 충분한 상품을 수집했다면 중단
             if sample_limit and len(products) >= sample_limit:
@@ -348,8 +394,11 @@ class HomeplusService:
         # 요약 로그 및 알림
         failure_ratio = (len(failed_cates) / len(categories)) if categories else 0
         status = "FAILED" if failure_ratio >= 0.1 else "OK"
+        # 서비스 카테고리 필터(있다면) 요약용 문자열
+        service_filter = self.config.crawl.service_category_filter or "ALL"
         summary = (
             f"[CRAWL-SUMMARY] source=homeplus status={status} "
+            f"service_category_filter={service_filter} "
             f"total={len(batch_products)} errors={len(errors)} batch={batch_path.name}"
         )
         print(summary)

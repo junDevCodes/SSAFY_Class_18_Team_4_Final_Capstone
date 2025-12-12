@@ -4,8 +4,12 @@ import unittest
 from datetime import datetime
 
 from crawler.config import AlertConfig, AppConfig, CrawlConfig, S3Config, StoreConfig
-from crawler.homeplus.mappers import map_item_to_product
-from crawler.homeplus.mappers import SkipProduct
+from crawler.homeplus.mappers import (
+    map_item_to_product,
+    SkipProduct,
+    _map_service_category_by_depth_id,
+    _map_service_category_for_category_node,
+)
 from crawler.homeplus.parsers import CategoryNode, extract_categories
 from crawler.homeplus.service import HomeplusService, _parse_item_list
 from crawler.homeplus.client import HomeplusClient
@@ -97,6 +101,99 @@ class ItemListParserTest(unittest.TestCase):
         self.assertEqual(2, len(items))
         self.assertEqual(3, total_page)
         self.assertEqual(7, total_count)
+
+
+class ServiceCategoryDepthIdMappingTest(unittest.TestCase):
+    def test_depth_id_매핑이_문서_3장_규칙과_일치한다(self) -> None:
+        # FRUIT
+        self.assertEqual("FRUIT", _map_service_category_by_depth_id(0, 1))
+        # FRUIT 제외 → NUT_DRY_ETC
+        self.assertEqual("NUT_DRY_ETC", _map_service_category_by_depth_id(3, 300020))
+        self.assertEqual("NUT_DRY_ETC", _map_service_category_by_depth_id(3, 300021))
+
+        # GRAIN
+        self.assertEqual("GRAIN", _map_service_category_by_depth_id(0, 2))
+
+        # VEGETABLE
+        self.assertEqual("VEGETABLE", _map_service_category_by_depth_id(0, 3))
+
+        # NUT_DRY_ETC
+        self.assertEqual("NUT_DRY_ETC", _map_service_category_by_depth_id(0, 4))
+        self.assertEqual("NUT_DRY_ETC", _map_service_category_by_depth_id(0, 14))
+
+        # SEAFOOD
+        self.assertEqual("SEAFOOD", _map_service_category_by_depth_id(0, 5))
+
+        # MEAT / BEAN_EGG 상호 제외 규칙
+        self.assertEqual("MEAT", _map_service_category_by_depth_id(0, 6))
+        self.assertEqual("MEAT", _map_service_category_by_depth_id(2, 200068))
+        self.assertEqual("BEAN_EGG", _map_service_category_by_depth_id(2, 200048))
+
+        # BEAN_EGG
+        self.assertEqual("BEAN_EGG", _map_service_category_by_depth_id(2, 200063))
+
+        # DAIRY
+        self.assertEqual("DAIRY", _map_service_category_by_depth_id(0, 9))
+
+        # DRINK
+        self.assertEqual("DRINK", _map_service_category_by_depth_id(0, 12))
+        self.assertEqual("DRINK", _map_service_category_by_depth_id(0, 13))
+
+        # NOODLE_FLOUR / SEASONING_SAUCE_OIL 상호 제외 규칙
+        self.assertEqual("NOODLE_FLOUR", _map_service_category_by_depth_id(0, 15))
+        self.assertEqual("NOODLE_FLOUR", _map_service_category_by_depth_id(2, 200077))
+        self.assertEqual("NOODLE_FLOUR", _map_service_category_by_depth_id(2, 200082))
+        self.assertEqual("SEASONING_SAUCE_OIL", _map_service_category_by_depth_id(2, 200125))
+
+        # KIMCHI_SIDE (루트)
+        self.assertEqual("KIMCHI_SIDE", _map_service_category_by_depth_id(0, 11))
+
+        # SEASONING_SAUCE_OIL (루트)
+        self.assertEqual("SEASONING_SAUCE_OIL", _map_service_category_by_depth_id(0, 17))
+
+        # INSTANT_FOOD
+        self.assertEqual("INSTANT_FOOD", _map_service_category_by_depth_id(0, 10))
+        self.assertEqual("INSTANT_FOOD", _map_service_category_by_depth_id(0, 16))
+
+        # 정의되지 않은 조합은 None 이어야 한다
+        self.assertIsNone(_map_service_category_by_depth_id(1, 999999))
+
+    def test_category_node_매핑이_depth_id_규칙을_우선한다(self) -> None:
+        # 과일 루트 (FRUIT)
+        code = _map_service_category_for_category_node(
+            lcate_nm="과일",
+            mcate_nm=None,
+            scate_nm=None,
+            rcate_nm="식품",
+            lcate_cd=1,
+            mcate_cd=None,
+            scate_cd=None,
+        )
+        self.assertEqual("FRUIT", code)
+
+        # 라면/즉석식품/통조림 루트 (INSTANT_FOOD)
+        code = _map_service_category_for_category_node(
+            lcate_nm="라면/즉석식품/통조림",
+            mcate_nm=None,
+            scate_nm=None,
+            rcate_nm="식품",
+            lcate_cd=10,
+            mcate_cd=None,
+            scate_cd=None,
+        )
+        self.assertEqual("INSTANT_FOOD", code)
+
+        # 장류/양념/제빵 루트 (SEASONING_SAUCE_OIL)
+        code = _map_service_category_for_category_node(
+            lcate_nm="장류/양념/제빵",
+            mcate_nm=None,
+            scate_nm=None,
+            rcate_nm="식품",
+            lcate_cd=17,
+            mcate_cd=None,
+            scate_cd=None,
+        )
+        self.assertEqual("SEASONING_SAUCE_OIL", code)
 
 
 class ProductMappingTest(unittest.TestCase):

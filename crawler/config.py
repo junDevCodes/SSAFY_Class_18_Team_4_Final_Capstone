@@ -48,22 +48,32 @@ class CrawlConfig:
     target: str = "homeplus"
     concurrency: int = 1
     delay_ms: int = 500
+    # 크롤링 모드: full(전체 카탈로그), price_refresh(가격/상태만 갱신) 등으로 확장 예정
+    mode: str = "full"
+    # 서비스 표준 카테고리 필터 (예: "GRAIN,VEGETABLE"), 없으면 전체 식품 카테고리 대상
+    service_category_filter: Optional[str] = None
     scope: str = "full"
     fetch_detail: bool = True
     s3_upload_enabled: bool = False
     store_html: bool = False
+    sample_per_category: Optional[int] = None
 
     @classmethod
     def from_env(cls) -> "CrawlConfig":
         """환경변수에서 설정을 로드한다."""
+        sample_per_cat = os.getenv("CRAWL_SAMPLE_PER_CATEGORY")
+        service_cat_filter = os.getenv("CRAWL_SERVICE_CATEGORY_FILTER")
         return cls(
             target=os.getenv("CRAWL_TARGET", "homeplus"),
             concurrency=_get_int_env("CRAWL_CONCURRENCY", 1),
             delay_ms=_get_int_env("CRAWL_DELAY_MS", 500),
+            mode=os.getenv("CRAWL_MODE", "full"),
             scope=os.getenv("CRAWL_SCOPE", "full"),
             fetch_detail=os.getenv("FETCH_DETAIL", "true").lower() in ("1", "true", "yes"),
             s3_upload_enabled=os.getenv("S3_UPLOAD_ENABLED", "false").lower() in ("1", "true", "yes"),
             store_html=os.getenv("CRAWL_STORE_HTML", "false").lower() in ("1", "true", "yes"),
+            sample_per_category=_get_int_env("CRAWL_SAMPLE_PER_CATEGORY", 0) if sample_per_cat else None,
+            service_category_filter=service_cat_filter,
         )
 
 
@@ -111,6 +121,8 @@ class S3Config:
 
     bucket: Optional[str] = None
     prefix: str = "homeplus/raw/{YYYY}/{MM}/{batch_id}/"
+    thumbnail_prefix: str = "homeplus/thumbnail/{YYYY}/{MM}/{batch_id}/"
+    product_detail_prefix: str = "homeplus/product_detail/{YYYY}/{MM}/{batch_id}/"
     region: Optional[str] = None
     presign_expires: int = 3600
 
@@ -120,6 +132,8 @@ class S3Config:
         return cls(
             bucket=os.getenv("S3_BUCKET"),
             prefix=os.getenv("S3_PREFIX", "homeplus/raw/{YYYY}/{MM}/{batch_id}/"),
+            thumbnail_prefix=os.getenv("S3_THUMBNAIL_PREFIX", "homeplus/thumbnail/{YYYY}/{MM}/{batch_id}/"),
+            product_detail_prefix=os.getenv("S3_PRODUCT_DETAIL_PREFIX", "homeplus/product_detail/{YYYY}/{MM}/{batch_id}/"),
             region=os.getenv("S3_REGION"),
             presign_expires=_get_int_env("S3_PRESIGN_EXPIRES", 3600),
         )
