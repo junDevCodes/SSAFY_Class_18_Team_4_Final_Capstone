@@ -95,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { reviewApi, type Review } from '@/services/api/reviews'
 import { useAuthStore } from '@/stores/auth'
 import { useUIStore } from '@/stores/ui'
@@ -105,6 +105,7 @@ const props = defineProps<{
   orderItemId?: number | null
   initialAverage?: number | null
   initialCount?: number | null
+  initialEditReviewId?: number | null
 }>()
 
 const authStore = useAuthStore()
@@ -130,6 +131,8 @@ const editState = ref<{
   content: string
   imagesInput: string
 } | null>(null)
+
+const initialEditApplied = ref(false)
 
 const averageStars = computed(() => {
   const val = Number(stats.average ?? 0)
@@ -217,11 +220,22 @@ const loadReviews = async (page = 1) => {
     }
     paging.page = page
     paging.hasNext = Boolean(data.next)
+    applyInitialEdit()
   } catch (error: any) {
     ui.listError = error?.response?.data?.detail || 'Failed to load reviews.'
   } finally {
     ui.isLoadingList = false
   }
+}
+
+const applyInitialEdit = () => {
+  if (initialEditApplied.value) return
+  const targetId = props.initialEditReviewId
+  if (!targetId) return
+  const target = reviews.value.find((r) => r.id === targetId)
+  if (!target) return
+  startEdit(target)
+  initialEditApplied.value = true
 }
 
 const handleReviewCreated = (e: CustomEvent<{ productId?: number }>) => {
@@ -291,6 +305,14 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('review:created', handleReviewCreated as EventListener)
 })
+
+watch(
+  () => props.initialEditReviewId,
+  () => {
+    initialEditApplied.value = false
+    applyInitialEdit()
+  }
+)
 
 defineExpose({
   loadReviews,
