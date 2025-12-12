@@ -91,11 +91,19 @@
           :product="product"
           :short-description="shortDescription"
           :full-description="fullDescription"
-        />
-      </div>
-
-      <div class="section" id="reviews">
-        <ReviewsSection :reviews="reviews" :average="averageRating" :count="reviewCount" />
+          :initial-tab="initialTab"
+        >
+          <template #review>
+            <div class="section" id="reviews">
+              <ReviewsSection
+                :product-id="product.id"
+                :initial-average="product.stats?.average_rating ?? 0"
+                :initial-count="product.stats?.review_count ?? 0"
+                :initial-edit-review-id="initialEditReviewId"
+              />
+            </div>
+          </template>
+        </ProductInfoTabs>
       </div>
 
       <section class="section" id="shipping">
@@ -126,16 +134,6 @@
 </template>
 
 <script setup lang="ts">
-// 리뷰 타입 정의
-type Review = {
-  id: number
-  rating: number
-  content: string
-  author: string
-  date: string
-  images?: string[]
-}
-
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { productsAPI } from '@/services/api'
@@ -159,6 +157,19 @@ const product = ref<ProductDetail | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const quantity = ref(1)
+
+const initialTab = computed(() => {
+  const tabParam = route.query.tab
+  if (tabParam === 'review') return 'review'
+  if (route.query.editReviewId) return 'review'
+  return 'detail'
+})
+
+const initialEditReviewId = computed(() => {
+  const raw = route.query.editReviewId
+  const num = Number(raw)
+  return Number.isFinite(num) ? num : null
+})
 
 const discountRate = computed(() => {
   if (!product.value) return 0
@@ -193,19 +204,6 @@ const stockLeftLabel = computed(() => {
 const shortDescription = computed(() => product.value?.detail?.short_description ?? null)
 const fullDescription = computed(() => product.value?.detail?.full_description ?? null)
 const wishlistCount = computed(() => product.value?.stats?.wishlist_count ?? 0)
-
-// 리뷰 목업
-const reviews = ref<Review[]>([
-  { id: 1, rating: 5, content: '맛있고 배송이 빨라요', author: 'user1', date: '2025.01.01', images: [] },
-  { id: 2, rating: 4, content: '구성이 좋아요', author: 'user2', date: '2025.01.02', images: [] }
-])
-
-const averageRating = computed(() => {
-  if (!reviews.value.length) return 0
-  const sum = reviews.value.reduce((acc: number, r: Review) => acc + (r.rating ?? 0), 0)
-  return sum / reviews.value.length
-})
-const reviewCount = computed(() => reviews.value.length)
 
 watch(
   () => route.params.slug,
