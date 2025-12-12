@@ -77,15 +77,6 @@
             <div class="item-total">
               {{ formatPrice(item.total_price) }}
             </div>
-            <div class="item-actions" v-if="order.status === 'delivered'">
-              <button
-                class="btn-review"
-                :disabled="item.has_review"
-                @click="openReviewModal(item)"
-              >
-                {{ item.has_review ? '작성 완료' : '리뷰 작성' }}
-              </button>
-            </div>
           </div>
         </div>
       </section>
@@ -234,15 +225,6 @@
           </div>
         </div>
       </section>
-
-      <ReviewWriteModal
-        :open="showReviewModal"
-        :product-id="targetReview.productId"
-        :order-item-id="targetReview.orderItemId"
-        :product-name="targetReview.productName"
-        @close="showReviewModal = false"
-        @submitted="handleReviewSubmitted"
-      />
     </div>
   </div>
 </template>
@@ -253,24 +235,15 @@ import { useRoute } from 'vue-router'
 import { useOrdersStore, type Order } from '@/stores/orders'
 import { formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 import { getOrderStatusText, getPaymentStatusText } from '@/utils/status'
-import { useUIStore } from '@/stores/ui'
-import ReviewWriteModal from '@/components/order/ReviewWriteModal.vue'
 
 const route = useRoute()
 const ordersStore = useOrdersStore()
-const uiStore = useUIStore()
 
 const loading = ref(true)
 const error = ref<string | null>(null)
 const cancelling = ref(false)
 const confirming = ref(false)
 const order = ref<Order | null>(null)
-const showReviewModal = ref(false)
-const targetReview = ref<{ productId: number | null; orderItemId: number | null; productName: string }>({
-  productId: null,
-  orderItemId: null,
-  productName: '',
-})
 
 // 주문 상세 로드
 const loadOrderDetail = async () => {
@@ -373,28 +346,6 @@ const formatDateTime = (dateString: string): string => {
 const handleImageError = (event: Event) => {
   const target = event.target as HTMLImageElement
   target.src = DEFAULT_PRODUCT_IMAGE
-}
-
-const openReviewModal = (item: any) => {
-  targetReview.value = {
-    productId: item.product_id ?? item.product?.id ?? null,
-    orderItemId: item.order_item_id ?? item.id ?? null,
-    productName: item.product_name ?? '',
-  }
-  showReviewModal.value = true
-}
-
-const handleReviewSubmitted = (payload?: { message?: string; alreadyReviewed?: boolean }) => {
-  const { orderItemId } = targetReview.value
-  if (order.value) {
-    order.value = {
-      ...order.value,
-      items: order.value.items.map((it: any) =>
-        it.order_item_id === orderItemId || it.id === orderItemId ? { ...it, has_review: true } : it
-      ),
-    }
-  }
-  uiStore.showToast(payload?.message || '리뷰가 등록되었습니다.')
 }
 
 // 초기 로드
@@ -744,27 +695,6 @@ onMounted(() => {
 .btn-confirm:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.item-actions {
-  margin-left: auto;
-}
-
-.btn-review {
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid #0f3a2a;
-  background: #0f3a2a;
-  color: #fff;
-  cursor: pointer;
-}
-
-.btn-review:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  background: #e5e7eb;
-  border-color: #e5e7eb;
-  color: #6b7280;
 }
 
 /* Timeline */

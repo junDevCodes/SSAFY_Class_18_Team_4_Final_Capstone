@@ -20,10 +20,7 @@
         <button @click="$emit('change-qty', quantity + 1)" :disabled="isOutOfStock">+</button>
       </div>
       <div class="btns">
-        <button class="wish-icon" @click="$emit('toggle-wish')" :aria-pressed="product.is_wishlist">
-          <span class="heart" :class="{ filled: product.is_wishlist }">♥</span>
-          <span v-if="product.stats" class="wish-count">{{ product.stats.wishlist_count }}</span>
-        </button>
+        <button class="ghost" @click="$emit('toggle-wish')">찜</button>
         <button class="secondary" @click="$emit('add-cart')" :disabled="isOutOfStock">
           {{ isOutOfStock ? '품절' : '장바구니' }}
         </button>
@@ -86,10 +83,6 @@ const onError = (e: Event) => {
 .qty span { width: 44px; text-align: center; line-height: 36px; }
 .btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; flex: 1; min-width: 260px; }
 button { padding: 10px; border-radius: 10px; font-weight: 700; border: 1px solid transparent; cursor: pointer; }
-.wish-icon { border: 1px solid var(--gray-200, #e5e7eb); background: white; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border-radius: 10px; }
-.wish-icon .heart { color: #d1d5db; font-size: 18px; line-height: 1; }
-.wish-icon .heart.filled { color: #d14343; }
-.wish-count { font-size: 12px; color: #374151; }
 .ghost { border-color: var(--gray-200, #e5e7eb); background: white; }
 .secondary { border-color: var(--brand-500, #00a86b); color: var(--brand-500, #00a86b); background: white; }
 .primary { background: var(--brand-500, #00a86b); color: white; border-color: var(--brand-500, #00a86b); }

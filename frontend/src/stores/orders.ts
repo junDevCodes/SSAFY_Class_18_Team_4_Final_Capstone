@@ -9,8 +9,6 @@ import { ordersAPI } from '@/services/api'
 
 export interface OrderItem {
   id: number
-  order_item_id?: number
-  product_id?: number
   product: any
   product_name: string
   image_url: string | null
@@ -20,7 +18,6 @@ export interface OrderItem {
   total_price: number
   status: string
   created_at: string
-  has_review?: boolean
 }
 
 export interface Shipment {
@@ -94,8 +91,7 @@ export const useOrdersStore = defineStore('orders', () => {
       const response = await ordersAPI.getOrders(params)
       // DRF 페이지네이션 또는 비페이지네이션 모두 대응
       const data = response.data
-      const list = ((data.results as Order[]) || (data as Order[])).map(normalizeOrder)
-      orders.value = list
+      orders.value = (data.results as Order[]) || (data as Order[])
       total.value = (data.count as number) || orders.value.length
     } catch (err: any) {
       error.value = err.response?.data?.message || '주문 목록을 불러오는데 실패했습니다.'
@@ -112,9 +108,8 @@ export const useOrdersStore = defineStore('orders', () => {
 
     try {
       const response = await ordersAPI.getOrder(id)
-      const normalized = normalizeOrder(response.data as Order)
-      currentOrder.value = normalized
-      return normalized
+      currentOrder.value = response.data as Order
+      return response.data as Order
     } catch (err: any) {
       error.value = err.response?.data?.message || '주문 정보를 불러오는데 실패했습니다.'
       console.error('주문 상세 로드 실패:', err)
@@ -138,7 +133,7 @@ export const useOrdersStore = defineStore('orders', () => {
 
     try {
       const response = await ordersAPI.createOrder(data)
-      const newOrder = normalizeOrder(response.data.order as Order)
+      const newOrder = response.data.order as Order
 
       // 주문 목록에 추가
       orders.value.unshift(newOrder)
@@ -161,7 +156,7 @@ export const useOrdersStore = defineStore('orders', () => {
 
     try {
       const response = await ordersAPI.cancelOrder(id, cancel_reason)
-      const updatedOrder = normalizeOrder(response.data.order as Order)
+      const updatedOrder = response.data.order as Order
 
       // 주문 목록 업데이트
       const index = orders.value.findIndex(o => o.id === id)
@@ -191,7 +186,7 @@ export const useOrdersStore = defineStore('orders', () => {
 
     try {
       const response = await ordersAPI.confirmDelivery(id)
-      const updatedOrder = normalizeOrder(response.data.order as Order)
+      const updatedOrder = response.data.order as Order
 
       // 주문 목록 업데이트
       const index = orders.value.findIndex(o => o.id === id)
@@ -237,20 +232,3 @@ export const useOrdersStore = defineStore('orders', () => {
     reset,
   }
 })
-
-const normalizeOrder = (order: Order): Order => {
-  return {
-    ...order,
-    items: (order.items || []).map(normalizeItem),
-  }
-}
-
-const normalizeItem = (item: any): OrderItem => {
-  const productId = item.product?.id ?? item.product_id ?? null
-  return {
-    ...item,
-    order_item_id: item.order_item_id ?? item.id,
-    product_id: productId ?? undefined,
-    has_review: item.has_review ?? false,
-  }
-}

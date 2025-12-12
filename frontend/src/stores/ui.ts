@@ -6,7 +6,6 @@ export const useUIStore = defineStore('ui', () => {
   const isScrolled = ref(false)
   const isCartOpen = ref(false)
   const isLoginOpen = ref(false)
-  const isRecentOpen = ref(false)
   const headerState = ref<'hero' | 'light' | 'green'>('hero')
   const activeTab = ref('추천')
   const authMode = ref<'login' | 'signup'>('login')
@@ -33,15 +32,6 @@ export const useUIStore = defineStore('ui', () => {
 
   const closeCart = () => {
     isCartOpen.value = false
-  }
-
-  // ?? ? ?? ??/??
-  const openRecent = () => {
-    isRecentOpen.value = true
-  }
-
-  const closeRecent = () => {
-    isRecentOpen.value = false
   }
 
   // 로그인 모달 열기/닫기
@@ -91,7 +81,6 @@ export const useUIStore = defineStore('ui', () => {
     isScrolled,
     isCartOpen,
     isLoginOpen,
-    isRecentOpen,
     headerState,
     activeTab,
     authMode,
@@ -102,8 +91,6 @@ export const useUIStore = defineStore('ui', () => {
     setHeaderState,
     openCart,
     closeCart,
-    openRecent,
-    closeRecent,
     openLogin,
     closeLogin,
     setAuthMode,
