@@ -69,8 +69,9 @@
               />
               <button @click="quantity = quantity + 1" :disabled="isSoldOut">+</button>
             </div>
-            <button class="wish" @click="toggleWishlist">
-              {{ product.is_wishlist ? '♡ 취소' : '♡ 찜' }} ({{ wishlistCount }})
+            <button class="wish-icon" @click="toggleWishlist" :aria-pressed="product.is_wishlist">
+              <span class="heart" :class="{ filled: product.is_wishlist }">♥</span>
+              <span v-if="wishlistCount !== null" class="wish-count">{{ wishlistCount }}</span>
             </button>
           </div>
 
@@ -91,16 +92,28 @@
           :product="product"
           :short-description="shortDescription"
           :full-description="fullDescription"
-        />
-      </div>
-
-      <div class="section" id="reviews">
-        <ReviewsSection :reviews="reviews" :average="averageRating" :count="reviewCount" />
+          :initial-tab="initialTab"
+        @change="handleTabChange"
+        >
+          <template #review>
+            <ReviewsSection
+              ref="reviewsRef"
+              :product-id="product.id"
+              :order-item-id="orderItemId"
+              :initial-average="reviewAverage"
+              :initial-count="reviewCount"
+            />
+          </template>
+        </ProductInfoTabs>
       </div>
 
       <section class="section" id="shipping">
         <h2>배송/교환/반품</h2>
         <p>배송·교환·반품 정보는 준비 중입니다.</p>
+      </section>
+
+      <section class="section recent-viewed">
+        <RecentProductsRail :limit="12" />
       </section>
 
       <section v-if="product?.related_products?.length" class="related section">
@@ -127,15 +140,6 @@
 
 <script setup lang="ts">
 // 리뷰 타입 정의
-type Review = {
-  id: number
-  rating: number
-  content: string
-  author: string
-  date: string
-  images?: string[]
-}
-
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { productsAPI } from '@/services/api'
@@ -144,10 +148,12 @@ import { useWishlistStore } from '@/stores/wishlist'
 import { useAuthStore } from '@/stores/auth'
 import { calculateDiscountRate, formatPrice, type ProductDetail } from '@/types/product'
 import ProductCard from '@/components/ui/ProductCard.vue'
+import RecentProductsRail from '@/components/sections/RecentProductsRail.vue'
 import ProductGallery from '@/components/product/ProductGallery.vue'
 import ProductInfoTabs from '@/components/product/ProductInfoTabs.vue'
 import StickyPurchaseBar from '@/components/product/StickyPurchaseBar.vue'
 import ReviewsSection from '@/components/product/ReviewsSection.vue'
+import type ReviewsSectionComponent from '@/components/product/ReviewsSection.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -159,6 +165,8 @@ const product = ref<ProductDetail | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const quantity = ref(1)
+const reviewsRef = ref<InstanceType<typeof ReviewsSectionComponent> | null>(null)
+const initialTab = computed(() => (route.hash === '#review' ? 'review' : 'detail'))
 
 const discountRate = computed(() => {
   if (!product.value) return 0
@@ -194,18 +202,9 @@ const shortDescription = computed(() => product.value?.detail?.short_description
 const fullDescription = computed(() => product.value?.detail?.full_description ?? null)
 const wishlistCount = computed(() => product.value?.stats?.wishlist_count ?? 0)
 
-// 리뷰 목업
-const reviews = ref<Review[]>([
-  { id: 1, rating: 5, content: '맛있고 배송이 빨라요', author: 'user1', date: '2025.01.01', images: [] },
-  { id: 2, rating: 4, content: '구성이 좋아요', author: 'user2', date: '2025.01.02', images: [] }
-])
-
-const averageRating = computed(() => {
-  if (!reviews.value.length) return 0
-  const sum = reviews.value.reduce((acc: number, r: Review) => acc + (r.rating ?? 0), 0)
-  return sum / reviews.value.length
-})
-const reviewCount = computed(() => reviews.value.length)
+const reviewAverage = computed(() => product.value?.stats?.average_rating ?? 0)
+const reviewCount = computed(() => product.value?.stats?.review_count ?? 0)
+const orderItemId = computed(() => (product.value as any)?.order_item_id ?? null)
 
 watch(
   () => route.params.slug,
@@ -228,6 +227,12 @@ async function loadProduct() {
     error.value = err.response?.data?.detail || '상품을 불러오는데 실패했습니다.'
   } finally {
     loading.value = false
+  }
+}
+
+const handleTabChange = (nextTab: 'detail' | 'review' | 'shipping') => {
+  if (nextTab === 'review') {
+    reviewsRef.value?.loadReviews(1)
   }
 }
 
@@ -300,6 +305,10 @@ function buyNow() {
 .qty-control input { width: 60px; text-align: center; border: none; outline: none; }
 .qty-control.disabled { opacity: 0.6; }
 .wish { padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; background: white; cursor: pointer; }
+.wish-icon { width: 44px; height: 44px; border: 1px solid #d1d5db; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; background: white; }
+.wish-icon .heart { color: #d1d5db; font-size: 18px; line-height: 1; }
+.wish-icon .heart.filled { color: #d14343; }
+.wish-count { font-size: 12px; color: #374151; }
 .cta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .btn-buy { padding: 14px; border: none; border-radius: 10px; background: #2d5016; color: white; font-weight: 700; cursor: pointer; }
 .btn-cart { padding: 14px; border: 1px solid #2d5016; border-radius: 10px; background: white; color: #2d5016; font-weight: 700; cursor: pointer; }

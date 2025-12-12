@@ -11,9 +11,15 @@ type RetryableRequest = InternalAxiosRequestConfig & { _retry?: boolean };
 
 // 프로덕션에서는 동일 Origin(빈 문자열)을 사용하고,
 // 개발 환경에서는 기본값으로 Django 개발 서버 주소를 사용
-const baseURL =
-  import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.DEV ? "http://localhost:8000" : "");
+const baseURL = (() => {
+  const envUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (envUrl && envUrl.trim().length > 0) return envUrl.trim();
+  if (import.meta.env.DEV) return "http://localhost:8000";
+  if (typeof window !== "undefined" && window.location.port === "8080") {
+    return `${window.location.protocol}//${window.location.hostname}:8000`;
+  }
+  return typeof window !== "undefined" ? window.location.origin : "";
+})();
 
 const apiClient: AxiosInstance = axios.create({
   baseURL,

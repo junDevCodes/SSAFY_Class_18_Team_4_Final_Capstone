@@ -61,7 +61,22 @@
             :key="item.id"
             class="order-item"
           >
-            <div class="item-image">
+            <div class="item-actions" v-if="order.status === 'delivered' && item.has_review" style="order:4;">
+              <router-link class="btn-review ghost" :to="getProductReviewLink(item)">
+                리뷰 수정
+              </router-link>
+              <router-link class="btn-review danger" :to="getProductReviewLink(item)">
+                리뷰 삭제
+              </router-link>
+            </div>
+            <router-link :to="getProductLink(item)" class="item-image" v-if="getProductLink(item)">
+              <img
+                :src="item.image_url || DEFAULT_PRODUCT_IMAGE"
+                :alt="item.product_name"
+                @error="handleImageError"
+              />
+            </router-link>
+            <div class="item-image" v-else>
               <img
                 :src="item.image_url || DEFAULT_PRODUCT_IMAGE"
                 :alt="item.product_name"
@@ -69,13 +84,28 @@
               />
             </div>
             <div class="item-info">
-              <h4 class="item-name">{{ item.product_name }}</h4>
+              <router-link
+                v-if="getProductLink(item)"
+                :to="getProductLink(item)"
+                class="item-name"
+              >
+                {{ item.product_name }}
+              </router-link>
+              <h4 v-else class="item-name">{{ item.product_name }}</h4>
               <p class="item-quantity">
                 {{ item.quantity }}개 × {{ formatPrice(item.unit_price || 0) }}
               </p>
             </div>
             <div class="item-total">
               {{ formatPrice(item.total_price) }}
+            </div>
+            <div class="item-actions" v-if="order.status === 'delivered' && !item.has_review">
+              <button
+                class="btn-review"
+                @click="openReviewModal(item)"
+              >
+                리뷰 작성
+              </button>
             </div>
           </div>
 
@@ -169,6 +199,14 @@
       </div>
     </div>
   </div>
+  <ReviewWriteModal
+    :open="showReviewModal"
+    :product-id="targetReview.productId"
+    :order-item-id="targetReview.orderItemId"
+    :product-name="targetReview.productName"
+    @close="showReviewModal = false"
+  @submitted="handleReviewSubmitted"
+  />
 </template>
 
 <script setup lang="ts">
@@ -176,8 +214,12 @@ import { ref, computed, onMounted } from 'vue'
 import { useOrdersStore } from '@/stores/orders'
 import { formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 import { getOrderStatusText } from '@/utils/status'
+import { useUIStore } from '@/stores/ui'
+import ReviewWriteModal from '@/components/order/ReviewWriteModal.vue'
+import { reviewApi } from '@/services/api/reviews'
 
 const ordersStore = useOrdersStore()
+const uiStore = useUIStore()
 
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -185,6 +227,14 @@ const cancelling = ref<number | null>(null)
 const confirming = ref<number | null>(null)
 const currentPage = ref(1)
 const pageSize = 10
+
+// 리뷰 작성 모달 상태
+const showReviewModal = ref(false)
+const targetReview = ref<{ productId: number | null; orderItemId: number | null; productName: string }>({
+  productId: null,
+  orderItemId: null,
+  productName: '',
+})
 
 // Computed
 const orders = computed(() => ordersStore.orders)
@@ -221,6 +271,7 @@ const loadOrders = async () => {
       page: currentPage.value,
       page_size: pageSize,
     })
+    await syncMyReviews()
   } catch (err: any) {
     console.error('주문 목록 로드 실패:', err)
     error.value = '주문 내역을 불러오는 데 실패했습니다.'
@@ -235,6 +286,27 @@ const goToPage = (page: number) => {
   currentPage.value = page
   loadOrders()
   window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+// 리뷰 모달 오픈
+const openReviewModal = (item: any) => {
+  targetReview.value = {
+    productId: item.product_id ?? item.product?.id ?? null,
+    orderItemId: item.order_item_id ?? item.id ?? null,
+    productName: item.product_name ?? '',
+  }
+  showReviewModal.value = true
+}
+
+const handleReviewSubmitted = (payload?: { message?: string; alreadyReviewed?: boolean }) => {
+  const { orderItemId } = targetReview.value
+  ordersStore.orders = ordersStore.orders.map((order: any) => ({
+    ...order,
+    items: order.items.map((it: any) =>
+      it.order_item_id === orderItemId || it.id === orderItemId ? { ...it, has_review: true } : it
+    ),
+  }))
+  uiStore.showToast(payload?.message || '리뷰가 등록되었습니다.')
 }
 
 // Cancel order
@@ -299,6 +371,42 @@ const formatDate = (dateString: string): string => {
 const handleImageError = (event: Event) => {
   const target = event.target as HTMLImageElement
   target.src = DEFAULT_PRODUCT_IMAGE
+}
+
+const syncMyReviews = async () => {
+  try {
+    const data = await reviewApi.getMyReviews({ page_size: 200 })
+    const reviewedOrderItems = new Set(data.results.map((r) => r.order_item).filter(Boolean))
+    const reviewedProducts = new Set(data.results.map((r) => r.product).filter(Boolean))
+
+    ordersStore.orders = ordersStore.orders.map((order: any) => ({
+      ...order,
+      items: order.items.map((it: any) => {
+        const reviewed =
+          reviewedOrderItems.has(it.order_item_id ?? it.id) ||
+          reviewedProducts.has(it.product_id ?? it.product?.id)
+        return reviewed ? { ...it, has_review: true } : it
+      }),
+    }))
+  } catch (err) {
+    console.error('내 리뷰 동기화 실패:', err)
+  }
+}
+
+const getProductLink = (item: any): string => {
+  const slug = item.product?.slug
+  const id = item.product?.id ?? item.product_id
+  if (slug) return `/products/${slug}`
+  if (id) return `/products/${id}`
+  return '#'
+}
+
+const getProductReviewLink = (item: any): string => {
+  const slug = item.product?.slug
+  const id = item.product?.id ?? item.product_id
+  if (slug) return `/products/${slug}#review`
+  if (id) return `/products/${id}#review`
+  return '/products#review'
 }
 
 // Initialize
@@ -575,6 +683,37 @@ onMounted(() => {
   font-size: 1rem;
   font-weight: 600;
   color: #1a1a1a;
+}
+
+.item-actions {
+  margin-left: auto;
+}
+
+.btn-review {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #0f3a2a;
+  background: #0f3a2a;
+  color: #fff;
+  cursor: pointer;
+}
+
+.btn-review:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: #e5e7eb;
+  border-color: #e5e7eb;
+  color: #6b7280;
+}
+.btn-review.ghost {
+  background: #fff;
+  color: #0f3a2a;
+  border-color: #d1d5db;
+}
+.btn-review.danger {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #fff;
 }
 
 .more-items {
