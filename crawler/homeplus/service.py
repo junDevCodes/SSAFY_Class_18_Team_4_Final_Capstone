@@ -25,6 +25,7 @@ from crawler.homeplus.mappers import (
     _service_category_display_name,
 )
 from crawler.homeplus.parsers import CategoryNode, extract_categories
+from crawler.homeplus.validator import validate_product
 from crawler.s3_uploader import S3Uploader
 from crawler.raw_storage import RawStorage
 
@@ -322,6 +323,13 @@ class HomeplusService:
                         "missing_required_fields",
                         {"item": item},
                     )
+            # 검증 실패(에러 레벨 이슈) 상품은 배치에서 제외
+            issues = validate_product(len(mapped), product)
+            error_codes = {i.code for i in issues if i.level == "error"}
+            if error_codes:
+                logger.info("검증 실패로 상품 스킵: item_no=%s codes=%s", item_no, ",".join(sorted(error_codes)))
+                continue
+
             mapped.append(product)
         return mapped
 

@@ -337,6 +337,7 @@ def _map_service_category_by_depth_id(
         "SEASONING_SAUCE_OIL": [
             (0, 17),
             (2, 200125),  # NOODLE_FLOUR에서 제외된 하위
+            (2, 200062),  # 두부/김치/반찬 > 냉장소스/냉장장류
         ],
         "INSTANT_FOOD": [
             (0, 10),

@@ -144,6 +144,8 @@ class ServiceCategoryDepthIdMappingTest(unittest.TestCase):
         self.assertEqual("NOODLE_FLOUR", _map_service_category_by_depth_id(2, 200077))
         self.assertEqual("NOODLE_FLOUR", _map_service_category_by_depth_id(2, 200082))
         self.assertEqual("SEASONING_SAUCE_OIL", _map_service_category_by_depth_id(2, 200125))
+        # 두부/김치/반찬 > 냉장소스/냉장장류
+        self.assertEqual("SEASONING_SAUCE_OIL", _map_service_category_by_depth_id(2, 200062))
 
         # KIMCHI_SIDE (루트)
         self.assertEqual("KIMCHI_SIDE", _map_service_category_by_depth_id(0, 11))
