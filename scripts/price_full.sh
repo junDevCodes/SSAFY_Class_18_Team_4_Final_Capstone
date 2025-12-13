@@ -19,6 +19,7 @@ echo ""
 export PYTHONPATH=.
 export CRAWL_SCOPE=full          # 기본값 (price 모드에서 필요 시 무시)
 export FETCH_DETAIL=true         # 가격/상태 확인을 위해 상세 HTML 수집
+export CRAWL_RUN_VALIDATION=true # 배치 완료 후 기본 검증 함께 실행
 
 # 가격 추적 모드 플래그 (crawler.main / config 에서 해석하도록 추후 구현)
 export CRAWL_MODE=price_refresh

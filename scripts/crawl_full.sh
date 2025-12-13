@@ -4,7 +4,7 @@
 set -e
 
 # 프로젝트 루트 디렉터리로 이동
-SCRIPT_DIR="$(cd "$(dirname "${B_SOURCE:-$0}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
@@ -18,13 +18,14 @@ echo ""
 export PYTHONPATH=.
 export CRAWL_SCOPE=full          # 전체 카테고리 트리 순회
 export FETCH_DETAIL=true         # 상세 HTML 항상 수집
-unset CROWL_SAMPLE_PER_CATEGORY  # 전체 수집을 위해 샘플 제한 해제
+unset CRAWL_SAMPLE_PER_CATEGORY  # 전체 수집을 위해 샘플 제한 해제
+export CRAWL_RUN_VALIDATION=true # 배치 완료 후 기본 검증 함께 실행
 export ITEM_SHIP_METHOD=TD_DRCT
 export STORE_ID=37
 export STORE_TYPE=HYPER
 export STORE_KIND=NOR
 export CRAWL_DELAY_MS=500
-export CRAWL_STORAGE_HTML=false
+export CRAWL_STORE_HTML=false    # 문제 있는 상품만 raw HTML 저장 (service.py 에서 제어)
 # S3 업로드는 운영 환경에서만 활성화 (필요 시 외부에서 S3_UPLOAD_ENABLED / S3_* 환경변수 설정)
 # export S3_UPLOAD_ENABLED=true
 unset CRAWL_SERVICE_CATEGORY_FILTER
@@ -41,8 +42,9 @@ CATEGORIES=(
   "DAIRY"
   "KIMCHI_SIDE"
   "SEASONING_SAUCE_OIL"
-  "INSTANT_FOOD"
   "NUT_DRY_ETC"
+  "DRINK"
+  "INSTANT_FOOD"
 )
 
 # 카테고리별 순차 실행 (안전하게 한 카테고리씩 처리)

@@ -19,6 +19,7 @@ export PYTHONPATH=.
 export CRAWL_SCOPE=full          # 전체 카테고리 트리를 순회
 export FETCH_DETAIL=true         # 상세 HTML 항상 수집
 export CRAWL_SAMPLE_PER_CATEGORY=5  # 카테고리당 최대 5개
+export CRAWL_RUN_VALIDATION=true # 배치 완료 후 기본 검증 함께 실행
 export ITEM_SHIP_METHOD=TD_DRCT
 export STORE_ID=37
 export STORE_TYPE=HYPER
