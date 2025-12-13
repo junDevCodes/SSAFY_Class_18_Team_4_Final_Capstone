@@ -61,6 +61,7 @@
         v-for="product in recentProducts"
         :key="product.id"
         :product="product"
+        :show-price="false"
       />
     </div>
   </section>
