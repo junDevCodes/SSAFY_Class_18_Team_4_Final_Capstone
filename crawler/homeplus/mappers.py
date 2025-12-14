@@ -641,6 +641,7 @@ def map_item_to_product(
     store: StoreConfig,
     detail_html: Optional[str] = None,
     store_html: bool = False,
+    forced_service_category: Optional[str] = None,
 ) -> ProductData:
     """상품 JSON을 ProductData로 변환"""
     item_no = item.get("itemNo")
@@ -751,6 +752,11 @@ def map_item_to_product(
         category_depth=category_depth,
         category_id=category_id,
     )
+
+    # 서비스 카테고리가 강제로 지정된 경우 매핑 결과를 덮어써서 검증 실패를 방지
+    if forced_service_category:
+        service_category = forced_service_category
+        service_subcategory = None
 
     processing_level = _detect_processing_level(str(item.get("itemNm", "")), scate_nm)
 
