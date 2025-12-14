@@ -1,0 +1,2 @@
+# pickle 모델 파일이 저장되는 디렉토리
+# 실제 .pkl 파일은 gitignore에 추가하거나 Git LFS 사용 권장
