@@ -28,6 +28,8 @@ from crawler.homeplus.parsers import CategoryNode, extract_categories
 from crawler.homeplus.validator import validate_product
 from crawler.s3_uploader import S3Uploader
 from crawler.raw_storage import RawStorage
+import re
+import re
 
 
 class BatchWriter:
@@ -77,6 +79,7 @@ class HomeplusService:
         self.s3 = s3_uploader or (S3Uploader(self.config) if self.config.crawl.s3_upload_enabled else None)
         self.raw_storage = raw_storage or RawStorage()
         self.current_batch_id: Optional[str] = None
+        self.validation_skipped_count: int = 0
 
     def collect_categories(self) -> List[CategoryNode]:
         """카테고리 맵을 조회하고 유효 카테고리 노드를 반환
@@ -172,9 +175,9 @@ class HomeplusService:
             remaining = sample_limit - len(products)
             if remaining <= 0:
                 return products[:sample_limit]
-            page_products = self._map_items(items, max_items=remaining)
+            page_products = self._map_items(items, max_items=remaining, forced_service_category=forced_service_cat)
         else:
-            page_products = self._map_items(items)
+            page_products = self._map_items(items, forced_service_category=forced_service_cat)
 
         # 카테고리 노드 단위로 결정된 서비스 카테고리를 상품 레벨에 강제 반영
         if forced_service_cat:
@@ -204,9 +207,9 @@ class HomeplusService:
                 remaining = sample_limit - len(products)
                 if remaining <= 0:
                     return products[:sample_limit]
-                page_products = self._map_items(page_items, max_items=remaining)
+                page_products = self._map_items(page_items, max_items=remaining, forced_service_category=forced_service_cat)
             else:
-                page_products = self._map_items(page_items)
+                page_products = self._map_items(page_items, forced_service_category=forced_service_cat)
 
             # 카테고리 단위 서비스 카테고리를 상품 레벨에 반영
             if forced_service_cat:
@@ -231,6 +234,7 @@ class HomeplusService:
         self,
         items: List[Dict[str, Any]],
         max_items: Optional[int] = None,
+        forced_service_category: Optional[str] = None,
     ) -> List[ProductData]:
         """상품 리스트를 ProductData로 매핑
 
@@ -274,6 +278,7 @@ class HomeplusService:
                     self.config.store,
                     detail_html=detail_html,
                     store_html=self.config.crawl.store_html,
+                    forced_service_category=forced_service_category,
                 )
             except SkipProduct as exc:
                 logger.info("판매중지/제외 상품 스킵: item_no=%s reason=%s", item_no, exc)
@@ -346,8 +351,127 @@ class HomeplusService:
             products=products,
         )
 
+    def run_price_refresh(self) -> Path:
+        """가격 추적 모드: 필수 필드만 수집하여 가격 업데이트"""
+        start_ts = datetime.utcnow()
+        pid_suffix = os.getpid()
+        self.current_batch_id = f"{self.config.crawl.target}_price_{start_ts.strftime('%Y%m%d_%H%M%S')}_{pid_suffix}"
+        
+        # 가격 추적 대상 로드
+        if self.config.crawl.price_refresh_mode == "sample":
+            if not self.config.crawl.price_sample_input:
+                raise ValueError("PRICE_REFRESH_MODE=sample일 때 PRICE_SAMPLE_INPUT이 필요합니다.")
+            price_targets = _load_price_targets(self.config.crawl.price_sample_input)
+        else:  # full mode
+            # TODO: DB에서 전체 상품 source_url 로드
+            raise NotImplementedError("PRICE_REFRESH_MODE=full은 아직 구현되지 않았습니다.")
+        
+        if not price_targets:
+            logger.warning("가격 추적 대상이 없습니다.")
+            # 빈 배치 생성
+            batch = self.build_batch([], total_count=0)
+            batch_path = self.writer.save(batch)
+            return batch_path
+        
+        products: List[ProductData] = []
+        errors: List[str] = []
+        
+        for target in price_targets:
+            item_no = target.get("item_no")
+            source_url = target.get("source_url")
+            service_category = target.get("service_category")
+            
+            if not item_no:
+                errors.append(f"item_no 누락: {target}")
+                continue
+            
+            try:
+                # 상품 리스트 API에서 해당 itemNo 찾기 (가격 정보 포함)
+                # 또는 상세 API에서 가격만 가져오기
+                # 간단하게 상세 HTML에서 가격 정보 추출
+                detail_html = self.client.fetch_detail_html(item_no)
+                detail_json = None
+                
+                # 상세 JSON 추출
+                from crawler.homeplus.mappers import _extract_detail_json
+                detail_json = _extract_detail_json(detail_html)
+                
+                if not detail_json:
+                    errors.append(f"상세 JSON 추출 실패: item_no={item_no}")
+                    continue
+                
+                # 가격 정보 추출
+                data_item = (detail_json.get("data") or {}).get("item") or {}
+                sale = data_item.get("sale") or {}
+                dc_price = sale.get("dcPrice") or 0
+                sale_price = sale.get("salePrice") or 0
+                
+                # 가격 계산 (mappers.py와 동일한 로직)
+                from crawler.homeplus.mappers import _to_int
+                dc_price_int = _to_int(dc_price)
+                sale_price_int = _to_int(sale_price)
+                price = dc_price_int if dc_price_int is not None and dc_price_int > 0 else (sale_price_int or 0)
+                original_price = sale_price_int if dc_price_int is not None and dc_price_int > 0 else None
+                
+                # 최소 필드만으로 ProductData 생성
+                if not source_url:
+                    source_url = f"https://mfront.homeplus.co.kr/item?itemNo={item_no}&storeType={self.config.store.store_type}&storeId={self.config.store.store_id}"
+                
+                # 이미지 1개 이상 필요 (검증 통과용)
+                img_block = data_item.get("img") or {}
+                main_imgs = img_block.get("mainList") or []
+                image_url = None
+                if main_imgs and len(main_imgs) > 0:
+                    img_url = main_imgs[0].get("url") if isinstance(main_imgs[0], dict) else str(main_imgs[0])
+                    from crawler.homeplus.mappers import _normalize_img_url
+                    image_url = _normalize_img_url(img_url) if img_url else None
+                
+                # 최소 필드만으로 ProductData 생성
+                product = ProductData(
+                    name=f"가격추적_{item_no}",  # 스키마 필수이지만 실제 미사용
+                    price=price,
+                    source_site=self.config.crawl.target,  # 스키마 필수이지만 실제 미사용
+                    source_url=source_url,
+                    crawled_at=datetime.utcnow().isoformat(),
+                    original_price=original_price,
+                    service_category=service_category,
+                    images=[ProductImage(image_url=image_url, display_order=0)] if image_url else [],
+                )
+                
+                products.append(product)
+                
+                if self.config.crawl.delay_ms > 0:
+                    time.sleep(self.config.crawl.delay_ms / 1000)
+                    
+            except Exception as exc:
+                errors.append(f"item_no={item_no} 처리 실패: {exc}")
+                logger.error("가격 추적 실패: item_no=%s error=%s", item_no, exc)
+                continue
+        
+        # 배치 생성 및 저장
+        batch = self.build_batch(products, total_count=len(products))
+        batch_path = self.writer.save(batch)
+        
+        # 요약 로그
+        status = "FAILED" if len(errors) > len(products) * 0.1 else "OK"
+        summary = (
+            f"[PRICE-REFRESH-SUMMARY] source=homeplus status={status} "
+            f"mode={self.config.crawl.price_refresh_mode} "
+            f"total={len(products)} errors={len(errors)} batch={batch_path.name}"
+        )
+        print(summary)
+        logger.info(summary)
+        self.alert_client.notify(summary)
+        
+        return batch_path
+
     def run(self) -> Path:
         """전체 배치를 수집하고 JSON으로 저장"""
+        # 가격 추적 모드 분기 처리
+        if self.config.crawl.mode == "price_refresh":
+            return self.run_price_refresh()
+        
+        # 일반 크롤링 모드
         start_ts = datetime.utcnow()
         self.current_batch_id = f"{self.config.crawl.target}_{start_ts.strftime('%Y%m%d_%H%M%S')}"
         errors: List[str] = []
@@ -478,3 +602,53 @@ def _parse_item_list(resp: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], int, O
         total_count = None
 
     return items, total_page, total_count
+
+
+def _extract_item_no_from_url(url: str) -> Optional[str]:
+    """URL에서 itemNo를 추출합니다."""
+    match = re.search(r"itemNo=(\d+)", url)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _load_price_targets(input_file: Path) -> List[Dict[str, str]]:
+    """가격 추적 대상 파일을 읽어서 item_no 리스트를 반환합니다."""
+    if not input_file.exists():
+        logger.error("가격 추적 대상 파일이 없습니다: %s", input_file)
+        return []
+
+    try:
+        with open(input_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        items = data.get("items", [])
+        result = []
+        for item in items:
+            item_no = item.get("item_no")
+            source_url = item.get("source_url")
+            service_category = item.get("service_category")
+
+            if item_no:
+                result.append({
+                    "source": item.get("source", "homeplus"),
+                    "item_no": item_no,
+                    "source_url": source_url,
+                    "service_category": service_category
+                })
+            elif source_url:
+                extracted_item_no = _extract_item_no_from_url(source_url)
+                if extracted_item_no:
+                    result.append({
+                        "source": item.get("source", "homeplus"),
+                        "item_no": extracted_item_no,
+                        "source_url": source_url,
+                        "service_category": service_category
+                    })
+                else:
+                    logger.warning("source_url에서 itemNo 추출 실패: %s", source_url)
+        logger.info("가격 추적 대상 %d개 로드 완료: %s", len(result), input_file)
+        return result
+    except Exception as exc:
+        logger.error("가격 추적 대상 파일 읽기 실패: %s error=%s", input_file, exc)
+        return []

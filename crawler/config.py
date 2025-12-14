@@ -57,23 +57,34 @@ class CrawlConfig:
     s3_upload_enabled: bool = False
     store_html: bool = False
     sample_per_category: Optional[int] = None
+    price_refresh_mode: Optional[str] = None  # "sample" or "full"
+    price_sample_input: Optional[Path] = None  # 샘플 대상 파일 경로
 
     @classmethod
     def from_env(cls) -> "CrawlConfig":
         """환경변수에서 설정을 로드한다."""
+        mode = os.getenv("CRAWL_MODE", "full")
         sample_per_cat = os.getenv("CRAWL_SAMPLE_PER_CATEGORY")
         service_cat_filter = os.getenv("CRAWL_SERVICE_CATEGORY_FILTER")
+        s3_env = os.getenv("S3_UPLOAD_ENABLED")
+        # 가격 추적 모드에서는 S3 업로드를 비활성화하고, 그 외 모드에서는 기본적으로 활성화
+        if mode == "price_refresh":
+            s3_upload = False
+        else:
+            s3_upload = s3_env.lower() in ("1", "true", "yes") if s3_env else True
         return cls(
             target=os.getenv("CRAWL_TARGET", "homeplus"),
             concurrency=_get_int_env("CRAWL_CONCURRENCY", 1),
             delay_ms=_get_int_env("CRAWL_DELAY_MS", 500),
-            mode=os.getenv("CRAWL_MODE", "full"),
+            mode=mode,
             scope=os.getenv("CRAWL_SCOPE", "full"),
             fetch_detail=os.getenv("FETCH_DETAIL", "true").lower() in ("1", "true", "yes"),
-            s3_upload_enabled=os.getenv("S3_UPLOAD_ENABLED", "false").lower() in ("1", "true", "yes"),
+            s3_upload_enabled=s3_upload,
             store_html=os.getenv("CRAWL_STORE_HTML", "false").lower() in ("1", "true", "yes"),
             sample_per_category=_get_int_env("CRAWL_SAMPLE_PER_CATEGORY", 0) if sample_per_cat else None,
             service_category_filter=service_cat_filter,
+            price_refresh_mode=os.getenv("PRICE_REFRESH_MODE"),
+            price_sample_input=Path(os.getenv("PRICE_SAMPLE_INPUT")) if os.getenv("PRICE_SAMPLE_INPUT") else None,
         )
 
 
