@@ -31,7 +31,17 @@ export PRICE_SAMPLE_INPUT="data/price_sample_targets.json"
 
 # S3 업로드는 기본적으로 비활성화 (가격만 추적)
 export S3_UPLOAD_ENABLED=false
+export S3_USE_PUBLIC_URL=true    # Public URL 사용 (Presigned URL 대신, 가격 추적에서는 미사용이지만 일관성 유지)
 
+# 동시에 실행할 최대 작업 수 (기본 5)
+# 가격 추적의 경우 상품 리스트를 청크로 나누어 병렬 처리할 수도 있지만,
+# 현재는 카테고리별 병렬 처리를 지원 (구현 완료 후 상품 청크 방식으로 변경 가능)
+MAX_PARALLEL="${MAX_PARALLEL:-5}"
+echo "병렬 실행 개수: ${MAX_PARALLEL}"
+echo ""
+
+# 가격 추적은 현재 단일 실행 (price_refresh 모드 구현 완료 후 병렬 처리 추가 예정)
+# TODO: price_refresh 모드 구현 완료 시 상품 리스트를 청크로 나누어 병렬 처리
 LOG_FILE="data/json/meta/price_sample_$(date +%Y%m%d_%H%M%S).log"
 mkdir -p "$(dirname "$LOG_FILE")"
 

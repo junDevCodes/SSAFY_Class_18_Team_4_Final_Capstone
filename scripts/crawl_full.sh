@@ -26,8 +26,8 @@ export STORE_TYPE=HYPER
 export STORE_KIND=NOR
 export CRAWL_DELAY_MS=500
 export CRAWL_STORE_HTML=false    # 문제 있는 상품만 raw HTML 저장 (service.py 에서 제어)
-# S3 업로드는 운영 환경에서만 활성화 (필요 시 외부에서 S3_UPLOAD_ENABLED / S3_* 환경변수 설정)
-# export S3_UPLOAD_ENABLED=true
+export S3_UPLOAD_ENABLED=true    # 전체 크롤링에서는 S3 업로드 활성화
+export S3_USE_PUBLIC_URL=true    # Public URL 사용 (Presigned URL 대신)
 unset CRAWL_SERVICE_CATEGORY_FILTER
 
 # SelF 표준 카테고리 13개 코드
@@ -47,7 +47,14 @@ CATEGORIES=(
   "INSTANT_FOOD"
 )
 
-# 카테고리별 순차 실행 (안전하게 한 카테고리씩 처리)
+# 동시에 실행할 최대 작업 수 (기본 3)
+MAX_PARALLEL="${MAX_PARALLEL:-5}"
+echo "병렬 실행 개수: ${MAX_PARALLEL}"
+echo ""
+
+running=0
+
+# 카테고리별 병렬 실행
 for CATEGORY in "${CATEGORIES[@]}"; do
   echo "----------------------------------------"
   echo "[전체 크롤링 시작] service_category = ${CATEGORY}"
@@ -58,12 +65,22 @@ for CATEGORY in "${CATEGORIES[@]}"; do
   LOG_FILE="data/json/meta/crawl_full_${CATEGORY}_$(date +%Y%m%d_%H%M%S).log"
   mkdir -p "$(dirname "$LOG_FILE")"
 
-  # 크롤러 실행 (표준 출력/에러를 로그 파일로 저장)
-  python -m crawler.main > "$LOG_FILE" 2>&1
+  # 크롤링을 백그라운드로 실행
+  python -m crawler.main > "$LOG_FILE" 2>&1 &
+  running=$((running + 1))
 
-  echo "[완료] ${CATEGORY} 전체 크롤링 완료. 로그: ${LOG_FILE}"
+  # 동시 실행 개수가 한도에 도달하면 모두 끝날 때까지 대기
+  if [ "$running" -ge "$MAX_PARALLEL" ]; then
+    wait
+    running=0
+  fi
+
+  echo "[대기] ${CATEGORY} 전체 크롤링 백그라운드 실행 중. 로그: ${LOG_FILE}"
   echo ""
 done
+
+# 남은 백그라운드 작업 대기
+wait
 
 echo "========================================"
 echo "[1-2] 홈플러스 전체(full) 크롤링 전체 완료"
