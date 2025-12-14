@@ -33,7 +33,8 @@ class S3Uploader:
         # boto3는 자동으로 EC2 IAM 역할 자격증명을 찾습니다 (메타데이터 서비스 169.254.169.254)
         # 명시적으로 자격증명을 전달하지 않으면 환경변수 → ~/.aws/credentials → EC2 메타데이터 순으로 찾습니다
         self._s3 = boto3.client("s3", region_name=self.region) if self.bucket else None
-        self._http = httpx.Client(timeout=15.0)
+        # 리디렉션(302) 응답을 따라가도록 설정해 rtd -> td 전환 시 업로드가 실패하지 않게 함
+        self._http = httpx.Client(timeout=15.0, follow_redirects=True)
         
         # 초기화 시 자격증명 및 버킷 접근 테스트
         if self._s3 and self.bucket:
