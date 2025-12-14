@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'sellers',  # 판매자 관리 앱
     'orders',  # 주문 관리 앱
     'data_pipeline',  # 데이터 파이프라인 (CSV/JSON → DB)
+    'pred',  # 추천 시스템 데이터 모델
 ]
 
 MIDDLEWARE = [
