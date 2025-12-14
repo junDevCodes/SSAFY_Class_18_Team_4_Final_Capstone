@@ -11,9 +11,11 @@
     <AppFooter />
     <LoginModal />
     <CartDrawer />
+    <RecentDrawer />
     <Toast />
   </div>
 </template>
+
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, computed } from 'vue'
@@ -22,6 +24,7 @@ import AppHeader from './components/layout/AppHeader.vue'
 import AppFooter from './components/layout/AppFooter.vue'
 import LoginModal from './components/ui/LoginModal.vue'
 import CartDrawer from './components/ui/CartDrawer.vue'
+import RecentDrawer from './components/ui/RecentDrawer.vue'
 import Toast from './components/ui/Toast.vue'
 import { useAuthStore } from './stores/auth'
 import { useWishlistStore } from './stores/wishlist'

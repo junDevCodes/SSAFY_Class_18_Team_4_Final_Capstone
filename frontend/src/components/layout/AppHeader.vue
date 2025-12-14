@@ -111,7 +111,11 @@
         </button>
       </template>
       
-      <button @click="uiStore.openCart" :class="['relative p-2 rounded-full transition-colors', isLightMode ? 'text-gray-900 hover:bg-gray-100' : 'text-white hover:bg-white/10']">
+      <button @click="uiStore.openRecent" :class="['relative p-2 rounded-full transition-colors', isLightMode ? 'text-gray-900 hover:bg-gray-100' : 'text-white hover:bg-white/10']" aria-label="최근 본 상품">
+        <Clock3 :size="24" />
+      </button>
+
+      <button @click="uiStore.openCart" :class="['relative p-2 rounded-full transition-colors', isLightMode ? 'text-gray-900 hover:bg-gray-100' : 'text-white hover:bg-white/10']" aria-label="장바구니">
         <ShoppingCart :size="24" />
         <span v-if="cartStore.count > 0" class="absolute top-0 right-0 w-4 h-4 bg-brand-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white">
           {{ cartStore.count }}
@@ -124,7 +128,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Search, User, ShoppingCart } from 'lucide-vue-next'
+import { Search, User, ShoppingCart, Clock3 } from 'lucide-vue-next'
 import { useUIStore } from '@/stores/ui'
 import { useCartStore } from '@/stores/cart'
 import { useAuthStore } from '@/stores/auth'
@@ -275,6 +279,7 @@ onBeforeUnmount(() => {
     observer = null
   }
 })
+
 
 watch(
   () => route.name,

@@ -48,7 +48,7 @@
     <div>
       <div class="text-xs text-gray-500 mb-1 font-medium">{{ product.category_name || product.category?.name || '' }}</div>
       <h4 class="text-lg font-normal text-gray-900 mb-2 line-clamp-1 leading-tight group-hover:text-brand-600 transition-colors">{{ product.name }}</h4>
-      <div class="flex items-center gap-2">
+      <div v-if="showPrice" class="flex items-center gap-2">
         <span v-if="discountRate > 0" class="text-red-500 font-bold">{{ discountRate }}%</span>
         <span class="font-bold text-xl text-gray-900">{{ formatPrice(product.price) }}</span>
 
@@ -56,6 +56,11 @@
           <Heart :size="12" class="text-red-500" />
           <span>{{ localWishlistCount }}</span>
         </div>
+      </div>
+
+      <div v-else class="flex items-center justify-end gap-1 text-xs text-gray-500">
+        <Heart :size="12" class="text-red-500" />
+        <span>{{ localWishlistCount }}</span>
       </div>
 
       <div class="flex flex-wrap gap-2 mt-3" v-if="badges.length || meta || label">
@@ -107,6 +112,7 @@ interface Props {
   badges?: string[]
   bestLabel?: string
   seller?: SellerInfo
+  showPrice?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -114,7 +120,8 @@ const props = withDefaults(defineProps<Props>(), {
   meta: '',
   badges: () => [],
   bestLabel: '',
-  seller: () => ({})
+  seller: () => ({}),
+  showPrice: true
 })
 const router = useRouter()
 const cartStore = useCartStore()
