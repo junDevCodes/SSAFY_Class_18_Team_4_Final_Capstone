@@ -24,7 +24,7 @@
       redis:
         condition: service_healthy
       pred:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "8000:8000"
     # 컨테이너 시작 시 migrate + Site 설정 + CSV 임포트 + gunicorn 실행
@@ -50,12 +50,27 @@
   pred:
     build: ./pred
     container_name: self-pred
-    env_file:
-      - backend/.env
     environment:
+      # 서비스 설정
+      SERVICE_NAME: self-pred
+      SERVICE_VERSION: "1.0.0"
+      DEBUG: "true"
+      LOG_LEVEL: INFO
+      # 서버 설정
+      HOST: 0.0.0.0
+      PORT: "8001"
+      # PostgreSQL 설정 (backend와 동일 DB 사용)
       DB_HOST: db
       DB_PORT: "5432"
-      REDIS_URL: redis://redis:6379/1
+      DB_NAME: selfdb
+      DB_USER: selfuser
+      DB_PASSWORD: selfpass
+      # Redis 설정 (DB 1번 사용)
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_DB: "1"
+      # CORS 설정
+      CORS_ORIGINS_STR: "http://localhost:5173,http://localhost:8000,http://localhost:8080"
     depends_on:
       db:
         condition: service_healthy
@@ -64,6 +79,12 @@
     ports:
       - "8001:8001"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   db:
     image: postgres:16-alpine
