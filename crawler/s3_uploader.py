@@ -30,6 +30,7 @@ class S3Uploader:
         self.product_detail_prefix_tpl = self.config.s3.product_detail_prefix
         self.region = self.config.s3.region
         self.presign_expires = self.config.s3.presign_expires
+        self.use_public_url = self.config.s3.use_public_url
         # boto3는 자동으로 EC2 IAM 역할 자격증명을 찾습니다 (메타데이터 서비스 169.254.169.254)
         # 명시적으로 자격증명을 전달하지 않으면 환경변수 → ~/.aws/credentials → EC2 메타데이터 순으로 찾습니다
         self._s3 = boto3.client("s3", region_name=self.region) if self.bucket else None
@@ -105,15 +106,21 @@ class S3Uploader:
             # S3에 이미 존재하는지 확인 (중복 업로드 방지)
             try:
                 self._s3.head_object(Bucket=self.bucket, Key=key)
-                # 이미 존재하면 업로드 스킵하고 presigned URL만 생성
+                # 이미 존재하면 업로드 스킵하고 URL만 생성
                 logger.debug("S3에 이미 존재하는 이미지 (업로드 스킵): key=%s", key)
-                presigned = self._s3.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": self.bucket, "Key": key},
-                    ExpiresIn=self.presign_expires,
-                )
-                logger.info("S3 presigned URL 생성 (기존 파일 사용): bucket=%s key=%s", self.bucket, key)
-                return presigned
+                # URL 생성: Public URL 또는 Presigned URL
+                if self.use_public_url:
+                    public_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
+                    logger.info("S3 Public URL 생성 (기존 파일 사용): bucket=%s key=%s url=%s", self.bucket, key, public_url)
+                    return public_url
+                else:
+                    presigned = self._s3.generate_presigned_url(
+                        "get_object",
+                        Params={"Bucket": self.bucket, "Key": key},
+                        ExpiresIn=self.presign_expires,
+                    )
+                    logger.info("S3 presigned URL 생성 (기존 파일 사용): bucket=%s key=%s", self.bucket, key)
+                    return presigned
             except self._s3.exceptions.ClientError as e:
                 # 파일이 없으면 (404) 정상적으로 업로드 진행
                 if e.response['Error']['Code'] != '404':
@@ -133,25 +140,49 @@ class S3Uploader:
                 try:
                     self._s3.head_object(Bucket=self.bucket, Key=key)
                     logger.debug("S3에 이미 존재하는 이미지 (내용 해시 기반, 업로드 스킵): key=%s", key)
-                    presigned = self._s3.generate_presigned_url(
-                        "get_object",
-                        Params={"Bucket": self.bucket, "Key": key},
-                        ExpiresIn=self.presign_expires,
-                    )
-                    return presigned
+                    # URL 생성: Public URL 또는 Presigned URL
+                    if self.use_public_url:
+                        public_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
+                        logger.info("S3 Public URL 생성 (기존 파일 사용, 내용 해시 기반): bucket=%s key=%s url=%s", self.bucket, key, public_url)
+                        return public_url
+                    else:
+                        presigned = self._s3.generate_presigned_url(
+                            "get_object",
+                            Params={"Bucket": self.bucket, "Key": key},
+                            ExpiresIn=self.presign_expires,
+                        )
+                        return presigned
                 except self._s3.exceptions.ClientError as e:
                     if e.response['Error']['Code'] != '404':
                         raise
             
             # 실제 업로드 수행
-            self._s3.put_object(Bucket=self.bucket, Key=key, Body=resp.content, ContentType="image/jpeg")
-            presigned = self._s3.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": self.bucket, "Key": key},
-                ExpiresIn=self.presign_expires,
-            )
-            logger.info("S3 업로드/프리사인 성공: bucket=%s key=%s size=%d bytes", self.bucket, key, len(resp.content))
-            return presigned
+            put_params = {
+                "Bucket": self.bucket,
+                "Key": key,
+                "Body": resp.content,
+                "ContentType": "image/jpeg"
+            }
+            # Public URL 사용 시 ACL 설정
+            if self.use_public_url:
+                put_params["ACL"] = "public-read"
+            
+            self._s3.put_object(**put_params)
+            
+            # URL 생성: Public URL 또는 Presigned URL
+            if self.use_public_url:
+                public_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
+                logger.info("S3 업로드/Public URL 생성 성공: bucket=%s key=%s size=%d bytes url=%s",
+                           self.bucket, key, len(resp.content), public_url)
+                return public_url
+            else:
+                presigned = self._s3.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": self.bucket, "Key": key},
+                    ExpiresIn=self.presign_expires,
+                )
+                logger.info("S3 업로드/프리사인 성공: bucket=%s key=%s size=%d bytes", self.bucket, key, len(resp.content))
+                return presigned
         except Exception as exc:
             # 업로드 실패 시 원본 URL을 그대로 사용
             error_type = type(exc).__name__
