@@ -13,6 +13,45 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# #region agent log
+DEBUG_LOG_PATH = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+
+
+def _debug_log(
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: Dict[str, Any] | None = None,
+) -> None:
+    """에이전트 디버그 로깅 (개발용, 크롤러 동작에는 영향 없음)"""
+    try:
+        DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        import json as json_lib
+
+        log_entry = {
+            "sessionId": "debug-session",
+            "runId": "run1",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": {
+                k: str(v)
+                if not isinstance(v, (str, int, float, bool, type(None)))
+                else v
+                for k, v in (data or {}).items()
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8", errors="replace") as f:
+            f.write(json_lib.dumps(log_entry, ensure_ascii=False) + "\n")
+            f.flush()
+    except Exception:
+        # 디버그 로깅 실패해도 크롤러는 계속 실행
+        pass
+
+
+# #endregion
+
 from backend.data_pipeline.schemas import CrawlBatch, ProductData
 from crawler.alert import AlertClient
 from crawler.config import AppConfig
@@ -341,7 +380,8 @@ class HomeplusService:
     def build_batch(self, products: List[ProductData], total_count: Optional[int] = None) -> CrawlBatch:
         """상품 리스트로 CrawlBatch 생성"""
         if not self.current_batch_id:
-            self.current_batch_id = f"{self.config.crawl.target}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+            pid_suffix = os.getpid()
+            self.current_batch_id = f"{self.config.crawl.target}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{pid_suffix}"
         batch_id = self.current_batch_id
         return CrawlBatch(
             batch_id=batch_id,
@@ -352,91 +392,108 @@ class HomeplusService:
         )
 
     def run_price_refresh(self) -> Path:
-        """가격 추적 모드: 필수 필드만 수집하여 가격 업데이트"""
+        """가격 추적 모드: 카테고리에서 상품 리스트를 수집하여 가격만 업데이트 (상세 HTML 크롤링 없음)"""
+        # #region agent log
+        _debug_log("H1", "service.py:run_price_refresh", "함수 진입", {"price_refresh_mode": self.config.crawl.price_refresh_mode})
+        # #endregion
         start_ts = datetime.utcnow()
         pid_suffix = os.getpid()
         self.current_batch_id = f"{self.config.crawl.target}_price_{start_ts.strftime('%Y%m%d_%H%M%S')}_{pid_suffix}"
         
-        # 가격 추적 대상 로드
-        if self.config.crawl.price_refresh_mode == "sample":
-            if not self.config.crawl.price_sample_input:
-                raise ValueError("PRICE_REFRESH_MODE=sample일 때 PRICE_SAMPLE_INPUT이 필요합니다.")
-            price_targets = _load_price_targets(self.config.crawl.price_sample_input)
-        else:  # full mode
-            # TODO: DB에서 전체 상품 source_url 로드
-            raise NotImplementedError("PRICE_REFRESH_MODE=full은 아직 구현되지 않았습니다.")
+        # 상세 HTML 크롤링 비활성화 (가격 추적 모드에서는 리스트 API의 가격 정보만 사용)
+        original_fetch_detail = self.config.crawl.fetch_detail
+        self.config.crawl.fetch_detail = False
         
-        if not price_targets:
-            logger.warning("가격 추적 대상이 없습니다.")
-            # 빈 배치 생성
-            batch = self.build_batch([], total_count=0)
-            batch_path = self.writer.save(batch)
-            return batch_path
-        
-        products: List[ProductData] = []
-        errors: List[str] = []
-        
-        for target in price_targets:
-            item_no = target.get("item_no")
-            source_url = target.get("source_url")
-            service_category = target.get("service_category")
+        try:
+            errors: List[str] = []
+            failed_cates: List[Dict[str, Any]] = []
             
-            if not item_no:
-                errors.append(f"item_no 누락: {target}")
-                continue
-            
+            # 카테고리 수집
             try:
-                # 상품 리스트 API에서 해당 itemNo 찾기 (가격 정보 포함)
-                # 또는 상세 API에서 가격만 가져오기
-                # 간단하게 상세 HTML에서 가격 정보 추출
-                detail_html = self.client.fetch_detail_html(item_no)
-                detail_json = None
-                
-                # 상세 JSON 추출
-                from crawler.homeplus.mappers import _extract_detail_json
-                detail_json = _extract_detail_json(detail_html)
-                
-                if not detail_json:
-                    errors.append(f"상세 JSON 추출 실패: item_no={item_no}")
+                categories = self.collect_categories()
+                # 샘플 모드: 첫 번째 카테고리만 사용
+                if self.config.crawl.price_refresh_mode == "sample":
+                    categories = categories[:1]
+            except Exception as exc:
+                errors.append(f"카테고리 맵 조회 실패: {exc}")
+                self.alert_client.notify(f"[PRICE-REFRESH-ERROR] source=homeplus error={exc}")
+                raise
+            
+            # #region agent log
+            _debug_log("H1", "service.py:run_price_refresh", "카테고리 수집 완료", {"categories_count": len(categories)})
+            # #endregion
+            
+            all_products: List[ProductData] = []
+            total_count_acc: int = 0
+            
+            # 각 카테고리에서 상품 수집 (상세 HTML 없이 리스트 API만 사용)
+            for cate in categories:
+                try:
+                    items = self.collect_products_for_category(cate)
+                    all_products.extend(items)
+                    total_count_acc += len(items)
+                except Exception as exc:
+                    errors.append(f"{cate.lcateNm}/{cate.mcateNm}/{cate.scateNm} 수집 실패: {exc}")
+                    failed_cates.append(
+                        {
+                            "lcateNm": cate.lcateNm,
+                            "mcateNm": cate.mcateNm,
+                            "scateNm": cate.scateNm,
+                            "lcateCd": cate.lcateCd,
+                            "mcateCd": cate.mcateCd,
+                            "scateCd": cate.scateCd,
+                            "error": str(exc),
+                        }
+                    )
                     continue
+            
+            # #region agent log
+            _debug_log("H1", "service.py:run_price_refresh", "상품 수집 완료", {"total_products": len(all_products)})
+            # #endregion
+            
+            # source_url 기준 중복 제거 (동일 상품 중복 수집 방지)
+            unique_products: Dict[str, ProductData] = {}
+            for p in all_products:
+                key = p.source_url or f"{p.brand_name}:{p.name}"
+                unique_products[key] = p
+            
+            batch_products = list(unique_products.values())
+            batch = self.build_batch(batch_products, total_count=len(batch_products))
+            batch_path = self.writer.save(batch)
+            
+            # 요약 로그 및 알림
+            failure_ratio = (len(failed_cates) / len(categories)) if categories else 0
+            status = "FAILED" if failure_ratio >= 0.1 else "OK"
+            service_filter = self.config.crawl.service_category_filter or "ALL"
+            summary = (
+                f"[PRICE-REFRESH-SUMMARY] source=homeplus status={status} "
+                f"service_category_filter={service_filter} "
+                f"total={len(batch_products)} errors={len(errors)} batch={batch_path.name}"
+            )
+            print(summary)
+            self.alert_client.notify(summary)
+            if errors:
+                err_text = "; ".join(errors)
+                self.alert_client.notify(f"{summary} details={err_text}")
+            
+            # 실패 카테고리 로그 파일
+            if failed_cates:
+                fail_log = self.writer.meta_dir / f"homeplus_price_failed_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+                with open(fail_log, "w", encoding="utf-8") as f:
+                    json.dump({"source": "homeplus", "failed": failed_cates}, f, ensure_ascii=False, indent=2)
+            
+            # #region agent log
+            _debug_log("H1", "service.py:run_price_refresh", "함수 종료 (성공)", {"batch_path": str(batch_path), "products_count": len(batch_products)})
+            # #endregion
+            
+            return batch_path
+        finally:
+            # 원래 설정 복원
+            self.config.crawl.fetch_detail = original_fetch_detail
                 
-                # 가격 정보 추출
-                data_item = (detail_json.get("data") or {}).get("item") or {}
-                sale = data_item.get("sale") or {}
-                dc_price = sale.get("dcPrice") or 0
-                sale_price = sale.get("salePrice") or 0
-                
-                # 가격 계산 (mappers.py와 동일한 로직)
-                from crawler.homeplus.mappers import _to_int
-                dc_price_int = _to_int(dc_price)
-                sale_price_int = _to_int(sale_price)
-                price = dc_price_int if dc_price_int is not None and dc_price_int > 0 else (sale_price_int or 0)
-                original_price = sale_price_int if dc_price_int is not None and dc_price_int > 0 else None
-                
-                # 최소 필드만으로 ProductData 생성
-                if not source_url:
-                    source_url = f"https://mfront.homeplus.co.kr/item?itemNo={item_no}&storeType={self.config.store.store_type}&storeId={self.config.store.store_id}"
-                
-                # 이미지 1개 이상 필요 (검증 통과용)
-                img_block = data_item.get("img") or {}
-                main_imgs = img_block.get("mainList") or []
-                image_url = None
-                if main_imgs and len(main_imgs) > 0:
-                    img_url = main_imgs[0].get("url") if isinstance(main_imgs[0], dict) else str(main_imgs[0])
-                    from crawler.homeplus.mappers import _normalize_img_url
-                    image_url = _normalize_img_url(img_url) if img_url else None
-                
-                # 최소 필드만으로 ProductData 생성
-                product = ProductData(
-                    name=f"가격추적_{item_no}",  # 스키마 필수이지만 실제 미사용
-                    price=price,
-                    source_site=self.config.crawl.target,  # 스키마 필수이지만 실제 미사용
-                    source_url=source_url,
-                    crawled_at=datetime.utcnow().isoformat(),
-                    original_price=original_price,
-                    service_category=service_category,
-                    images=[ProductImage(image_url=image_url, display_order=0)] if image_url else [],
-                )
+                # #region agent log
+                _debug_log("H6", "service.py:run_price_refresh", "ProductData 생성 완료", {"item_no": item_no, "price": price, "service_category": mapped_service_category, "has_image": bool(image_url)})
+                # #endregion
                 
                 products.append(product)
                 
@@ -444,9 +501,16 @@ class HomeplusService:
                     time.sleep(self.config.crawl.delay_ms / 1000)
                     
             except Exception as exc:
+                # #region agent log
+                _debug_log("H6", "service.py:run_price_refresh", "예외 발생", {"item_no": item_no, "error": str(exc), "error_type": type(exc).__name__})
+                # #endregion
                 errors.append(f"item_no={item_no} 처리 실패: {exc}")
                 logger.error("가격 추적 실패: item_no=%s error=%s", item_no, exc)
                 continue
+        
+        # #region agent log
+        _debug_log("H1", "service.py:run_price_refresh", "모든 상품 처리 완료", {"products_count": len(products), "errors_count": len(errors)})
+        # #endregion
         
         # 배치 생성 및 저장
         batch = self.build_batch(products, total_count=len(products))
@@ -473,7 +537,8 @@ class HomeplusService:
         
         # 일반 크롤링 모드
         start_ts = datetime.utcnow()
-        self.current_batch_id = f"{self.config.crawl.target}_{start_ts.strftime('%Y%m%d_%H%M%S')}"
+        pid_suffix = os.getpid()
+        self.current_batch_id = f"{self.config.crawl.target}_{start_ts.strftime('%Y%m%d_%H%M%S')}_{pid_suffix}"
         errors: List[str] = []
         failed_cates: List[Dict[str, Any]] = []
         try:
