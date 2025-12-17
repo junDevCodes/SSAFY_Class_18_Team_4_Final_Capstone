@@ -490,44 +490,6 @@ class HomeplusService:
         finally:
             # 원래 설정 복원
             self.config.crawl.fetch_detail = original_fetch_detail
-                
-                # #region agent log
-                _debug_log("H6", "service.py:run_price_refresh", "ProductData 생성 완료", {"item_no": item_no, "price": price, "service_category": mapped_service_category, "has_image": bool(image_url)})
-                # #endregion
-                
-                products.append(product)
-                
-                if self.config.crawl.delay_ms > 0:
-                    time.sleep(self.config.crawl.delay_ms / 1000)
-                    
-            except Exception as exc:
-                # #region agent log
-                _debug_log("H6", "service.py:run_price_refresh", "예외 발생", {"item_no": item_no, "error": str(exc), "error_type": type(exc).__name__})
-                # #endregion
-                errors.append(f"item_no={item_no} 처리 실패: {exc}")
-                logger.error("가격 추적 실패: item_no=%s error=%s", item_no, exc)
-                continue
-        
-        # #region agent log
-        _debug_log("H1", "service.py:run_price_refresh", "모든 상품 처리 완료", {"products_count": len(products), "errors_count": len(errors)})
-        # #endregion
-        
-        # 배치 생성 및 저장
-        batch = self.build_batch(products, total_count=len(products))
-        batch_path = self.writer.save(batch)
-        
-        # 요약 로그
-        status = "FAILED" if len(errors) > len(products) * 0.1 else "OK"
-        summary = (
-            f"[PRICE-REFRESH-SUMMARY] source=homeplus status={status} "
-            f"mode={self.config.crawl.price_refresh_mode} "
-            f"total={len(products)} errors={len(errors)} batch={batch_path.name}"
-        )
-        print(summary)
-        logger.info(summary)
-        self.alert_client.notify(summary)
-        
-        return batch_path
 
     def run(self) -> Path:
         """전체 배치를 수집하고 JSON으로 저장"""

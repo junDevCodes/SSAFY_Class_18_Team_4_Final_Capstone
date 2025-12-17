@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlparse
@@ -63,12 +64,24 @@ def _known_service_categories() -> List[str]:
 _SERVICE_CATEGORY_CODES = set(_known_service_categories())
 
 
+def _is_price_tracking_mode() -> bool:
+    """가격 추적 전용 검증 모드 여부를 판별
+
+    PRICE_TRACKING_MODE=true 인 경우에만 활성화된다.
+    이 모드에서는 가격 추적에 필요한 최소 필드만 에러로 취급하고,
+    나머지 필드는 경고 수준으로 완화한다.
+    """
+    return os.getenv("PRICE_TRACKING_MODE", "false").lower() in ("1", "true", "yes")
+
+
 def validate_product(index: int, product: ProductData) -> List[ValidationIssue]:
     """단일 상품 수준 검증"""
     issues: List[ValidationIssue] = []
+    price_mode = _is_price_tracking_mode()
 
     # 필수 필드 존재 여부
     if not product.name:
+        # 가격 추적 모드에서도 name 은 기본 식별을 위해 유지
         issues.append(
             ValidationIssue(
                 level="error",
@@ -111,9 +124,11 @@ def validate_product(index: int, product: ProductData) -> List[ValidationIssue]:
 
     # 서비스 카테고리 코드/표시명 일관성
     if not product.service_category:
+        # 가격 추적 모드에서는 서비스 카테고리 누락을 경고로 완화
+        level = "warn" if price_mode else "error"
         issues.append(
             ValidationIssue(
-                level="error",
+                level=level,
                 code="MISSING_SERVICE_CATEGORY",
                 message="service_category 가 비어 있습니다.",
                 product_index=index,
@@ -122,9 +137,10 @@ def validate_product(index: int, product: ProductData) -> List[ValidationIssue]:
         )
     else:
         if product.service_category not in _SERVICE_CATEGORY_CODES:
+            level = "warn" if price_mode else "error"
             issues.append(
                 ValidationIssue(
-                    level="error",
+                    level=level,
                     code="UNKNOWN_SERVICE_CATEGORY",
                     message=f"알 수 없는 service_category 코드입니다: {product.service_category}",
                     product_index=index,
@@ -148,9 +164,11 @@ def validate_product(index: int, product: ProductData) -> List[ValidationIssue]:
 
     # 대표 이미지 검증
     if not product.images:
+        # 가격 추적 모드에서는 이미지 누락을 경고로만 처리 (가격 추적에는 필수 아님)
+        level = "warn" if price_mode else "error"
         issues.append(
             ValidationIssue(
-                level="error",
+                level=level,
                 code="MISSING_IMAGES",
                 message="대표 이미지(images)가 비어 있습니다.",
                 product_index=index,
@@ -160,9 +178,10 @@ def validate_product(index: int, product: ProductData) -> List[ValidationIssue]:
     else:
         for img in product.images:
             if not _is_http_url(img.image_url):
+                level = "warn" if price_mode else "error"
                 issues.append(
                     ValidationIssue(
-                        level="error",
+                        level=level,
                         code="INVALID_IMAGE_URL",
                         message="대표 이미지 URL 형식이 잘못되었습니다.",
                         product_index=index,
@@ -174,10 +193,11 @@ def validate_product(index: int, product: ProductData) -> List[ValidationIssue]:
     # 상세 이미지 검증
     if product.full_image_description:
         for url in product.full_image_description:
+            level = "warn" if price_mode else "error"
             if not _is_http_url(url):
                 issues.append(
                     ValidationIssue(
-                        level="error",
+                        level=level,
                         code="INVALID_FULL_IMAGE_URL",
                         message="full_image_description 내 URL 형식이 잘못되었습니다.",
                         product_index=index,
