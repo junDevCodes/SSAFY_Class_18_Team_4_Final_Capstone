@@ -1,10 +1,15 @@
 /**
  * Cart Store - 백엔드 API 연동 + 비회원 로컬 장바구니 지원
+ *
+ * 기능:
+ * - 회원/비회원 장바구니 관리
+ * - 레시피 GapFilling 추천 (장바구니 기반)
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { cartAPI } from '@/services/api'
-import type { Product } from '@/types/product'
+import { recommendationApi } from '@/services/api/recommendations'
+import type { Product, RecipeRecommendation, CartRecipeResponse } from '@/types/product'
 
 // 로컬 스토리지 키
 const LOCAL_CART_KEY = 'guest_cart'
@@ -457,6 +462,199 @@ export const useCartStore = defineStore('cart', () => {
     localStorage.removeItem(LOCAL_CART_KEY)
   }
 
+  // ============================================================
+  // 레시피 GapFilling 추천
+  // ============================================================
+
+  // 레시피 추천 상태
+  const recipeRecommendations = ref<RecipeRecommendation[]>([])
+  const recipeLoading = ref(false)
+  const recipeError = ref<string | null>(null)
+  const cartIngredients = ref<string[]>([])  // 인식된 재료 목록
+  const detectedDishes = ref<string[]>([])   // 검출된 요리명 목록 (예: ['삼계탕', '불고기'])
+  const totalGapCount = ref(0)               // 전체 부족 재료 수
+  const recipeProcessingTime = ref(0)        // 처리 시간 (ms)
+
+  // 레시피 추천 활성화 여부 (UI 토글용)
+  const recipeRecommendationEnabled = ref(true)
+
+  // 현재 선택된 레시피 인덱스 (캐러셀용)
+  const selectedRecipeIndex = ref(0)
+
+  // Computed: 선택된 레시피
+  const selectedRecipe = computed(() => {
+    if (recipeRecommendations.value.length === 0) return null
+    return recipeRecommendations.value[selectedRecipeIndex.value] || null
+  })
+
+  // Computed: 레시피 추천이 있는지 여부
+  const hasRecipeRecommendations = computed(() => recipeRecommendations.value.length > 0)
+
+  /**
+   * 장바구니 기반 레시피 추천 요청
+   *
+   * 장바구니에 담긴 상품을 분석하여 만들 수 있는 레시피를 추천하고,
+   * 부족한 재료에 해당하는 상품을 추천합니다.
+   *
+   * @param limit 추천 레시피 개수 (기본 3개)
+   */
+  const fetchRecipeRecommendations = async (limit: number = 3) => {
+    // 추천 비활성화 상태면 스킵
+    if (!recipeRecommendationEnabled.value) return
+
+    // 장바구니가 비어있으면 추천 초기화
+    if (items.value.length === 0) {
+      recipeRecommendations.value = []
+      cartIngredients.value = []
+      detectedDishes.value = []
+      totalGapCount.value = 0
+      return
+    }
+
+    recipeLoading.value = true
+    recipeError.value = null
+
+    try {
+      // 장바구니 상품 ID 추출
+      const productIds = items.value.map(item => item.product.id)
+
+      // API 호출
+      const response: CartRecipeResponse = await recommendationApi.getCartRecipeRecommendations(
+        productIds,
+        limit
+      )
+
+      if (response.success) {
+        recipeRecommendations.value = response.recipes
+        cartIngredients.value = response.cart_ingredients
+        detectedDishes.value = response.detected_dishes || []
+        totalGapCount.value = response.total_gap_count
+        recipeProcessingTime.value = response.processing_time_ms
+
+        // 선택 인덱스 초기화
+        selectedRecipeIndex.value = 0
+      } else {
+        // 실패 시 초기화
+        recipeRecommendations.value = []
+        cartIngredients.value = []
+        detectedDishes.value = []
+        recipeError.value = response.message || '레시피 추천을 불러오는데 실패했습니다.'
+      }
+    } catch (err: unknown) {
+      console.error('레시피 추천 로드 실패:', err)
+      recipeError.value = '레시피 추천 서비스에 연결할 수 없습니다.'
+      recipeRecommendations.value = []
+      detectedDishes.value = []
+    } finally {
+      recipeLoading.value = false
+    }
+  }
+
+  /**
+   * 레시피 선택 (캐러셀 네비게이션)
+   */
+  const selectRecipe = (index: number) => {
+    if (index >= 0 && index < recipeRecommendations.value.length) {
+      selectedRecipeIndex.value = index
+    }
+  }
+
+  /**
+   * 다음 레시피로 이동
+   */
+  const nextRecipe = () => {
+    if (recipeRecommendations.value.length === 0) return
+    selectedRecipeIndex.value = (selectedRecipeIndex.value + 1) % recipeRecommendations.value.length
+  }
+
+  /**
+   * 이전 레시피로 이동
+   */
+  const prevRecipe = () => {
+    if (recipeRecommendations.value.length === 0) return
+    selectedRecipeIndex.value = selectedRecipeIndex.value === 0
+      ? recipeRecommendations.value.length - 1
+      : selectedRecipeIndex.value - 1
+  }
+
+  /**
+   * 레시피 추천 활성화/비활성화 토글
+   */
+  const toggleRecipeRecommendation = () => {
+    recipeRecommendationEnabled.value = !recipeRecommendationEnabled.value
+    if (recipeRecommendationEnabled.value) {
+      // 활성화 시 추천 새로고침
+      fetchRecipeRecommendations()
+    } else {
+      // 비활성화 시 추천 초기화
+      recipeRecommendations.value = []
+      cartIngredients.value = []
+      detectedDishes.value = []
+    }
+  }
+
+  /**
+   * 레시피 추천 초기화
+   */
+  const clearRecipeRecommendations = () => {
+    recipeRecommendations.value = []
+    cartIngredients.value = []
+    detectedDishes.value = []
+    totalGapCount.value = 0
+    selectedRecipeIndex.value = 0
+    recipeError.value = null
+  }
+
+  /**
+   * Gap 상품을 장바구니에 추가
+   *
+   * @param productId 상품 ID
+   * @param quantity 수량 (기본 1)
+   */
+  const addGapProductToCart = async (productId: number, quantity: number = 1) => {
+    // 추천된 상품에서 Product 정보 찾기
+    let gapProduct = null
+    for (const recipe of recipeRecommendations.value) {
+      const found = recipe.recommended_products.find(p => p.product_id === productId)
+      if (found) {
+        gapProduct = found
+        break
+      }
+    }
+
+    if (!gapProduct) {
+      console.error('Gap 상품을 찾을 수 없습니다:', productId)
+      return
+    }
+
+    // Product 형태로 변환하여 장바구니에 추가
+    const product: Product = {
+      id: gapProduct.product_id,
+      name: gapProduct.name,
+      price: gapProduct.price,
+      original_price: gapProduct.original_price,
+      main_image: gapProduct.main_image,
+      slug: '',
+      unit: null,
+      category_name: null,
+      status: 'active',
+      product_type: 'main',
+      created_at: new Date().toISOString(),
+      view_count: 0,
+      average_rating: 0,
+      review_count: 0,
+      wishlist_count: 0,
+      quality_score: 0,
+    }
+
+    await addToCart(product, quantity)
+
+    // 레시피 추천 새로고침 (디바운스 적용)
+    setTimeout(() => {
+      fetchRecipeRecommendations()
+    }, 500)
+  }
+
   // 레거시 호환성을 위한 별칭
   const addItem = addToCart
   const removeItem = removeFromCart
@@ -464,6 +662,7 @@ export const useCartStore = defineStore('cart', () => {
   const decreaseQty = decreaseQuantity
 
   return {
+    // 장바구니 기본
     items,
     loading,
     error,
@@ -484,6 +683,27 @@ export const useCartStore = defineStore('cart', () => {
     reset,
     syncGuestCartToServer,
     clearGuestCart,
+
+    // 레시피 GapFilling 추천
+    recipeRecommendations,
+    recipeLoading,
+    recipeError,
+    cartIngredients,
+    detectedDishes,
+    totalGapCount,
+    recipeProcessingTime,
+    recipeRecommendationEnabled,
+    selectedRecipeIndex,
+    selectedRecipe,
+    hasRecipeRecommendations,
+    fetchRecipeRecommendations,
+    selectRecipe,
+    nextRecipe,
+    prevRecipe,
+    toggleRecipeRecommendation,
+    clearRecipeRecommendations,
+    addGapProductToCart,
+
     // 레거시 별칭
     addItem,
     removeItem,

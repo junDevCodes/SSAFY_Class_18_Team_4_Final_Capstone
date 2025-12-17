@@ -30,20 +30,20 @@ class PredClientTests(SimpleTestCase):
     def test_pred_recommend_정상호출(self, mock_post):
         """Pred API 추천 엔드포인트 호출이 올바르게 이루어지는지 검증"""
         # Arrange
-        payload = {"user_id": 1}
         mock_response = MagicMock()
-        mock_response.json.return_value = {"status": "ok", "items": [123, 456]}
+        mock_response.json.return_value = {"success": True, "recommendations": [123, 456]}
         mock_response.raise_for_status.return_value = None
         mock_post.return_value = mock_response
 
         # Act
-        result = pred_client.request_recommendations(payload)
+        result = pred_client.request_recommendations(user_id=1, page_type="home", limit=10)
 
         # Assert
+        expected_payload = {"user_id": 1, "page_type": "home", "limit": 10}
         mock_post.assert_called_once_with(
-            f"{settings.ML_API_URL.rstrip('/')}/api/recommend",
-            data=json.dumps(payload),
+            f"{settings.ML_API_URL.rstrip('/')}/api/v1/recommendations/",
+            data=json.dumps(expected_payload),
             headers={"Content-Type": "application/json"},
             timeout=10,
         )
-        self.assertEqual(result, {"status": "ok", "items": [123, 456]})
+        self.assertEqual(result, {"success": True, "recommendations": [123, 456]})

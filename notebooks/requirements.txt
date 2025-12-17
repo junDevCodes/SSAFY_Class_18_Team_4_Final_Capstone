@@ -1,0 +1,27 @@
+# 노트북 학습 환경 필수 패키지
+
+# 데이터 처리
+pandas>=2.0.0
+numpy>=1.24.0
+
+# 머신러닝
+scikit-learn>=1.3.0
+scipy>=1.11.0
+
+# DB 연결
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# 환경변수
+python-dotenv>=1.0.0
+
+# 시각화
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Jupyter
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# 직렬화
+pickle5>=0.0.12; python_version < "3.8"

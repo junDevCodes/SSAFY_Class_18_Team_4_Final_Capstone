@@ -6,6 +6,12 @@
     <QuickCategories />
     <TimeDeal />
     <ProductList />
+    <RecentProductsBar
+      placement-class="fixed"
+      :placement-style="{
+        right: 'calc((100vw - min(1280px, 100vw)) / 2 - 100px)'
+      }"
+    />
     <BrandPromise />
   </main>
 </template>
@@ -19,6 +25,7 @@ import QuickCategories from '@/components/sections/QuickCategories.vue'
 import BrandPromise from '@/components/sections/BrandPromise.vue'
 import TimeDeal from '@/components/sections/TimeDeal.vue'
 import ProductList from '@/components/sections/ProductList.vue'
+import RecentProductsBar from '@/components/ui/RecentProductsBar.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
@@ -103,5 +110,3 @@ onBeforeUnmount(() => {
   removeCancelListeners()
 })
 </script>
-
-

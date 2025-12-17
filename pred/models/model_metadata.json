@@ -1,0 +1,81 @@
+{
+  "version": "1.0.0",
+  "updated_at": "2025-12-15",
+  "description": "SelF 추천 시스템 ML 모델 메타데이터",
+  "active_models": {
+    "self_personalized": "self_personalized_v1",
+    "price_anomaly": "price_anomaly_v1",
+    "instacart_cold_start": "instacart_cold_start_v1",
+    "recipe_gap_filling": "recipe_gapfilling_v1"
+  },
+  "models": {
+    "self_personalized_v1": {
+      "description": "SelF 개인화 추천 모델 (Truncated SVD 기반 협업 필터링)",
+      "version": "1.0.0",
+      "type": "svd_embedding",
+      "components": [
+        "user_embeddings",
+        "product_embeddings",
+        "user_id_to_idx",
+        "idx_to_user_id",
+        "product_id_to_idx",
+        "idx_to_product_id",
+        "global_popular_products",
+        "category_popular_products"
+      ],
+      "hyperparameters": {
+        "n_components": 128,
+        "weight_view": 1.0,
+        "weight_cart": 3.0,
+        "weight_order": 5.0
+      }
+    },
+    "price_anomaly_v1": {
+      "description": "가격 이상치 탐지 모델 (Modified Z-Score + 카테고리별 통계)",
+      "version": "1.0.0",
+      "type": "statistical_anomaly",
+      "components": [
+        "category_statistics",
+        "global_statistics",
+        "thresholds"
+      ],
+      "hyperparameters": {
+        "warning_threshold": 2.5,
+        "danger_threshold": 3.5,
+        "use_log_transform": true,
+        "method": "modified_z_score"
+      }
+    },
+    "instacart_cold_start_v1": {
+      "description": "Instacart 기반 Cold Start 추천 모델 (168 시간 패턴)",
+      "version": "1.0.0",
+      "type": "time_pattern",
+      "components": [
+        "time_patterns",
+        "category_mapping",
+        "aisle_stats",
+        "global_popular_aisles"
+      ],
+      "hyperparameters": {
+        "n_time_slots": 168,
+        "min_orders_per_slot": 100
+      }
+    },
+    "recipe_gapfilling_v1": {
+      "description": "레시피 기반 재료 갭필링 추천 모델",
+      "version": "1.0.0",
+      "type": "recipe_based",
+      "components": [
+        "recipe_embeddings",
+        "ingredient_mappings",
+        "category_mappings"
+      ]
+    }
+  },
+  "fallback_strategy": {
+    "primary": "self_personalized",
+    "cold_start": "instacart_cold_start",
+    "price_deals": "price_anomaly",
+    "recipe_based": "recipe_gap_filling"
+  }
+}

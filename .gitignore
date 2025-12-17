@@ -428,6 +428,10 @@ data/json/meta/
 !data/json/processed/.gitkeep
 !data/json/backup/.gitkeep
 
+data/instacart/
+data/processed/
+data/recipe/
+
 
 AGENTS.md
 CLAUDE.md

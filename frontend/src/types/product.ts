@@ -396,3 +396,72 @@ export function getLatestPriceChangeRate(product: ProductDetail): number | null 
   }
   return null
 }
+
+// ========================= 레시피 GapFilling 타입 =========================
+
+// Gap 재료 상품 (부족한 재료에 대응하는 상품)
+export interface GapProduct {
+  product_id: number
+  name: string
+  price: number
+  original_price: number | null
+  main_image: string | null
+  ingredient: string  // 해당 재료명
+}
+
+// 추천 레시피
+export interface RecipeRecommendation {
+  recipe_id: number
+  name: string           // 요리명 (CKG_NM)
+  title: string | null   // 레시피 제목
+  match_ratio: number    // 재료 매칭률 (0-1)
+  gap_count: number      // 부족한 재료 수
+  gap_ingredients: string[]      // 부족한 재료 목록
+  matched_ingredients: string[]  // 매칭된 재료 목록
+  recommended_products: GapProduct[]  // 추천 상품 목록
+  view_count: number     // 레시피 조회수
+  matched_dish: string | null    // 상품명에서 검출된 요리명 (예: 삼계탕)
+  is_dish_matched: boolean       // 요리명 기반 매칭 여부
+}
+
+// 장바구니 레시피 추천 응답
+export interface CartRecipeResponse {
+  success: boolean
+  recipes: RecipeRecommendation[]
+  cart_ingredients: string[]     // 인식된 재료 목록
+  detected_dishes: string[]      // 상품명에서 검출된 요리명 목록
+  total_gap_count: number        // 전체 부족 재료 수
+  processing_time_ms: number     // 처리 시간 (ms)
+  message: string | null
+}
+
+// 레시피 상세 정보
+export interface RecipeDetail {
+  recipe_id: number
+  name: string
+  title: string | null
+  category: string | null
+  cooking_time: number | null
+  servings: number | null
+  difficulty: string | null
+  description: string | null
+  view_count: number
+  rating: number | null
+  ingredients: RecipeIngredient[]
+}
+
+// 레시피 재료
+export interface RecipeIngredient {
+  ingredient_id: number
+  name: string
+  amount: string | null
+  is_main: boolean
+}
+
+// 레시피 검색 응답
+export interface RecipeSearchResponse {
+  recipes: RecipeDetail[]
+  total_count: number
+  query: string
+  category: string | null
+}
