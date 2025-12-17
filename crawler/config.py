@@ -25,7 +25,12 @@ def _load_env() -> None:
         return
     for cand in (Path(".env"), Path("backend/.env")):
         if cand.exists():
-            load_dotenv(dotenv_path=cand)
+            # Windows 환경에서 인코딩 문제 방지를 위해 UTF-8 명시
+            try:
+                load_dotenv(dotenv_path=cand, encoding='utf-8')
+            except TypeError:
+                # 구버전 python-dotenv는 encoding 파라미터를 지원하지 않을 수 있음
+                load_dotenv(dotenv_path=cand)
             _ENV_LOADED = True
             break
 
@@ -136,10 +141,13 @@ class S3Config:
     product_detail_prefix: str = "homeplus/product_detail/{YYYY}/{MM}/{batch_id}/"
     region: Optional[str] = None
     presign_expires: int = 3600
+    use_public_url: bool = False  # True면 Public URL 사용, False면 Presigned URL 사용
 
     @classmethod
     def from_env(cls) -> "S3Config":
         """환경변수에서 설정을 로드한다."""
+        use_public_env = os.getenv("S3_USE_PUBLIC_URL", "false").lower()
+        use_public = use_public_env in ("1", "true", "yes")
         return cls(
             bucket=os.getenv("S3_BUCKET"),
             prefix=os.getenv("S3_PREFIX", "homeplus/raw/{YYYY}/{MM}/{batch_id}/"),
@@ -147,6 +155,7 @@ class S3Config:
             product_detail_prefix=os.getenv("S3_PRODUCT_DETAIL_PREFIX", "homeplus/product_detail/{YYYY}/{MM}/{batch_id}/"),
             region=os.getenv("S3_REGION"),
             presign_expires=_get_int_env("S3_PRESIGN_EXPIRES", 3600),
+            use_public_url=use_public,
         )
 
 

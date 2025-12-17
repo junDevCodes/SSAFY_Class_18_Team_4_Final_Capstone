@@ -7,6 +7,29 @@
 
 import logging
 import os
+import sys
+import django
+from pathlib import Path
+
+# Django 설정 초기화 (DB 접근이 필요한 경우)
+# PYTHONPATH에 backend 디렉토리가 포함되어 있어야 함
+backend_path = Path(__file__).parent.parent / "backend"
+if str(backend_path) not in sys.path:
+    sys.path.insert(0, str(backend_path))
+
+# 작업 디렉토리를 backend로 변경 (Django 앱 인식을 위해)
+original_cwd = os.getcwd()
+try:
+    os.chdir(str(backend_path))
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'project_self.settings')
+    # 인코딩 문제 방지를 위해 환경 변수 설정
+    import locale
+    if sys.platform == 'win32':
+        # Windows에서 UTF-8 강제 설정
+        os.environ['PYTHONIOENCODING'] = 'utf-8'
+    django.setup()
+finally:
+    os.chdir(original_cwd)
 
 from backend.data_pipeline.schemas import CrawlBatch
 from crawler.config import AppConfig
