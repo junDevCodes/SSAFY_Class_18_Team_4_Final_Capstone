@@ -9,7 +9,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 echo "========================================"
-echo "[1-2] 홈플러스 전체(full) 크롤링 시작"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [1-2] 홈플러스 전체(full) 크롤링 시작"
 echo "프로젝트 경로: $PROJECT_ROOT"
 echo "========================================"
 echo ""
@@ -49,7 +49,7 @@ CATEGORIES=(
 
 # 동시에 실행할 최대 작업 수 (기본 3)
 MAX_PARALLEL="${MAX_PARALLEL:-5}"
-echo "병렬 실행 개수: ${MAX_PARALLEL}"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 병렬 실행 개수: ${MAX_PARALLEL}"
 echo ""
 
 running=0
@@ -57,7 +57,7 @@ running=0
 # 카테고리별 병렬 실행
 for CATEGORY in "${CATEGORIES[@]}"; do
   echo "----------------------------------------"
-  echo "[전체 크롤링 시작] service_category = ${CATEGORY}"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] [전체 크롤링 시작] service_category = ${CATEGORY}"
   echo "----------------------------------------"
 
   export CRAWL_SERVICE_CATEGORY_FILTER="$CATEGORY"
@@ -75,7 +75,7 @@ for CATEGORY in "${CATEGORIES[@]}"; do
     running=0
   fi
 
-  echo "[대기] ${CATEGORY} 전체 크롤링 백그라운드 실행 중. 로그: ${LOG_FILE}"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] [대기] ${CATEGORY} 전체 크롤링 백그라운드 실행 중. 로그: ${LOG_FILE}"
   echo ""
 done
 
@@ -83,7 +83,7 @@ done
 wait
 
 echo "========================================"
-echo "[1-2] 홈플러스 전체(full) 크롤링 전체 완료"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [1-2] 홈플러스 전체(full) 크롤링 전체 완료"
 echo "결과 파일:"
 echo "  - data/json/processed/homeplus_*.json"
 echo "  - data/json/meta/homeplus_log_*.json"
