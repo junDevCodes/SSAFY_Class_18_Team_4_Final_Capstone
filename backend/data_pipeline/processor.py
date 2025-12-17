@@ -253,6 +253,9 @@ class DataProcessor:
                         with open(file_path, 'r', encoding='utf-8') as f:
                             batch = CrawlBatch.from_json(f.read())
                             file_batches[file_path] = batch
+                            # 각 상품에 batch 수준의 crawl_type 을 주입하여 처리 단계에서 사용
+                            for p in batch.products:
+                                setattr(p, "crawl_type", getattr(batch, "crawl_type", None))
                             all_products.extend(batch.products)
                 except TimeoutError:
                     print(f"[건너뜀] 잠금 획득 실패: {file_path.name}")
@@ -398,6 +401,7 @@ class DataProcessor:
             처리 결과 ('new', 'updated', 'skipped')
         """
         if dry_run:
+            # 드라이런 모드에서는 실제 DB 변경 없이 신규로만 집계
             return 'new'
 
         # Django ORM 사용
@@ -416,10 +420,39 @@ class DataProcessor:
 
             User = get_user_model()
 
+            # 가격 추적 전용 모드 여부
+            # 우선순위:
+            # 1) CrawlBatch.crawl_type 이 product.crawl_type 으로 전달된 경우 (price_refresh)
+            # 2) 과거 JSON 호환성을 위해 source_site='homeplus_price' 도 가격 추적으로 간주
+            crawl_type = getattr(product, "crawl_type", None)
+            source_site = getattr(product, "source_site", None)
+            price_tracking_mode = (crawl_type == "price_refresh") or (source_site == "homeplus_price")
+
+            # 가격 추적 모드에서는 필수 피쳐 4개가 모두 있어야만 처리
+            # 1) source_site  2) source_url  3) name  4) price (>0)
+            if price_tracking_mode:
+                if not (
+                    product.source_site
+                    and product.source_url
+                    and product.name
+                    and product.price is not None
+                    and product.price > 0
+                ):
+                    # 필수 피쳐가 하나라도 없으면 가격 추적 대상에서 제외
+                    return "skipped"
+
             # 기존 상품 조회 (SELECT FOR UPDATE로 동시성 제어)
-            existing = Product.objects.select_for_update().filter(
-                source_url=product.source_url
-            ).first()
+            # 기본 키는 source_url 이며, 가격 추적 모드에서는 source_site/name 까지 모두 일치하는 경우에만 동일 상품으로 간주
+            qs = Product.objects.select_for_update().all()
+            if product.source_url:
+                qs = qs.filter(source_url=product.source_url)
+            if price_tracking_mode:
+                if product.source_site:
+                    qs = qs.filter(source_site=product.source_site)
+                if product.name:
+                    qs = qs.filter(name=product.name)
+
+            existing = qs.first()
 
             if existing:
                 # 가격 변동 체크 및 히스토리 기록 (최적화된 메서드 사용)
@@ -461,7 +494,10 @@ class DataProcessor:
 
                 return action
             else:
-                # 신규 상품 생성
+                # 가격 추적 모드에서는 신규 상품을 생성하지 않고 스킵
+                if price_tracking_mode:
+                    return 'skipped'
+                # 일반 크롤 모드에서는 신규 상품 생성
                 return self._create_new_product(product)
 
         except ImportError as e:

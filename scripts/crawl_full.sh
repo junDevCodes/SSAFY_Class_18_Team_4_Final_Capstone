@@ -18,6 +18,7 @@ echo ""
 export PYTHONPATH=.
 export CRAWL_SCOPE=full          # 전체 카테고리 트리 순회
 export FETCH_DETAIL=true         # 상세 HTML 항상 수집
+export CRAWL_TYPE=full           # 배치 타입: 전체 카탈로그 크롤
 unset CRAWL_SAMPLE_PER_CATEGORY  # 전체 수집을 위해 샘플 제한 해제
 export CRAWL_RUN_VALIDATION=true # 배치 완료 후 기본 검증 함께 실행
 export ITEM_SHIP_METHOD=TD_DRCT

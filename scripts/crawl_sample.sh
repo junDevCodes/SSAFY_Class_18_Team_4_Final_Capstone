@@ -20,6 +20,7 @@ export CRAWL_SCOPE=full          # 전체 카테고리를 수집
 export FETCH_DETAIL=true         # 상세 HTML까지 수집
 export CRAWL_SAMPLE_PER_CATEGORY=5  # 카테고리별 최대 5개
 export CRAWL_RUN_VALIDATION=true # 배치 완료 후 기본 검증까지 수행
+export CRAWL_TYPE=sample         # 배치 타입: 샘플 크롤링
 export ITEM_SHIP_METHOD=TD_DRCT
 export STORE_ID=37
 export STORE_TYPE=HYPER

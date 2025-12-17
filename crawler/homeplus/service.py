@@ -388,6 +388,7 @@ class HomeplusService:
             source=self.config.crawl.target,
             crawled_at=datetime.utcnow().isoformat(),
             total_count=total_count if total_count is not None else len(products),
+            crawl_type=getattr(self.config.crawl, "crawl_type", self.config.crawl.mode),
             products=products,
         )
 

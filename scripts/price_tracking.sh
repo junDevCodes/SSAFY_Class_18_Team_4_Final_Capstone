@@ -21,7 +21,7 @@ echo ""
 export PYTHONPATH=.
 export CRAWL_SCOPE=full          # 전체 카테고리 트리 순회
 export FETCH_DETAIL=false        # 가격 추적에서는 상세 HTML 미수집
-export PRICE_TRACKING_MODE=true  # 검증 로직을 가격 추적 전용 모드로 완화
+export CRAWL_TYPE=price_refresh  # 배치 타입: 가격 추적 전용
 unset CRAWL_SAMPLE_PER_CATEGORY  # 전체 수집을 위해 샘플 제한 해제
 export CRAWL_RUN_VALIDATION=true
 export ITEM_SHIP_METHOD=TD_DRCT

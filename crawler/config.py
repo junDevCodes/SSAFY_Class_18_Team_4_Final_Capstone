@@ -62,6 +62,7 @@ class CrawlConfig:
     s3_upload_enabled: bool = False
     store_html: bool = False
     sample_per_category: Optional[int] = None
+    crawl_type: Optional[str] = None  # full, sample, price_refresh 등 크롤링 용도
     price_refresh_mode: Optional[str] = None  # "sample" or "full"
     price_sample_input: Optional[Path] = None  # 샘플 대상 파일 경로
 
@@ -72,6 +73,7 @@ class CrawlConfig:
         sample_per_cat = os.getenv("CRAWL_SAMPLE_PER_CATEGORY")
         service_cat_filter = os.getenv("CRAWL_SERVICE_CATEGORY_FILTER")
         s3_env = os.getenv("S3_UPLOAD_ENABLED")
+        crawl_type = os.getenv("CRAWL_TYPE")
         # 가격 추적 모드에서는 S3 업로드를 비활성화하고, 그 외 모드에서는 기본적으로 활성화
         if mode == "price_refresh":
             s3_upload = False
@@ -90,6 +92,7 @@ class CrawlConfig:
             service_category_filter=service_cat_filter,
             price_refresh_mode=os.getenv("PRICE_REFRESH_MODE"),
             price_sample_input=Path(os.getenv("PRICE_SAMPLE_INPUT")) if os.getenv("PRICE_SAMPLE_INPUT") else None,
+            crawl_type=crawl_type or mode,
         )
 
 
