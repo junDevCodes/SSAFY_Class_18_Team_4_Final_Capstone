@@ -15,8 +15,13 @@ from datetime import timedelta
 import os
 from dotenv import load_dotenv
 
-# .env 파일 로드
-load_dotenv()
+# .env 파일 로드 (인코딩 명시)
+# Windows 환경에서 인코딩 문제 방지를 위해 UTF-8 명시
+try:
+    load_dotenv(encoding='utf-8')
+except TypeError:
+    # 구버전 python-dotenv는 encoding 파라미터를 지원하지 않을 수 있음
+    load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -112,9 +117,14 @@ if DB_ENGINE == 'django.db.backends.sqlite3':
         'default': {
             'ENGINE': DB_ENGINE,
             'NAME': DB_NAME,
+            'OPTIONS': {
+                'timeout': 20,
+            },
         }
     }
-else:
+elif DB_ENGINE == 'django.db.backends.postgresql' or DB_ENGINE == 'django.db.backends.postgresql_psycopg2':
+    # PostgreSQL: charset 옵션 없음 (데이터베이스 레벨에서 인코딩 설정)
+    # client_encoding을 UTF-8로 명시적으로 설정하여 인코딩 문제 방지
     DATABASES = {
         'default': {
             'ENGINE': DB_ENGINE,
@@ -123,6 +133,25 @@ else:
             'PASSWORD': DB_PASSWORD,
             'HOST': DB_HOST,
             'PORT': DB_PORT,
+            'OPTIONS': {
+                'client_encoding': 'UTF8',
+            },
+        }
+    }
+else:
+    # MySQL/MariaDB: charset 옵션 사용 가능
+    DATABASES = {
+        'default': {
+            'ENGINE': DB_ENGINE,
+            'NAME': DB_NAME,
+            'USER': DB_USER,
+            'PASSWORD': DB_PASSWORD,
+            'HOST': DB_HOST,
+            'PORT': DB_PORT,
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            },
         }
     }
 

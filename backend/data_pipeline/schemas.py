@@ -145,6 +145,7 @@ class CrawlBatch:
     source: str  # 데이터 소스 (예: "naver", "coupang")
     crawled_at: str  # 배치 크롤링 시작 시각
     total_count: int
+    crawl_type: Optional[str] = None  # full, sample, price_refresh 등 배치 용도 구분
 
     # 상품 데이터 리스트
     products: List[ProductData] = field(default_factory=list)
@@ -161,6 +162,7 @@ class CrawlBatch:
             'source': self.source,
             'crawled_at': self.crawled_at,
             'total_count': self.total_count,
+            'crawl_type': self.crawl_type,
             'products': [p.to_dict() for p in self.products],
             'status': self.status,
             'processed_at': self.processed_at,
@@ -185,6 +187,7 @@ class CrawlBatch:
             source=data['source'],
             crawled_at=data['crawled_at'],
             total_count=data['total_count'],
+            crawl_type=data.get('crawl_type'),
             products=products,
             status=data.get('status', 'pending'),
             processed_at=data.get('processed_at'),

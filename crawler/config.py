@@ -25,7 +25,12 @@ def _load_env() -> None:
         return
     for cand in (Path(".env"), Path("backend/.env")):
         if cand.exists():
-            load_dotenv(dotenv_path=cand)
+            # Windows 환경에서 인코딩 문제 방지를 위해 UTF-8 명시
+            try:
+                load_dotenv(dotenv_path=cand, encoding='utf-8')
+            except TypeError:
+                # 구버전 python-dotenv는 encoding 파라미터를 지원하지 않을 수 있음
+                load_dotenv(dotenv_path=cand)
             _ENV_LOADED = True
             break
 
@@ -48,22 +53,46 @@ class CrawlConfig:
     target: str = "homeplus"
     concurrency: int = 1
     delay_ms: int = 500
+    # 크롤링 모드: full(전체 카탈로그), price_refresh(가격/상태만 갱신) 등으로 확장 예정
+    mode: str = "full"
+    # 서비스 표준 카테고리 필터 (예: "GRAIN,VEGETABLE"), 없으면 전체 식품 카테고리 대상
+    service_category_filter: Optional[str] = None
     scope: str = "full"
     fetch_detail: bool = True
     s3_upload_enabled: bool = False
     store_html: bool = False
+    sample_per_category: Optional[int] = None
+    crawl_type: Optional[str] = None  # full, sample, price_refresh 등 크롤링 용도
+    price_refresh_mode: Optional[str] = None  # "sample" or "full"
+    price_sample_input: Optional[Path] = None  # 샘플 대상 파일 경로
 
     @classmethod
     def from_env(cls) -> "CrawlConfig":
         """환경변수에서 설정을 로드한다."""
+        mode = os.getenv("CRAWL_MODE", "full")
+        sample_per_cat = os.getenv("CRAWL_SAMPLE_PER_CATEGORY")
+        service_cat_filter = os.getenv("CRAWL_SERVICE_CATEGORY_FILTER")
+        s3_env = os.getenv("S3_UPLOAD_ENABLED")
+        crawl_type = os.getenv("CRAWL_TYPE")
+        # 가격 추적 모드에서는 S3 업로드를 비활성화하고, 그 외 모드에서는 기본적으로 활성화
+        if mode == "price_refresh":
+            s3_upload = False
+        else:
+            s3_upload = s3_env.lower() in ("1", "true", "yes") if s3_env else True
         return cls(
             target=os.getenv("CRAWL_TARGET", "homeplus"),
             concurrency=_get_int_env("CRAWL_CONCURRENCY", 1),
             delay_ms=_get_int_env("CRAWL_DELAY_MS", 500),
+            mode=mode,
             scope=os.getenv("CRAWL_SCOPE", "full"),
             fetch_detail=os.getenv("FETCH_DETAIL", "true").lower() in ("1", "true", "yes"),
-            s3_upload_enabled=os.getenv("S3_UPLOAD_ENABLED", "false").lower() in ("1", "true", "yes"),
+            s3_upload_enabled=s3_upload,
             store_html=os.getenv("CRAWL_STORE_HTML", "false").lower() in ("1", "true", "yes"),
+            sample_per_category=_get_int_env("CRAWL_SAMPLE_PER_CATEGORY", 0) if sample_per_cat else None,
+            service_category_filter=service_cat_filter,
+            price_refresh_mode=os.getenv("PRICE_REFRESH_MODE"),
+            price_sample_input=Path(os.getenv("PRICE_SAMPLE_INPUT")) if os.getenv("PRICE_SAMPLE_INPUT") else None,
+            crawl_type=crawl_type or mode,
         )
 
 
@@ -111,17 +140,25 @@ class S3Config:
 
     bucket: Optional[str] = None
     prefix: str = "homeplus/raw/{YYYY}/{MM}/{batch_id}/"
+    thumbnail_prefix: str = "homeplus/thumbnail/{YYYY}/{MM}/{batch_id}/"
+    product_detail_prefix: str = "homeplus/product_detail/{YYYY}/{MM}/{batch_id}/"
     region: Optional[str] = None
     presign_expires: int = 3600
+    use_public_url: bool = False  # True면 Public URL 사용, False면 Presigned URL 사용
 
     @classmethod
     def from_env(cls) -> "S3Config":
         """환경변수에서 설정을 로드한다."""
+        use_public_env = os.getenv("S3_USE_PUBLIC_URL", "false").lower()
+        use_public = use_public_env in ("1", "true", "yes")
         return cls(
             bucket=os.getenv("S3_BUCKET"),
             prefix=os.getenv("S3_PREFIX", "homeplus/raw/{YYYY}/{MM}/{batch_id}/"),
+            thumbnail_prefix=os.getenv("S3_THUMBNAIL_PREFIX", "homeplus/thumbnail/{YYYY}/{MM}/{batch_id}/"),
+            product_detail_prefix=os.getenv("S3_PRODUCT_DETAIL_PREFIX", "homeplus/product_detail/{YYYY}/{MM}/{batch_id}/"),
             region=os.getenv("S3_REGION"),
             presign_expires=_get_int_env("S3_PRESIGN_EXPIRES", 3600),
+            use_public_url=use_public,
         )
 
 
