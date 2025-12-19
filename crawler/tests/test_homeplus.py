@@ -4,9 +4,13 @@ import unittest
 from datetime import datetime
 
 from crawler.config import AlertConfig, AppConfig, CrawlConfig, S3Config, StoreConfig
-from crawler.homeplus.mappers import map_item_to_product
-from crawler.homeplus.mappers import SkipProduct
-from crawler.homeplus.parsers import GrainCategory, extract_grain_categories
+from crawler.homeplus.mappers import (
+    map_item_to_product,
+    SkipProduct,
+    _map_service_category_by_depth_id,
+    _map_service_category_for_category_node,
+)
+from crawler.homeplus.parsers import CategoryNode, extract_categories
 from crawler.homeplus.service import HomeplusService, _parse_item_list
 from crawler.homeplus.client import HomeplusClient
 from crawler.http_client import HttpClient
@@ -14,8 +18,8 @@ from crawler.raw_storage import RawStorage
 from crawler.s3_uploader import S3Uploader
 
 
-class GrainCategoryParserTest(unittest.TestCase):
-    def test_쌀잡곡_카테고리_중복없이_추출(self) -> None:
+class CategoryParserTest(unittest.TestCase):
+    def test_카테고리를_중복없이_추출(self) -> None:
         sample_map = {
             "data": {
                 "categoryList": [
@@ -53,7 +57,7 @@ class GrainCategoryParserTest(unittest.TestCase):
             }
         }
 
-        categories = extract_grain_categories(sample_map)
+        categories = extract_categories(sample_map)
         as_set = {(
             c.lcateCd,
             c.mcateCd,
@@ -97,6 +101,101 @@ class ItemListParserTest(unittest.TestCase):
         self.assertEqual(2, len(items))
         self.assertEqual(3, total_page)
         self.assertEqual(7, total_count)
+
+
+class ServiceCategoryDepthIdMappingTest(unittest.TestCase):
+    def test_depth_id_매핑이_문서_3장_규칙과_일치한다(self) -> None:
+        # FRUIT
+        self.assertEqual("FRUIT", _map_service_category_by_depth_id(0, 1))
+        # FRUIT 제외 → NUT_DRY_ETC
+        self.assertEqual("NUT_DRY_ETC", _map_service_category_by_depth_id(3, 300020))
+        self.assertEqual("NUT_DRY_ETC", _map_service_category_by_depth_id(3, 300021))
+
+        # GRAIN
+        self.assertEqual("GRAIN", _map_service_category_by_depth_id(0, 2))
+
+        # VEGETABLE
+        self.assertEqual("VEGETABLE", _map_service_category_by_depth_id(0, 3))
+
+        # NUT_DRY_ETC
+        self.assertEqual("NUT_DRY_ETC", _map_service_category_by_depth_id(0, 4))
+        self.assertEqual("NUT_DRY_ETC", _map_service_category_by_depth_id(0, 14))
+
+        # SEAFOOD
+        self.assertEqual("SEAFOOD", _map_service_category_by_depth_id(0, 5))
+
+        # MEAT / BEAN_EGG 상호 제외 규칙
+        self.assertEqual("MEAT", _map_service_category_by_depth_id(0, 6))
+        self.assertEqual("MEAT", _map_service_category_by_depth_id(2, 200068))
+        self.assertEqual("BEAN_EGG", _map_service_category_by_depth_id(2, 200048))
+
+        # BEAN_EGG
+        self.assertEqual("BEAN_EGG", _map_service_category_by_depth_id(2, 200063))
+
+        # DAIRY
+        self.assertEqual("DAIRY", _map_service_category_by_depth_id(0, 9))
+
+        # DRINK
+        self.assertEqual("DRINK", _map_service_category_by_depth_id(0, 12))
+        self.assertEqual("DRINK", _map_service_category_by_depth_id(0, 13))
+
+        # NOODLE_FLOUR / SEASONING_SAUCE_OIL 상호 제외 규칙
+        self.assertEqual("NOODLE_FLOUR", _map_service_category_by_depth_id(0, 15))
+        self.assertEqual("NOODLE_FLOUR", _map_service_category_by_depth_id(2, 200077))
+        self.assertEqual("NOODLE_FLOUR", _map_service_category_by_depth_id(2, 200082))
+        self.assertEqual("SEASONING_SAUCE_OIL", _map_service_category_by_depth_id(2, 200125))
+        # 두부/김치/반찬 > 냉장소스/냉장장류
+        self.assertEqual("SEASONING_SAUCE_OIL", _map_service_category_by_depth_id(2, 200062))
+
+        # KIMCHI_SIDE (루트)
+        self.assertEqual("KIMCHI_SIDE", _map_service_category_by_depth_id(0, 11))
+
+        # SEASONING_SAUCE_OIL (루트)
+        self.assertEqual("SEASONING_SAUCE_OIL", _map_service_category_by_depth_id(0, 17))
+
+        # INSTANT_FOOD
+        self.assertEqual("INSTANT_FOOD", _map_service_category_by_depth_id(0, 10))
+        self.assertEqual("INSTANT_FOOD", _map_service_category_by_depth_id(0, 16))
+
+        # 정의되지 않은 조합은 None 이어야 한다
+        self.assertIsNone(_map_service_category_by_depth_id(1, 999999))
+
+    def test_category_node_매핑이_depth_id_규칙을_우선한다(self) -> None:
+        # 과일 루트 (FRUIT)
+        code = _map_service_category_for_category_node(
+            lcate_nm="과일",
+            mcate_nm=None,
+            scate_nm=None,
+            rcate_nm="식품",
+            lcate_cd=1,
+            mcate_cd=None,
+            scate_cd=None,
+        )
+        self.assertEqual("FRUIT", code)
+
+        # 라면/즉석식품/통조림 루트 (INSTANT_FOOD)
+        code = _map_service_category_for_category_node(
+            lcate_nm="라면/즉석식품/통조림",
+            mcate_nm=None,
+            scate_nm=None,
+            rcate_nm="식품",
+            lcate_cd=10,
+            mcate_cd=None,
+            scate_cd=None,
+        )
+        self.assertEqual("INSTANT_FOOD", code)
+
+        # 장류/양념/제빵 루트 (SEASONING_SAUCE_OIL)
+        code = _map_service_category_for_category_node(
+            lcate_nm="장류/양념/제빵",
+            mcate_nm=None,
+            scate_nm=None,
+            rcate_nm="식품",
+            lcate_cd=17,
+            mcate_cd=None,
+            scate_cd=None,
+        )
+        self.assertEqual("SEASONING_SAUCE_OIL", code)
 
 
 class ProductMappingTest(unittest.TestCase):
@@ -543,3 +642,251 @@ class S3UploadToggleTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RawStoreOnMissingTest(unittest.TestCase):
+
+    def test_이미지없으면_raw_html을_저장한다(self) -> None:
+
+        class DummyClient(HomeplusClient):
+
+            def __init__(self):
+
+                pass
+
+
+
+            def fetch_detail_html(self, item_no):
+
+                return "<html><body>no image</body></html>"
+
+
+
+        class DummyRaw(RawStorage):
+
+            def __init__(self):
+
+                self.saved = False
+
+
+
+            def save_html(self, batch_id, item_no, html):
+
+                self.saved = True
+
+                from pathlib import Path
+
+
+
+                return Path("/tmp/dummy.html")
+
+
+
+        cfg = AppConfig(
+
+            crawl=CrawlConfig(fetch_detail=True, store_html=True),
+
+            store=StoreConfig(),
+
+            alert=AlertConfig(),
+
+            s3=S3Config(),
+
+        )
+
+        service = HomeplusService(config=cfg, client=DummyClient(), raw_storage=DummyRaw())
+
+        service.current_batch_id = "test_batch"
+
+        items = [
+
+            {
+
+                "itemNo": "999",
+
+                "itemNm": "테스트",
+
+                "salePrice": 1000,
+
+                "lcateNm": "쌀/잡곡",
+
+                "mcateNm": "테스트",
+
+            }
+
+        ]
+
+
+
+        service._map_items(items)
+
+        self.assertTrue(service.raw_storage.saved)
+
+
+
+
+class SkipUnavailableTest(unittest.TestCase):
+    def test_품절_또는_비노출이면_스킵한다(self) -> None:
+        cfg = AppConfig(
+            crawl=CrawlConfig(fetch_detail=False, store_html=False),
+            store=StoreConfig(),
+            alert=AlertConfig(),
+            s3=S3Config(),
+        )
+        service = HomeplusService(config=cfg, client=HomeplusClient(cfg), raw_storage=RawStorage())
+        service.current_batch_id = "test_batch"
+        items = [
+            {"itemNo": "1", "itemNm": "품절", "salePrice": 1000, "lcateNm": "쌀/잡곡", "mcateNm": "백미", "soldOutYn": "Y"},
+            {"itemNo": "2", "itemNm": "비노출", "salePrice": 1000, "lcateNm": "쌀/잡곡", "mcateNm": "백미", "docDispYn": "N"},
+            {"itemNo": None, "itemNm": "번호없음", "salePrice": 1000, "lcateNm": "쌀/잡곡", "mcateNm": "백미"},
+            {"itemNo": "3", "itemNm": "정상", "salePrice": 1000, "lcateNm": "쌀/잡곡", "mcateNm": "백미"},
+        ]
+
+        products = service._map_items(items)
+
+        self.assertEqual(1, len(products))
+        self.assertEqual("3", products[0].source_url.split("itemNo=")[1].split("&")[0])
+
+
+
+class S3UploadToggleTest(unittest.TestCase):
+
+    def test_s3_upload_disabled이면_URL_그대로_사용(self) -> None:
+
+        class DummyS3(S3Uploader):
+
+            def __init__(self):
+
+                self.called = False
+
+
+
+            def upload_and_presign(self, url, batch_id, item_no, idx):
+
+                self.called = True
+
+                return "https://s3/new.jpg"
+
+
+
+        cfg = AppConfig(
+
+            crawl=CrawlConfig(fetch_detail=False, s3_upload_enabled=False),
+
+            store=StoreConfig(),
+
+            alert=AlertConfig(),
+
+            s3=S3Config(),
+
+        )
+
+        s3_dummy = DummyS3()
+
+        service = HomeplusService(config=cfg, client=HomeplusClient(cfg), raw_storage=RawStorage(), s3_uploader=s3_dummy)
+
+        service.current_batch_id = "test_batch"
+
+        items = [
+
+            {
+
+                "itemNo": "1",
+
+                "itemNm": "상품",
+
+                "salePrice": 1000,
+
+                "imageUrl": "https://img/main.jpg",
+
+                "lcateNm": "쌀/잡곡",
+
+                "mcateNm": "백미",
+
+            }
+
+        ]
+
+
+
+        products = service._map_items(items)
+
+        self.assertEqual("https://img/main.jpg", products[0].images[0].image_url)
+
+        self.assertFalse(s3_dummy.called)
+
+
+
+    def test_s3_upload_enabled이면_presign_URL로_대체(self) -> None:
+
+        class DummyS3(S3Uploader):
+
+            def __init__(self):
+
+                self.called = False
+
+
+
+            def upload_and_presign(self, url, batch_id, item_no, idx):
+
+                self.called = True
+
+                return f"https://s3/{item_no}/{idx}.jpg"
+
+
+
+        cfg = AppConfig(
+
+            crawl=CrawlConfig(fetch_detail=False, s3_upload_enabled=True),
+
+            store=StoreConfig(),
+
+            alert=AlertConfig(),
+
+            s3=S3Config(bucket="bucket", prefix="homeplus/raw/{YYYY}/{MM}/{batch_id}/"),
+
+        )
+
+        s3_dummy = DummyS3()
+
+        service = HomeplusService(config=cfg, client=HomeplusClient(cfg), raw_storage=RawStorage(), s3_uploader=s3_dummy)
+
+        service.current_batch_id = "test_batch"
+
+        items = [
+
+            {
+
+                "itemNo": "2",
+
+                "itemNm": "상품",
+
+                "salePrice": 1000,
+
+                "imageUrl": "https://img/main.jpg",
+
+                "lcateNm": "쌀/잡곡",
+
+                "mcateNm": "백미",
+
+            }
+
+        ]
+
+
+
+        products = service._map_items(items)
+
+        self.assertTrue(s3_dummy.called)
+
+        self.assertEqual("https://s3/2/0.jpg", products[0].images[0].image_url)
+
+
+
+
+
+if __name__ == "__main__":
+
+    unittest.main()
+
+

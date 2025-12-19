@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from crawler.config import AppConfig
 from crawler.homeplus.client import HomeplusClient
-from crawler.homeplus.parsers import GrainCategory
+from crawler.homeplus.parsers import CategoryNode
 
 
 class FilterCollector:
@@ -26,7 +26,7 @@ class FilterCollector:
         self.processed_dir = data_root / "json" / "processed"
         self.processed_dir.mkdir(parents=True, exist_ok=True)
 
-    def collect_for_category(self, cate: GrainCategory) -> Dict[str, Any]:
+    def collect_for_category(self, cate: CategoryNode) -> Dict[str, Any]:
         """단일 카테고리에 대한 필터 메타 수집"""
         if cate.scateCd:
             depth = 3
@@ -70,7 +70,7 @@ class FilterCollector:
             "filters": filters,
         }
 
-    def collect_all(self, categories: List[GrainCategory]) -> List[Dict[str, Any]]:
+    def collect_all(self, categories: List[CategoryNode]) -> List[Dict[str, Any]]:
         """여러 카테고리에 대한 필터 메타 수집"""
         results: List[Dict[str, Any]] = []
         for cate in categories:

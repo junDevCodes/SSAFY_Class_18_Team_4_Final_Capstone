@@ -18,6 +18,10 @@ services:
       DB_PORT: "5432"
       REDIS_URL: redis://redis:6379/0
       ML_API_URL: http://pred:8001
+    # EC2 IAM 역할 사용을 위한 메타데이터 서비스 접근 설정
+    # EC2 메타데이터 서비스(169.254.169.254)에 접근할 수 있도록 호스트 IP 매핑
+    extra_hosts:
+      - "metadata:169.254.169.254"
     depends_on:
       db:
         condition: service_healthy
@@ -68,6 +72,9 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       REDIS_URL: redis://redis:6379/1
+    # EC2 IAM 역할 사용을 위한 메타데이터 서비스 접근 설정
+    extra_hosts:
+      - "metadata:169.254.169.254"
     depends_on:
       db:
         condition: service_healthy
