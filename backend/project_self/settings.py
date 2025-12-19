@@ -110,6 +110,9 @@ DB_PASSWORD = os.getenv('DB_PASSWORD', '')
 DB_HOST = os.getenv('DB_HOST', '')
 DB_PORT = os.getenv('DB_PORT', '')
 ML_API_URL = os.getenv('ML_API_URL', 'http://localhost:8001')
+REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+# 상품 목록 캐시 TTL (초 단위) - 환경변수 PRODUCT_LIST_CACHE_TTL 로 조정 가능
+PRODUCT_LIST_CACHE_TTL = int(os.getenv('PRODUCT_LIST_CACHE_TTL', '60'))
 
 # 환경변수 값에 따라 SQLite(기본) 또는 Postgres 등으로 분기
 if DB_ENGINE == 'django.db.backends.sqlite3':
@@ -154,6 +157,17 @@ else:
             },
         }
     }
+
+# Cache (Redis)
+# 상품 리스트 등 읽기 성능/안정성 강화를 위해 Redis 캐시를 기본 캐시로 사용합니다.
+# - Docker 환경: REDIS_URL=redis://redis:6379/0 (docker-compose에서 주입)
+# - 로컬 개발: 필요 시 REDIS_URL 환경변수로 오버라이드
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+    }
+}
 
 
 # Password validation
