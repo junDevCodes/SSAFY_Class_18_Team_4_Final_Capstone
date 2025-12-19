@@ -69,8 +69,17 @@
               />
               <button @click="quantity = quantity + 1" :disabled="isSoldOut">+</button>
             </div>
-            <button class="wish" @click="toggleWishlist">
-              {{ product.is_wishlist ? '♡ 취소' : '♡ 찜' }} ({{ wishlistCount }})
+            <button
+              class="wish"
+              type="button"
+              @click="toggleWishlist"
+              :aria-pressed="product.is_wishlist"
+              :disabled="isTogglingWish"
+            >
+              <span class="heart" :class="{ filled: product.is_wishlist }">
+                {{ product.is_wishlist ? '♥' : '♡' }}
+              </span>
+              <span v-if="showWishCount" class="wish-count">{{ wishlistCount }}</span>
             </button>
           </div>
 
@@ -157,6 +166,8 @@ const product = ref<ProductDetail | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const quantity = ref(1)
+const showWishCount = ref(false)
+const isTogglingWish = ref(false)
 
 const initialTab = computed(() => {
   const tabParam = route.query.tab
@@ -209,6 +220,8 @@ watch(
   () => route.params.slug,
   async () => {
     quantity.value = 1
+    showWishCount.value = false
+    isTogglingWish.value = false
     await loadProduct()
     window.scrollTo({ top: 0, behavior: 'auto' })
   },
@@ -252,15 +265,20 @@ async function toggleWishlist() {
     window.dispatchEvent(new CustomEvent('auth:required'))
     return
   }
+  if (isTogglingWish.value) return
   if (!product.value) return
   try {
+    isTogglingWish.value = true
     const result = await wishlistStore.toggleWishlist(product.value as any)
     product.value.is_wishlist = result.isWishlisted
     if (product.value.stats) {
       product.value.stats.wishlist_count = result.wishlistCount
     }
+    showWishCount.value = true
   } catch (err) {
     alert('찜 처리에 실패했습니다.')
+  } finally {
+    isTogglingWish.value = false
   }
 }
 
@@ -297,7 +315,11 @@ function buyNow() {
 .qty-control button { width: 38px; height: 38px; border: none; background: white; cursor: pointer; }
 .qty-control input { width: 60px; text-align: center; border: none; outline: none; }
 .qty-control.disabled { opacity: 0.6; }
-.wish { padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; background: white; cursor: pointer; }
+.wish { padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; background: white; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.wish:disabled { cursor: not-allowed; opacity: 0.7; }
+.wish .heart { color: #d1d5db; font-size: 18px; line-height: 1; }
+.wish .heart.filled { color: #d14343; }
+.wish-count { font-size: 12px; color: #374151; }
 .cta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .btn-buy { padding: 14px; border: none; border-radius: 10px; background: #2d5016; color: white; font-weight: 700; cursor: pointer; }
 .btn-cart { padding: 14px; border: 1px solid #2d5016; border-radius: 10px; background: white; color: #2d5016; font-weight: 700; cursor: pointer; }
