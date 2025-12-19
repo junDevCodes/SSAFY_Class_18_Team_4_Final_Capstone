@@ -463,35 +463,16 @@ class DataProcessor:
                     source='crawl',
                 )
 
-                # 가격 변동이 없더라도 상세 정보는 항상 최신으로 덮어쓴다
+                # 기존 상품은 "가격" 정보만 갱신하고, 상품 상세(설명/이미지 텍스트)는 더 이상 덮어쓰지 않는다.
+                # - 신규 상품은 _create_new_product() 에서 한 번만 상세 정보를 생성
+                # - 이후 크롤러/파이프라인 재실행 시에는 가격/가격 히스토리만 관리
                 if action == 'updated':
                     existing.price = product.price
-                    if product.original_price:
+                    if product.original_price is not None:
                         existing.original_price = product.original_price
                     existing.save(update_fields=['price', 'original_price', 'updated_at'])
 
-                # 상세 정보 업데이트 또는 생성
-                if hasattr(existing, "detail") and existing.detail:
-                    detail = existing.detail
-                    detail.short_description = product.short_description
-                    detail.full_description = product.full_description
-                    detail.full_image_description = product.full_image_description
-                    detail.full_text_description = product.full_text_description
-                    detail.save(update_fields=[
-                        'short_description',
-                        'full_description',
-                        'full_image_description',
-                        'full_text_description',
-                    ])
-                else:
-                    ProductDetailModel.objects.create(
-                        product=existing,
-                        short_description=product.short_description,
-                        full_description=product.full_description,
-                        full_image_description=product.full_image_description,
-                        full_text_description=product.full_text_description,
-                    )
-
+                # 기존 ProductDetail 은 보존만 하고, 여기서는 수정/생성하지 않는다.
                 return action
             else:
                 # 가격 추적 모드에서는 신규 상품을 생성하지 않고 스킵
