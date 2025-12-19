@@ -1,0 +1,171 @@
+name: Build and Deploy to ECR/EC2 (dev)
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "pred/**"
+      - ".github/workflows/**"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_IAM_ROLE_ARN: ${{ secrets.AWS_IAM_ROLE_ARN }}
+  ECR_REPO_PRED: ${{ secrets.ECR_REPO_PRED }}
+
+jobs:
+  backend-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_IAM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Who am I (STS)
+        run: aws sts get-caller-identity
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registries: 733002311297
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+          tags: |
+            ${{ secrets.ECR_REPO_BACKEND }}:latest
+            ${{ secrets.ECR_REPO_BACKEND }}:${{ github.sha }}
+
+  frontend-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_IAM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Who am I (STS)
+        run: aws sts get-caller-identity
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registries: 733002311297
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+          tags: |
+            ${{ secrets.ECR_REPO_FRONTEND }}:latest
+            ${{ secrets.ECR_REPO_FRONTEND }}:${{ github.sha }}
+
+  pred-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_IAM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Who am I (STS)
+        run: aws sts get-caller-identity
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registries: 733002311297
+
+      - name: Build and push Pred image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./pred
+          push: true
+          cache-from: type=gha,scope=pred
+          cache-to: type=gha,mode=max,scope=pred
+          tags: |
+            ${{ env.ECR_REPO_PRED }}:latest
+            ${{ env.ECR_REPO_PRED }}:${{ github.sha }}
+
+  deploy-dev:
+    needs: [backend-image, frontend-image, pred-image]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: docker-compose.prod.yml 동기화 (EC2)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT }}
+          source: "docker-compose.prod.yml"
+          target: "/home/ubuntu/self-app/"
+
+      - name: EC2로 배포 (SSH + Docker Compose)
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT }}
+          script: |
+            # 작업 디렉토리 이동
+            cd ~/self-app
+
+            # ECR 로그인
+            aws ecr get-login-password --region ap-northeast-2 | \
+              docker login --username AWS --password-stdin \
+              733002311297.dkr.ecr.ap-northeast-2.amazonaws.com
+
+            # 기존 컨테이너 정지 (docker-compose 관리)
+            docker compose -f docker-compose.prod.yml down
+
+            # 최신 이미지 Pull
+            docker compose -f docker-compose.prod.yml pull
+
+            # 컨테이너 시작 (DB, Redis, Backend, Frontend 모두)
+            docker compose -f docker-compose.prod.yml up -d
+
+            # 사용하지 않는 이미지 정리
+            docker image prune -f
+
+            # 상태 확인
+            echo "=== 컨테이너 상태 ==="
+            docker compose -f docker-compose.prod.yml ps

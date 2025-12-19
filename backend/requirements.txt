@@ -1,0 +1,37 @@
+# ===== Core Framework =====
+Django==5.2.8
+djangorestframework==3.16.1
+django-cors-headers==4.3.1
+django-filter==25.2
+
+# ===== Authentication =====
+django-allauth==65.13.0
+djangorestframework-simplejwt==5.5.1
+PyJWT==2.10.1
+
+# ===== Database =====
+psycopg2-binary==2.9.10
+redis==5.2.1
+
+# ===== Production Server =====
+gunicorn==23.0.0
+uvicorn==0.34.0
+whitenoise==6.7.0
+
+# ===== Async Tasks =====
+celery==5.4.0
+
+# ===== Utilities =====
+python-dotenv==1.2.1
+requests==2.32.5
+
+# ===== Django Dependencies =====
+asgiref==3.10.0
+sqlparse==0.5.3
+tzdata==2025.2
+
+# ===== HTTP Client Dependencies =====
+certifi==2025.11.12
+charset-normalizer==3.4.4
+idna==3.11
+urllib3==2.5.0

@@ -1,0 +1,128 @@
+# 프로덕션용 Docker Compose (AWS EC2)
+# ECR 이미지 사용
+#
+# 사용법:
+#   1. .env 파일 생성 (아래 env_file 참조)
+#   2. docker compose -f docker-compose.prod.yml up -d
+
+services:
+  backend:
+    image: ${ECR_REPO_BACKEND:-733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-backend}:${IMAGE_TAG:-latest}
+    container_name: self-backend
+    env_file:
+      - .env
+    environment:
+      # Docker 네트워크 내부 설정 (고정)
+      DB_ENGINE: django.db.backends.postgresql
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      ML_API_URL: http://pred:8001
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pred:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             python manage.py shell -c \"from django.contrib.sites.models import Site; Site.objects.update_or_create(id=1, defaults={'domain': '${EC2_PUBLIC_IP:-localhost}', 'name': 'SelF Production'})\" &&
+             (python manage.py process_json_data --show-details 2>/dev/null || echo '[INIT] JSON 데이터 처리 스킵') &&
+             gunicorn project_self.wsgi:application --bind 0.0.0.0:8000 --workers 2"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  frontend:
+    image: ${ECR_REPO_FRONTEND:-733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-frontend}:${IMAGE_TAG:-latest}
+    container_name: self-frontend
+    depends_on:
+      - backend
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro # SSL 인증서 마운트
+    ports:
+      - "80:80"
+      - "443:443" # HTTPS 포트 추가
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  pred:
+    image: ${ECR_REPO_PRED:-733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-pred}:${IMAGE_TAG:-latest}
+    container_name: self-pred
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: self-postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${DB_NAME:-selfdb}
+      POSTGRES_USER: ${DB_USER:-selfuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-selfuser} -d ${DB_NAME:-selfdb}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: self-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
