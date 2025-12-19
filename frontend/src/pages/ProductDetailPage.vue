@@ -100,6 +100,7 @@
           :product="product"
           :short-description="shortDescription"
           :full-description="fullDescription"
+          :detail-images="detailImages"
           :initial-tab="initialTab"
         >
           <template #review>
@@ -149,7 +150,13 @@ import { productsAPI } from '@/services/api'
 import { useCartStore } from '@/stores/cart'
 import { useWishlistStore } from '@/stores/wishlist'
 import { useAuthStore } from '@/stores/auth'
-import { calculateDiscountRate, formatPrice, type ProductDetail } from '@/types/product'
+import {
+  calculateDiscountRate,
+  formatPrice,
+  getFullImageDescription,
+  getFullTextDescription,
+  type ProductDetail
+} from '@/types/product'
 import ProductCard from '@/components/ui/ProductCard.vue'
 import ProductGallery from '@/components/product/ProductGallery.vue'
 import ProductInfoTabs from '@/components/product/ProductInfoTabs.vue'
@@ -213,7 +220,16 @@ const stockLeftLabel = computed(() => {
 
 
 const shortDescription = computed(() => product.value?.detail?.short_description ?? null)
-const fullDescription = computed(() => product.value?.detail?.full_description ?? null)
+const fullDescription = computed(() => {
+  if (!product.value) return null
+  return (
+    getFullTextDescription(product.value) ??
+    product.value.detail?.full_description ??
+    product.value.detail?.short_description ??
+    null
+  )
+})
+const detailImages = computed(() => (product.value ? getFullImageDescription(product.value) : []))
 const wishlistCount = computed(() => product.value?.stats?.wishlist_count ?? 0)
 
 watch(
