@@ -81,7 +81,7 @@ ROOT_URLCONF = 'project_self.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -200,6 +200,9 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Frontend origin (admin analytics 등 SPA 링크용)
+FRONTEND_ORIGIN = os.getenv('FRONTEND_ORIGIN', 'http://localhost:8080')
 
 # ========================= Authentication 모듈 설정 =========================
 # 커스텀 User 모델 사용

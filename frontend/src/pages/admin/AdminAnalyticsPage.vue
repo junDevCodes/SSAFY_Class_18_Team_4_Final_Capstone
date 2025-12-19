@@ -61,79 +61,166 @@
       {{ errorMessage }}
     </section>
 
-    <section class="kpi-grid">
-      <article v-for="card in kpiCards" :key="card.label" class="kpi-card">
-        <p class="label">{{ card.label }}</p>
-        <div class="value-row">
-          <span class="value">{{ formatNumber(card.value, card.unit) }}</span>
-          <span :class="['delta', card.delta >= 0 ? 'up' : 'down']">
-            {{ card.delta >= 0 ? '▲' : '▼' }} {{ Math.abs(card.delta).toFixed(1) }}%
-          </span>
+    <nav class="section-nav" aria-label="Dashboard sections">
+      <a v-for="item in sectionLinks" :key="item.id" :href="`#${item.id}`">{{ item.label }}</a>
+    </nav>
+
+    <section id="topline" class="dashboard-section">
+      <header class="section-head">
+        <div>
+          <p class="eyebrow">Top Line Dashboard</p>
+          <h2>비즈니스 성과 지표</h2>
+          <p class="section-sub">CEO/PM이 가장 먼저 보는 핵심 KPI</p>
         </div>
-        <p class="hint">전 기간 대비</p>
-      </article>
+      </header>
+
+      <div class="kpi-grid">
+        <article v-for="card in topLineKpiCards" :key="card.key" class="kpi-card">
+          <p class="label">{{ card.label }}</p>
+          <div class="value-row">
+            <span class="value">{{ formatNumber(card.value, card.unit, card.decimals) }}</span>
+            <span :class="['delta', card.delta >= 0 ? 'up' : 'down']">
+              {{ card.delta >= 0 ? '▲' : '▼' }} {{ Math.abs(card.delta).toFixed(1) }}%
+            </span>
+          </div>
+          <p class="hint">전 기간 대비</p>
+        </article>
+      </div>
+
+      <div class="grid">
+        <article class="card">
+          <header class="card-head">
+            <div>
+              <p class="eyebrow">추이</p>
+              <h3>매출 · 주문 · 전환</h3>
+            </div>
+          </header>
+          <div ref="trendChartRef" class="chart"></div>
+        </article>
+
+        <article class="card">
+          <header class="card-head">
+            <div>
+              <p class="eyebrow">상위 5개</p>
+              <h3>카테고리별 성과</h3>
+            </div>
+            <span class="hint">매출 / 주문 / 전환율</span>
+          </header>
+          <div ref="breakdownChartRef" class="chart"></div>
+        </article>
+      </div>
+
     </section>
 
-    <section class="grid">
-      <article class="card">
-        <header class="card-head">
-          <div>
-            <p class="eyebrow">추이</p>
-            <h3>매출 · 주문 · 전환</h3>
-          </div>
-        </header>
-        <div ref="trendChartRef" class="chart"></div>
-      </article>
+    <section id="recommendation" class="dashboard-section">
+      <header class="section-head">
+        <div>
+          <p class="eyebrow">Recommendation Dashboard</p>
+          <h2>추천 알고리즘 성과 지표</h2>
+          <p class="section-sub">추천 클릭율/전환율/기여 GMV를 한 눈에</p>
+        </div>
+      </header>
 
-      <article class="card">
-        <header class="card-head">
-          <div>
-            <p class="eyebrow">상위 5개</p>
-            <h3>카테고리별 성과</h3>
+      <div class="kpi-grid">
+        <article v-for="card in recommendationKpiCards" :key="card.key" class="kpi-card">
+          <p class="label">{{ card.label }}</p>
+          <div class="value-row">
+            <span class="value">{{ formatNumber(card.value, card.unit, card.decimals) }}</span>
+            <span :class="['delta', card.delta >= 0 ? 'up' : 'down']">
+              {{ card.delta >= 0 ? '▲' : '▼' }} {{ Math.abs(card.delta).toFixed(1) }}%
+            </span>
           </div>
-          <span class="hint">매출 / 주문 / 전환율</span>
-        </header>
-        <div ref="breakdownChartRef" class="chart"></div>
-      </article>
+          <p class="hint">전 기간 대비</p>
+        </article>
+      </div>
+
     </section>
 
-    <section class="grid alerts">
-      <article class="card">
-        <header class="card-head">
-          <div>
-            <p class="eyebrow">이상 징후</p>
-            <h3>리스크 알림</h3>
+    <section id="behavior" class="dashboard-section">
+      <header class="section-head">
+        <div>
+          <p class="eyebrow">User Behavior Dashboard</p>
+          <h2>유저 행동 지표</h2>
+          <p class="section-sub">활성도/전환/이탈을 빠르게 점검</p>
+        </div>
+      </header>
+
+      <div class="kpi-grid">
+        <article v-for="card in behaviorKpiCards" :key="card.key" class="kpi-card">
+          <p class="label">{{ card.label }}</p>
+          <div class="value-row">
+            <span class="value">{{ formatNumber(card.value, card.unit, card.decimals) }}</span>
+            <span :class="['delta', card.delta >= 0 ? 'up' : 'down']">
+              {{ card.delta >= 0 ? '▲' : '▼' }} {{ Math.abs(card.delta).toFixed(1) }}%
+            </span>
           </div>
-        </header>
-        <ul class="alert-list">
-          <li v-for="alert in riskAlerts" :key="alert.title">
-            <div class="pill" :class="alert.level">{{ alert.level.toUpperCase() }}</div>
-            <div class="alert-body">
-              <p class="alert-title">{{ alert.title }}</p>
-              <p class="alert-desc">{{ alert.desc }}</p>
-            </div>
-            <span class="alert-meta">{{ alert.time }}</span>
-          </li>
-        </ul>
-      </article>
-      <article class="card">
-        <header class="card-head">
-          <div>
-            <p class="eyebrow">운영 체크리스트</p>
-            <h3>즉시 조치 항목</h3>
+          <p class="hint">전 기간 대비</p>
+        </article>
+      </div>
+
+    </section>
+
+    <section id="operational" class="dashboard-section">
+      <header class="section-head">
+        <div>
+          <p class="eyebrow">Operational Dashboard</p>
+          <h2>운영 건강도 지표</h2>
+          <p class="section-sub">크롤링/서버/에러 모니터링(DevOps용)</p>
+        </div>
+      </header>
+
+      <div class="kpi-grid">
+        <article v-for="card in operationalKpiCards" :key="card.key" class="kpi-card">
+          <p class="label">{{ card.label }}</p>
+          <div class="value-row">
+            <span class="value">{{ formatNumber(card.value, card.unit, card.decimals) }}</span>
+            <span :class="['delta', card.delta >= 0 ? 'up' : 'down']">
+              {{ card.delta >= 0 ? '▲' : '▼' }} {{ Math.abs(card.delta).toFixed(1) }}%
+            </span>
           </div>
-        </header>
-        <ul class="todo-list">
-          <li v-for="item in actionItems" :key="item.title">
-            <input type="checkbox" :checked="item.done" @change.prevent />
-            <div class="todo-body">
-              <p class="todo-title">{{ item.title }}</p>
-              <p class="todo-desc">{{ item.desc }}</p>
+          <p class="hint">전 기간 대비</p>
+        </article>
+      </div>
+
+      <div class="grid alerts">
+        <article class="card">
+          <header class="card-head">
+            <div>
+              <p class="eyebrow">이상 징후</p>
+              <h3>리스크 알림</h3>
             </div>
-            <span class="todo-meta">{{ item.owner }}</span>
-          </li>
-        </ul>
-      </article>
+          </header>
+          <ul class="alert-list">
+            <li v-for="alert in riskAlerts" :key="alert.title">
+              <div class="pill" :class="alert.level">{{ alert.level.toUpperCase() }}</div>
+              <div class="alert-body">
+                <p class="alert-title">{{ alert.title }}</p>
+                <p class="alert-desc">{{ alert.desc }}</p>
+              </div>
+              <span class="alert-meta">{{ alert.time }}</span>
+            </li>
+          </ul>
+        </article>
+        <article class="card">
+          <header class="card-head">
+            <div>
+              <p class="eyebrow">운영 체크리스트</p>
+              <h3>즉시 조치 항목</h3>
+            </div>
+          </header>
+          <ul class="todo-list">
+            <li v-for="item in actionItems" :key="item.title">
+              <input type="checkbox" :checked="item.done" @change.prevent />
+              <div class="todo-body">
+                <p class="todo-title">{{ item.title }}</p>
+                <p class="todo-desc">{{ item.desc }}</p>
+              </div>
+              <span class="todo-meta">{{ item.owner }}</span>
+            </li>
+          </ul>
+        </article>
+      </div>
+
     </section>
   </div>
 </template>
@@ -158,7 +245,7 @@ const region = ref('all')
 const overview = ref<AnalyticsOverview | null>(null)
 const loading = ref(false)
 const errorMessage = ref<string | null>(null)
-const lastUpdated = computed(() => new Date().toLocaleString())
+const lastUpdated = ref(new Date().toLocaleString())
 
 const trendChartRef = ref<HTMLDivElement | null>(null)
 const breakdownChartRef = ref<HTMLDivElement | null>(null)
@@ -169,9 +256,24 @@ const charts: Record<'trend' | 'breakdown', echarts.ECharts | null> = {
 
 const mockOverview = buildMockOverview()
 
-const kpiCards = computed(() => overview.value?.kpis ?? mockOverview.kpis)
 const trendData = computed(() => formatTrend(overview.value?.trend.source ?? mockOverview.trend.source, granularity.value))
 const breakdownData = computed(() => overview.value?.breakdown.product ?? mockOverview.breakdown.product)
+
+type DashboardKpiCard = {
+  key: string
+  label: string
+  value: number
+  unit?: string
+  decimals?: number
+  delta: number
+}
+
+const sectionLinks = [
+  { id: 'topline', label: 'Top Line' },
+  { id: 'recommendation', label: 'Recommendation' },
+  { id: 'behavior', label: 'User Behavior' },
+  { id: 'operational', label: 'Operational' },
+]
 
 const riskAlerts = computed(() => [
   { level: 'high', title: '반품률 급등 (주간 +2.8%)', desc: '카테고리: 과일·채소, 특정 판매자 3곳 집중', time: '5분 전' },
@@ -211,6 +313,7 @@ const loadData = async () => {
     loading.value = false
     await nextTick()
     renderCharts()
+    lastUpdated.value = new Date().toLocaleString()
   }
 }
 
@@ -224,10 +327,135 @@ const resetFilters = () => {
 
 const unitLabel = (unit: Granularity) => (unit === 'daily' ? '일간' : unit === 'weekly' ? '주간' : '월간')
 
-const formatNumber = (value: number, unit?: string) => {
-  const formatted = value.toLocaleString('ko-KR')
+const formatNumber = (value: number, unit?: string, decimals?: number) => {
+  const resolvedDecimals = decimals ?? (unit === '%' ? 1 : 0)
+  const formatted = value.toLocaleString('ko-KR', {
+    minimumFractionDigits: resolvedDecimals,
+    maximumFractionDigits: resolvedDecimals,
+  })
   return unit ? `${formatted}${unit}` : formatted
 }
+
+function percentChange(current: number, previous: number) {
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) return 0
+  if (previous === 0) return 0
+  return ((current - previous) / previous) * 100
+}
+
+function periodDelta(data: TimeBucket[], calc: (slice: TimeBucket[]) => number) {
+  if (data.length < 2) return 0
+  const mid = Math.max(1, Math.floor(data.length / 2))
+  const prev = calc(data.slice(0, mid))
+  const curr = calc(data.slice(mid))
+  return percentChange(curr, prev)
+}
+
+const toplineSummary = computed(() => {
+  const data = trendData.value
+  const sessions = data.reduce((s, v) => s + v.sessions, 0)
+  const orders = data.reduce((s, v) => s + v.orders, 0)
+  const revenue = data.reduce((s, v) => s + (v.revenue ?? 0), 0)
+  const conversion = sessions ? (orders / sessions) * 100 : 0
+  const aov = orders ? revenue / orders : 0
+  return { sessions, orders, revenue, conversion, aov }
+})
+
+const topLineKpiCards = computed<DashboardKpiCard[]>(() => {
+  const data = trendData.value
+  const sumRevenue = (slice: TimeBucket[]) => slice.reduce((s, v) => s + (v.revenue ?? 0), 0)
+  const sumOrders = (slice: TimeBucket[]) => slice.reduce((s, v) => s + v.orders, 0)
+  const sumSessions = (slice: TimeBucket[]) => slice.reduce((s, v) => s + v.sessions, 0)
+  const conversionRate = (slice: TimeBucket[]) => {
+    const sessions = sumSessions(slice)
+    const orders = sumOrders(slice)
+    return sessions ? (orders / sessions) * 100 : 0
+  }
+  const aovValue = (slice: TimeBucket[]) => {
+    const orders = sumOrders(slice)
+    const revenue = sumRevenue(slice)
+    return orders ? revenue / orders : 0
+  }
+
+  const repeatPurchaseRate = 38.7
+  const cartAbandonmentRate = 62.4
+
+  return [
+    {
+      key: 'gmv',
+      label: 'GMV',
+      value: toplineSummary.value.revenue,
+      unit: '원',
+      decimals: 0,
+      delta: periodDelta(data, sumRevenue),
+    },
+    {
+      key: 'orders',
+      label: '주문 수',
+      value: toplineSummary.value.orders,
+      decimals: 0,
+      delta: periodDelta(data, sumOrders),
+    },
+    {
+      key: 'aov',
+      label: '객단가 (AOV)',
+      value: toplineSummary.value.aov,
+      unit: '원',
+      decimals: 0,
+      delta: periodDelta(data, aovValue),
+    },
+    {
+      key: 'conversion',
+      label: '전환율',
+      value: toplineSummary.value.conversion,
+      unit: '%',
+      decimals: 1,
+      delta: periodDelta(data, conversionRate),
+    },
+    {
+      key: 'repeat',
+      label: '재구매율 (30D)',
+      value: repeatPurchaseRate,
+      unit: '%',
+      decimals: 1,
+      delta: 1.2,
+    },
+    {
+      key: 'cart_abandon',
+      label: '장바구니 포기율',
+      value: cartAbandonmentRate,
+      unit: '%',
+      decimals: 1,
+      delta: -0.8,
+    },
+  ]
+})
+
+const recommendationKpiCards: DashboardKpiCard[] = [
+  { key: 'rec_exposure', label: '추천 노출 비율', value: 72.8, unit: '%', decimals: 1, delta: 2.1 },
+  { key: 'rec_ctr', label: '추천 CTR', value: 8.6, unit: '%', decimals: 1, delta: 0.4 },
+  { key: 'rec_cvr', label: '추천 구매 전환율', value: 3.2, unit: '%', decimals: 1, delta: 0.2 },
+  { key: 'rec_gmv', label: '추천 기여 GMV 비율', value: 18.9, unit: '%', decimals: 1, delta: 1.1 },
+  { key: 'airscout', label: 'AIRScout 채택률', value: 12.4, unit: '%', decimals: 1, delta: 0.6 },
+  { key: 'gapfill', label: 'Gap Filling 담기율', value: 21.3, unit: '%', decimals: 1, delta: -0.3 },
+]
+
+const behaviorKpiCards: DashboardKpiCard[] = [
+  { key: 'dau', label: 'DAU', value: 18450, unit: '명', decimals: 0, delta: 3.8 },
+  { key: 'mau', label: 'MAU', value: 126300, unit: '명', decimals: 0, delta: 2.2 },
+  { key: 'dau_mau', label: 'DAU/MAU', value: 14.6, unit: '%', decimals: 1, delta: 0.7 },
+  { key: 'behavior_cvr', label: '구매 전환율', value: toplineSummary.value.conversion, unit: '%', decimals: 1, delta: 0.6 },
+  { key: 'cart_abandon_2', label: '장바구니 포기율', value: 62.4, unit: '%', decimals: 1, delta: -0.8 },
+  { key: 'repeat_2', label: '재구매율 (30D)', value: 38.7, unit: '%', decimals: 1, delta: 1.2 },
+]
+
+const operationalKpiCards: DashboardKpiCard[] = [
+  { key: 'crawl', label: '크롤링 성공률', value: 97.4, unit: '%', decimals: 1, delta: 0.3 },
+  { key: 'p95', label: '서버 응답(P95)', value: 420, unit: 'ms', decimals: 0, delta: -4.6 },
+  { key: 'error', label: '에러율(5xx)', value: 0.38, unit: '%', decimals: 2, delta: -0.1 },
+  { key: 'mape', label: '가격 예측 MAPE', value: 9.6, unit: '%', decimals: 1, delta: 0.4 },
+  { key: 'sellers', label: '생산자 onboard', value: 342, unit: '명', decimals: 0, delta: 1.5 },
+  { key: 'uptime', label: '서비스 가용성', value: 99.92, unit: '%', decimals: 2, delta: 0.02 },
+]
 
 const getChart = (key: 'trend' | 'breakdown', el: HTMLDivElement | null) => {
   if (!el) return null
@@ -451,10 +679,106 @@ function buildMockOverview(): AnalyticsOverview {
   animation: pulse 1.4s infinite;
 }
 
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+  margin-bottom: 12px;
+  backdrop-filter: blur(8px);
+}
+
+.tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #334155;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: none;
+  line-height: 1;
+}
+
+.tab:hover {
+  background: #f1f5f9;
+}
+
+.tab.active {
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  color: #fff;
+}
+
+.tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 @keyframes pulse {
   0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
   70% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
   100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+
+.section-nav {
+  position: sticky;
+  top: 12px;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px;
+  margin: 12px 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: rgba(246, 247, 251, 0.8);
+  backdrop-filter: blur(8px);
+}
+
+.section-nav a {
+  text-decoration: none;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  font-weight: 800;
+  color: #334155;
+  font-size: 13px;
+}
+
+.section-nav a:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.dashboard-section {
+  margin-top: 18px;
+}
+
+.section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.section-head h2 {
+  margin: 6px 0 0 0;
+  font-size: 22px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.section-sub {
+  margin: 6px 0 0 0;
+  color: #64748b;
+  font-weight: 700;
 }
 
 .filters {
