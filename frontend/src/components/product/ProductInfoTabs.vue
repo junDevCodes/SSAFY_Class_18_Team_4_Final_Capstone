@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="info-tabs">
     <div class="tabs">
       <button :class="{ active: tab === 'detail' }" @click="setTab('detail')">상품상세</button>

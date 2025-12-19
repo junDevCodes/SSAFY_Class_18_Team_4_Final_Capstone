@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="group relative flex flex-col cursor-pointer" @click="goToDetail">
     <div class="relative aspect-[3/4] bg-gray-50 rounded-lg overflow-hidden mb-5">
       <img :src="getProductImage(product)" :alt="product.name" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105">

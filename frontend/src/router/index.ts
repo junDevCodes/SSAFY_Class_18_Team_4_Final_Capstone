@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Vue Router 설정
  */
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
