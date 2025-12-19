@@ -325,18 +325,49 @@ class DataProcessor:
         Returns:
             처리 결과 (new, updated, skipped 카운트)
         """
-        from django.db import transaction
-
         result = {'new': 0, 'updated': 0, 'skipped': 0}
 
-        with transaction.atomic():
-            for product in products:
-                try:
-                    action = self._process_product(product, dry_run=False)
-                    result[action] += 1
-                except Exception as e:
-                    print(f"[경고] 상품 처리 실패: {product.name} - {e}")
-                    result['skipped'] += 1
+        # 가격 추적 전용 배치 여부 판단
+        # - crawl_type == "price_refresh" 이거나
+        # - (구버전 호환) source_site == "homeplus_price" 인 상품만 포함된 경우
+        def _is_price_tracking_product(p: ProductData) -> bool:
+            ct = getattr(p, "crawl_type", None)
+            ss = getattr(p, "source_site", None)
+            return (ct == "price_refresh") or (ss == "homeplus_price")
+
+        is_price_batch = False
+        has_non_price_product = False
+        for p in products:
+            if _is_price_tracking_product(p):
+                is_price_batch = True
+            else:
+                has_non_price_product = True
+                break
+
+        # 혼합 배치(일반 + 가격 추적)가 들어오면 기존 동작과 동일하게
+        # 전체를 하나의 트랜잭션으로 처리한다.
+        if not is_price_batch or has_non_price_product:
+            from django.db import transaction
+
+            with transaction.atomic():
+                for product in products:
+                    try:
+                        action = self._process_product(product, dry_run=False)
+                        result[action] += 1
+                    except Exception as e:
+                        print(f"[경고] 상품 처리 실패: {product.name} - {e}")
+                        result['skipped'] += 1
+            return result
+
+        # 가격 추적 전용 배치인 경우에는 대량 트랜잭션/락으로 인한
+        # 서버 전체 병목을 줄이기 위해, 개별 상품 단위로 처리한다.
+        for product in products:
+            try:
+                action = self._process_product(product, dry_run=False)
+                result[action] += 1
+            except Exception as e:
+                print(f"[경고] 상품 처리 실패: {product.name} - {e}")
+                result['skipped'] += 1
 
         return result
 
@@ -441,9 +472,14 @@ class DataProcessor:
                     # 필수 피쳐가 하나라도 없으면 가격 추적 대상에서 제외
                     return "skipped"
 
-            # 기존 상품 조회 (SELECT FOR UPDATE로 동시성 제어)
-            # 기본 키는 source_url 이며, 가격 추적 모드에서는 source_site/name 까지 모두 일치하는 경우에만 동일 상품으로 간주
-            qs = Product.objects.select_for_update().all()
+            # 기존 상품 조회
+            # - 기본 키는 source_url
+            # - 가격 추적 모드에서는 source_site/name 까지 모두 일치하는 경우에만 동일 상품으로 간주
+            # - 일반 크롤 모드에서는 SELECT FOR UPDATE 로 강한 동시성 제어
+            # - 가격 추적 모드에서는 잦은 가격 갱신으로 인한 락 병목을 줄이기 위해 행 잠금을 사용하지 않는다
+            qs = Product.objects.all()
+            if not price_tracking_mode:
+                qs = qs.select_for_update()
             if product.source_url:
                 qs = qs.filter(source_url=product.source_url)
             if price_tracking_mode:
