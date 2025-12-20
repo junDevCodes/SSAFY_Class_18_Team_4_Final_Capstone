@@ -17,6 +17,8 @@ from django.db.models import Avg
 from django.core.cache import cache
 from django.utils.encoding import iri_to_uri
 from django.conf import settings
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
+from drf_spectacular.types import OpenApiTypes
 from .models import (
     Category, Product, ProductImage, Wishlist, Cart,
     ProductDetail as ProductDetailModel, ProductStats, UserProductStats,
@@ -26,7 +28,8 @@ from .serializers import (
     CategorySerializer, ProductSerializer, ProductDetailSerializer,
     ProductListSerializer, ProductImageSerializer, WishlistSerializer, CartSerializer,
     ProductListSerializerV2, ProductDetailSerializerV2,
-    ReviewSerializer, ReviewCreateSerializer
+    ReviewSerializer, ReviewCreateSerializer,
+    NewProductListSerializer
 )
 
 
@@ -37,6 +40,18 @@ class StandardResultsSetPagination(PageNumberPagination):
     max_page_size = 100
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=['카테고리'],
+        summary='카테고리 목록 조회',
+        description='모든 카테고리 목록을 페이지네이션과 함께 반환합니다.',
+    ),
+    retrieve=extend_schema(
+        tags=['카테고리'],
+        summary='카테고리 상세 조회',
+        description='특정 카테고리의 상세 정보를 반환합니다.',
+    ),
+)
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     """
     카테고리 ViewSet (읽기 전용)
@@ -49,6 +64,18 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = StandardResultsSetPagination
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=['상품'],
+        summary='상품 목록 조회 (레거시)',
+        description='모든 상품 목록을 조회합니다. 카테고리 및 상태로 필터링 가능합니다.',
+    ),
+    retrieve=extend_schema(
+        tags=['상품'],
+        summary='상품 상세 조회 (레거시)',
+        description='특정 상품의 상세 정보를 반환합니다.',
+    ),
+)
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     """
     제품 ViewSet (읽기 전용)
@@ -71,6 +98,33 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     search_fields = ['name']
 
 
+@extend_schema(
+    tags=['상품'],
+    summary='상품 목록 조회',
+    description='''상품 목록을 조회합니다. 다양한 필터링과 정렬을 지원합니다.
+
+### 커스텀 필터
+- `is_featured=true`: 추천 상품 (quality_score 70 이상)
+- `is_best=true`: 베스트 상품 (주문수/조회수 기준)
+- `is_new=true`: 신상품 (최근 7일 내 등록)
+- `is_on_sale=true`: 할인 상품 (original_price > price)
+
+### 기본 필터
+- `category`: 카테고리 ID
+- `price__gte`, `price__lte`: 가격 범위
+- `status`: 상품 상태 (active, inactive 등)
+- `product_type`: 상품 유형 (main, seller)
+''',
+    parameters=[
+        OpenApiParameter(name='is_featured', type=OpenApiTypes.BOOL, description='추천 상품 필터'),
+        OpenApiParameter(name='is_best', type=OpenApiTypes.BOOL, description='베스트 상품 필터'),
+        OpenApiParameter(name='is_new', type=OpenApiTypes.BOOL, description='신상품 필터 (7일 이내)'),
+        OpenApiParameter(name='is_on_sale', type=OpenApiTypes.BOOL, description='할인 상품 필터'),
+        OpenApiParameter(name='category', type=OpenApiTypes.INT, description='카테고리 ID'),
+        OpenApiParameter(name='search', type=OpenApiTypes.STR, description='상품명 검색'),
+        OpenApiParameter(name='ordering', type=OpenApiTypes.STR, description='정렬 기준 (예: -created_at, price)'),
+    ],
+)
 class ProductListView(generics.ListAPIView):
     """상품 목록 API (필터링 및 정렬 지원)
 
@@ -171,6 +225,25 @@ class ProductListView(generics.ListAPIView):
         return response
 
 
+@extend_schema(
+    tags=['상품'],
+    summary='상품 상세 조회',
+    description='''상품의 상세 정보를 조회합니다.
+
+### 포함 정보
+- 기본 정보 (이름, 가격, 카테고리 등)
+- 상세 설명 (detail)
+- 재고 정보 (inventory)
+- 통계 정보 (stats: 조회수, 리뷰 수, 평점 등)
+- 판매자 정보
+- 상품 이미지 목록
+- 관련 상품 추천
+
+### 조회수 증가
+- 상세 페이지 조회 시 자동으로 조회수가 증가합니다.
+- 로그인 사용자의 경우 개인별 조회 통계도 기록됩니다.
+''',
+)
 class ProductDetailView(generics.RetrieveAPIView):
     """상품 상세 API (ERD V2.1)
 
@@ -364,6 +437,28 @@ class ProductImageManageView(APIView):
         }, status=status.HTTP_204_NO_CONTENT)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=['찜 목록'],
+        summary='찜 목록 조회',
+        description='로그인한 사용자의 찜 목록을 조회합니다.',
+    ),
+    create=extend_schema(
+        tags=['찜 목록'],
+        summary='찜 추가',
+        description='상품을 찜 목록에 추가합니다.',
+    ),
+    destroy=extend_schema(
+        tags=['찜 목록'],
+        summary='찜 삭제',
+        description='찜 목록에서 상품을 제거합니다.',
+    ),
+    toggle=extend_schema(
+        tags=['찜 목록'],
+        summary='찜 토글',
+        description='상품의 찜 상태를 토글합니다. 찜 되어 있으면 제거, 없으면 추가합니다.',
+    ),
+)
 class WishlistViewSet(viewsets.ModelViewSet):
     """찜 목록 ViewSet"""
 
@@ -455,6 +550,43 @@ class WishlistViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_201_CREATED)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=['장바구니'],
+        summary='장바구니 목록 조회',
+        description='로그인한 사용자의 장바구니 목록을 조회합니다.',
+    ),
+    create=extend_schema(
+        tags=['장바구니'],
+        summary='장바구니 추가',
+        description='상품을 장바구니에 추가합니다. 이미 있는 상품이면 수량이 증가합니다.',
+    ),
+    update=extend_schema(
+        tags=['장바구니'],
+        summary='장바구니 수정',
+        description='장바구니 항목의 수량을 수정합니다.',
+    ),
+    partial_update=extend_schema(
+        tags=['장바구니'],
+        summary='장바구니 부분 수정',
+        description='장바구니 항목의 수량을 부분 수정합니다.',
+    ),
+    destroy=extend_schema(
+        tags=['장바구니'],
+        summary='장바구니 삭제',
+        description='장바구니에서 상품을 제거합니다.',
+    ),
+    summary=extend_schema(
+        tags=['장바구니'],
+        summary='장바구니 요약',
+        description='장바구니의 총 금액, 상품 수, 총 수량을 조회합니다.',
+    ),
+    clear=extend_schema(
+        tags=['장바구니'],
+        summary='장바구니 비우기',
+        description='장바구니의 모든 상품을 제거합니다.',
+    ),
+)
 class CartViewSet(viewsets.ModelViewSet):
     """장바구니 ViewSet"""
 
@@ -536,6 +668,47 @@ class CartViewSet(viewsets.ModelViewSet):
         })
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=['리뷰'],
+        summary='리뷰 목록 조회',
+        description='리뷰 목록을 조회합니다. 상품 ID로 필터링 가능합니다.',
+        parameters=[
+            OpenApiParameter(name='product', type=OpenApiTypes.INT, description='상품 ID로 필터링'),
+            OpenApiParameter(name='rating', type=OpenApiTypes.INT, description='평점으로 필터링 (1-5)'),
+        ],
+    ),
+    retrieve=extend_schema(
+        tags=['리뷰'],
+        summary='리뷰 상세 조회',
+        description='특정 리뷰의 상세 정보를 조회합니다.',
+    ),
+    create=extend_schema(
+        tags=['리뷰'],
+        summary='리뷰 작성',
+        description='상품에 대한 리뷰를 작성합니다. 로그인이 필요하며, 한 상품에 하나의 리뷰만 작성 가능합니다.',
+    ),
+    update=extend_schema(
+        tags=['리뷰'],
+        summary='리뷰 수정',
+        description='본인이 작성한 리뷰를 수정합니다.',
+    ),
+    partial_update=extend_schema(
+        tags=['리뷰'],
+        summary='리뷰 부분 수정',
+        description='본인이 작성한 리뷰를 부분 수정합니다.',
+    ),
+    destroy=extend_schema(
+        tags=['리뷰'],
+        summary='리뷰 삭제',
+        description='본인이 작성한 리뷰를 삭제합니다.',
+    ),
+    my=extend_schema(
+        tags=['리뷰'],
+        summary='내 리뷰 목록',
+        description='로그인한 사용자가 작성한 리뷰 목록을 조회합니다.',
+    ),
+)
 class ReviewViewSet(viewsets.ModelViewSet):
     """리뷰 ViewSet
 
@@ -670,4 +843,63 @@ class ProductRecommendClickView(APIView):
         return Response({
             'message': '추천 클릭이 기록되었습니다.',
             'product_id': product.id
+        })
+
+
+class NewProductListView(APIView):
+    """신상품 목록 API
+
+    GET /api/products/new/
+
+    product_type이 'main'인 상품 중 최신순으로 40개를 반환합니다.
+    프론트엔드에서 7일 필터링을 위해 created_at 필드를 포함합니다.
+    """
+
+    @extend_schema(
+        tags=['신상품'],
+        summary='신상품 목록 조회',
+        description='''신상품 목록을 조회합니다.
+
+### 조회 조건
+- `product_type='main'` (메인 상품만)
+- `status='active'` (판매중인 상품만)
+- 최신순 정렬 (`-created_at`)
+- 최대 40개 반환
+
+### 프론트엔드 7일 필터
+응답에 `created_at` 필드가 포함되어 있어 프론트엔드에서 7일 이내 상품만 필터링할 수 있습니다.
+''',
+        responses={
+            200: OpenApiExample(
+                name='성공 응답',
+                value={
+                    'count': 40,
+                    'results': [
+                        {
+                            'id': 1,
+                            'slug': 'organic-apple',
+                            'name': '유기농 사과',
+                            'price': 15000,
+                            'original_price': 18000,
+                            'main_image': 'https://example.com/images/apple.jpg',
+                            'category_name': '과일',
+                            'created_at': '2025-12-19T10:30:00Z'
+                        }
+                    ]
+                }
+            )
+        }
+    )
+    def get(self, request):
+        """신상품 40개 조회 (최신순 정렬)"""
+        products = Product.objects.filter(
+            product_type='main',
+            status='active'
+        ).select_related('category').prefetch_related('images').order_by('-created_at')[:40]
+
+        serializer = NewProductListSerializer(products, many=True)
+
+        return Response({
+            'count': len(serializer.data),
+            'results': serializer.data
         })

@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
     'django_filters',  # 필터링 지원
+    'drf_spectacular',  # API 문서화 (Swagger/OpenAPI)
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
@@ -241,6 +242,46 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.AllowAny',),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# API 문서화 설정 (drf-spectacular)
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'SSAFY 18기 4팀 - 식료품 쇼핑몰 API',
+    'DESCRIPTION': '''
+## 프로젝트 개요
+SSAFY Class 18 Team 4 Final Capstone Project - 식료품 쇼핑몰 백엔드 API
+
+## 인증 방식
+- JWT (JSON Web Token) 기반 인증
+- Authorization 헤더에 `Bearer <access_token>` 형식으로 전송
+
+## 주요 기능
+- **인증**: 회원가입, 로그인, OAuth (Google, Kakao)
+- **상품**: 상품 목록/상세, 신상품, 베스트 상품
+- **장바구니**: 장바구니 관리
+- **찜 목록**: 위시리스트 관리
+- **주문**: 주문 생성/조회
+- **리뷰**: 상품 리뷰 작성/조회
+- **판매자**: 판매자 상품 관리
+- **추천**: 개인화 추천 시스템
+''',
+    'VERSION': '2.1.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': r'/api/',
+    'TAGS': [
+        {'name': '인증', 'description': '회원가입, 로그인, 토큰 관리'},
+        {'name': '상품', 'description': '상품 목록, 상세, 검색, 필터링'},
+        {'name': '신상품', 'description': '신상품 목록 (최신 40개)'},
+        {'name': '장바구니', 'description': '장바구니 CRUD'},
+        {'name': '찜 목록', 'description': '위시리스트 관리'},
+        {'name': '주문', 'description': '주문 생성 및 조회'},
+        {'name': '리뷰', 'description': '상품 리뷰 CRUD'},
+        {'name': '판매자', 'description': '판매자 상품 관리'},
+        {'name': '추천', 'description': '개인화 추천 API'},
+        {'name': '카테고리', 'description': '카테고리 조회'},
+    ],
 }
 
 # SimpleJWT 설정

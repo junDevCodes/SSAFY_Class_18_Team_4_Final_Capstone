@@ -25,6 +25,9 @@ celery==5.4.0
 python-dotenv==1.2.1
 requests==2.32.5
 
+# ===== API Documentation =====
+drf-spectacular==0.28.0
+
 # ===== Django Dependencies =====
 asgiref==3.10.0
 sqlparse==0.5.3
