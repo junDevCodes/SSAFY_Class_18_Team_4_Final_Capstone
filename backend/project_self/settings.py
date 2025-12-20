@@ -274,6 +274,7 @@ SSAFY Class 18 Team 4 Final Capstone Project - 식료품 쇼핑몰 백엔드 API
         {'name': '인증', 'description': '회원가입, 로그인, 토큰 관리'},
         {'name': '상품', 'description': '상품 목록, 상세, 검색, 필터링'},
         {'name': '신상품', 'description': '신상품 목록 (최신 40개)'},
+        {'name': '베스트 상품', 'description': '베스트 상품 목록 (판매량 기준 40개)'},
         {'name': '장바구니', 'description': '장바구니 CRUD'},
         {'name': '찜 목록', 'description': '위시리스트 관리'},
         {'name': '주문', 'description': '주문 생성 및 조회'},
