@@ -842,6 +842,51 @@ class ProductStats(models.Model):
         return f"{self.product.name} 통계"
 
 
+class DailySalesStats(models.Model):
+    """일일 판매 통계 (베스트 상품 산정용)
+
+    상품별 일일 주문 횟수를 저장합니다.
+    날짜 + 상품 복합 유니크 키로 관리됩니다.
+    베스트 상품 API에서 일일 판매량 기준 정렬에 사용됩니다.
+    """
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='daily_sales',
+        verbose_name="상품",
+    )
+
+    date = models.DateField(
+        verbose_name="날짜",
+        help_text="판매가 발생한 날짜",
+    )
+
+    order_count = models.IntegerField(
+        default=0,
+        verbose_name="주문 횟수",
+        help_text="해당 날짜의 주문 건수 (quantity가 아닌 주문 횟수)",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
+
+    class Meta:
+        db_table = 'daily_sales_stats'
+        verbose_name = '일일 판매 통계'
+        verbose_name_plural = '일일 판매 통계'
+        unique_together = [['product', 'date']]
+        indexes = [
+            # 베스트 상품 조회 최적화: 날짜 + 주문수 내림차순
+            models.Index(fields=['date', '-order_count'], name='ix_dss_date_order'),
+            # 상품별 일일 통계 조회
+            models.Index(fields=['product', 'date'], name='ix_dss_product_date'),
+        ]
+
+    def __str__(self):
+        return f"{self.product.name} - {self.date}: {self.order_count}건"
+
+
 class UserProductStats(models.Model):
     """유저 × 상품별 집계 피처 (ERD: user_product_stats)
 

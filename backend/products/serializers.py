@@ -328,6 +328,67 @@ class NewProductListSerializer(serializers.ModelSerializer):
         return None
 
 
+class BestProductListSerializer(serializers.ModelSerializer):
+    """베스트 상품 목록용 Serializer
+
+    베스트 상품 페이지에서 사용하는 Serializer입니다.
+    일일 판매량, 누적 판매량, 리뷰 정보를 포함합니다.
+    판매자 상품(product_type='seller') 중 판매량 기준 상위 40개에 사용됩니다.
+    """
+    category_name = serializers.SerializerMethodField()
+    main_image = serializers.SerializerMethodField()
+
+    # 통계 정보 (ProductStats에서)
+    review_count = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+
+    # 판매량 정보 (annotated fields - View에서 annotate로 추가됨)
+    daily_order_count = serializers.IntegerField(read_only=True)
+    total_order_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Product
+        fields = [
+            'id',
+            'slug',
+            'name',
+            'price',
+            'original_price',
+            'main_image',
+            'category_name',
+            'review_count',
+            'average_rating',
+            'daily_order_count',
+            'total_order_count',
+            'created_at',
+        ]
+
+    def get_category_name(self, obj):
+        """카테고리명 반환 (null 안전)"""
+        if obj.category:
+            return obj.category.name
+        return None
+
+    def get_main_image(self, obj):
+        """메인 이미지 URL 반환 (ProductImage 테이블에서, display_order 기준)"""
+        first_image = obj.images.order_by('display_order').first()
+        if first_image:
+            return first_image.image_url
+        return None
+
+    def get_review_count(self, obj):
+        """리뷰 수 (ProductStats에서)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return obj.stats.review_count
+        return 0
+
+    def get_average_rating(self, obj):
+        """평균 평점 (ProductStats에서)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return str(obj.stats.average_rating)
+        return '0.00'
+
+
 class ProductListSerializerV2(serializers.ModelSerializer):
     """상품 목록용 Serializer v2.1 (v2.1 테이블 포함)
 
