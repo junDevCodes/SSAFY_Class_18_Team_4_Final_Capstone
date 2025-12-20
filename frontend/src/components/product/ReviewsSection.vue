@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="reviews">
     <div class="reviews-head">
       <div class="score">{{ displayAverage }}</div>

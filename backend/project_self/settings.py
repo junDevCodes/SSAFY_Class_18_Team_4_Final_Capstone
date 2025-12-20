@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import os
+import sys
 from dotenv import load_dotenv
 
 # .env 파일 로드 (인코딩 명시)
@@ -82,7 +83,7 @@ ROOT_URLCONF = 'project_self.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -111,6 +112,9 @@ DB_PASSWORD = os.getenv('DB_PASSWORD', '')
 DB_HOST = os.getenv('DB_HOST', '')
 DB_PORT = os.getenv('DB_PORT', '')
 ML_API_URL = os.getenv('ML_API_URL', 'http://localhost:8001')
+REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+# 상품 목록 캐시 TTL (초 단위) - 환경변수 PRODUCT_LIST_CACHE_TTL 로 조정 가능
+PRODUCT_LIST_CACHE_TTL = int(os.getenv('PRODUCT_LIST_CACHE_TTL', '60'))
 
 # 환경변수 값에 따라 SQLite(기본) 또는 Postgres 등으로 분기
 if DB_ENGINE == 'django.db.backends.sqlite3':
@@ -153,6 +157,28 @@ else:
                 'charset': 'utf8mb4',
                 'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
             },
+        }
+    }
+
+# Cache (Redis)
+# 기본: RedisCache. 테스트 실행 시(CI 포함) 로컬 메모리 캐시로 전환해 외부 의존성 없이 검증.
+_cache_backend = os.getenv('DJANGO_CACHE_BACKEND', 'redis')
+_is_test_env = 'test' in sys.argv
+if _is_test_env:
+    _cache_backend = os.getenv('DJANGO_TEST_CACHE_BACKEND', 'locmem')
+
+if _cache_backend == 'locmem':
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-locmem',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
         }
     }
 
@@ -201,6 +227,9 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Frontend origin (admin analytics 등 SPA 링크용)
+FRONTEND_ORIGIN = os.getenv('FRONTEND_ORIGIN', 'http://localhost:8080')
 
 # ========================= Authentication 모듈 설정 =========================
 # 커스텀 User 모델 사용

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <!-- Backdrop -->
   <Transition name="drawer-backdrop">
     <div v-if="uiStore.isCartOpen" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100]" @click="uiStore.closeCart"></div>

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="info-tabs">
     <div class="tabs">
       <button :class="{ active: tab === 'detail' }" @click="setTab('detail')">상품상세</button>
@@ -6,10 +6,20 @@
       <button :class="{ active: tab === 'shipping' }" @click="setTab('shipping')">배송/교환/반품</button>
     </div>
 
-    <div class="panel" v-if="tab === 'detail'">
-      <div v-if="fullDescription" v-html="fullDescription"></div>
-      <p v-else-if="shortDescription">{{ shortDescription }}</p>
-      <p v-else>상품 정보가 없습니다.</p>
+    <div class="panel detail-panel" v-if="tab === 'detail'">
+      <div v-if="fullDescription" class="detail-text" v-html="fullDescription"></div>
+      <p v-else-if="shortDescription" class="detail-text">{{ shortDescription }}</p>
+      <p v-else class="empty">상품 정보가 없습니다.</p>
+
+      <div v-if="detailImages?.length" class="detail-images">
+        <img
+          v-for="(src, idx) in detailImages"
+          :key="`${src}-${idx}`"
+          :src="src"
+          :alt="`상품 상세 이미지 ${idx + 1}`"
+          loading="lazy"
+        />
+      </div>
     </div>
 
     <div class="panel info" v-else-if="tab === 'review'">
@@ -63,6 +73,7 @@ const props = defineProps<{
   product: ProductDetail
   shortDescription: string | null
   fullDescription: string | null
+  detailImages?: string[]
   initialTab?: Tab
 }>()
 
@@ -120,6 +131,30 @@ const averageRating = computed(() => {
 .panel {
   padding: 20px;
   color: #111827;
+}
+.detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.detail-text {
+  white-space: pre-line;
+  line-height: 1.6;
+}
+.detail-images {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.detail-images img {
+  width: 100%;
+  border-radius: 8px;
+  background: #f9fafb;
+  border: 1px solid var(--gray-200, #e5e7eb);
+  object-fit: contain;
+}
+.empty {
+  color: #6b7280;
 }
 .info table {
   width: 100%;

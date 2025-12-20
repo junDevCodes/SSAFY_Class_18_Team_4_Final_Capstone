@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Vue Router 설정
  */
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
@@ -49,7 +49,7 @@ const routes: RouteRecordRaw[] = [
     path: '/admin/analytics',
     name: 'admin-analytics',
     component: AdminAnalytics,
-    meta: { title: '관리자 분석', requiresAuth: true, requiresAdmin: true }
+    meta: { title: '관리자 분석' }
   },
   {
     path: '/search',
