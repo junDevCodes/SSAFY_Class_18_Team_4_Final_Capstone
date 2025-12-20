@@ -44,7 +44,7 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     list: 카테고리 목록 조회
     retrieve: 카테고리 상세 조회
     """
-    queryset = Category.objects.all()
+    queryset = Category.objects.all().order_by('id')
     serializer_class = CategorySerializer
     pagination_class = StandardResultsSetPagination
 

@@ -134,6 +134,7 @@ celerybeat.pid
 # Environments
 .env
 .env.prod
+.env.prod
 .venv
 env/
 venv/
@@ -436,6 +437,9 @@ data/m5-forecasting-accuracy/
 AGENTS.md
 CLAUDE.md
 .claude/
+storage/
+plan/
+.claude-workspace/
 storage/
 plan/
 .claude-workspace/

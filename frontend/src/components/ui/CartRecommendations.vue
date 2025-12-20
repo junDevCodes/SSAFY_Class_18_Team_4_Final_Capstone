@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="bg-white border border-gray-100 rounded-xl shadow-sm">
     <div class="flex items-start justify-between px-4 pt-4">
       <div class="space-y-1">

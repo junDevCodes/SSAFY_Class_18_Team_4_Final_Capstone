@@ -12,7 +12,7 @@
           Sel<span :class="['inline-block transform italic ml-0.5', isLightMode ? 'text-brand-500' : 'text-brand-200']">F</span>
         </span>
       </a>
-      
+
       <!-- Desktop Nav -->
       <nav class="hidden xl:flex gap-7 text-[15px] font-semibold tracking-tight" :class="isLightMode ? 'text-gray-700' : 'text-white/90'">
         <RouterLink
@@ -110,7 +110,7 @@
           <User :size="24" />
         </button>
       </template>
-      
+
       <button @click="uiStore.openRecent" :class="['relative p-2 rounded-full transition-colors', isLightMode ? 'text-gray-900 hover:bg-gray-100' : 'text-white hover:bg-white/10']" aria-label="최근 본 상품">
         <Clock3 :size="24" />
       </button>
@@ -133,22 +133,18 @@ import { useUIStore } from '@/stores/ui'
 import { useCartStore } from '@/stores/cart'
 import { useAuthStore } from '@/stores/auth'
 import { useScroll } from '@/composables/useScroll'
-
 const uiStore = useUIStore()
 const cartStore = useCartStore()
 const authStore = useAuthStore()
 const { scrollToTop } = useScroll()
 const router = useRouter()
 const route = useRoute()
-
 const LIGHT_SCROLL_Y = 48
 let observer: IntersectionObserver | null = null
-
 const navState = computed({
   get: () => uiStore.headerState,
   set: (state: 'hero' | 'light' | 'green') => uiStore.setHeaderState(state)
 })
-
 const navLinks = [
   { name: 'brand-story', label: '브랜드 스토리', to: { name: 'brand-story' } },
   { name: 'best-products', label: '베스트', to: { name: 'best-products' } },
@@ -156,10 +152,8 @@ const navLinks = [
   { name: 'self-mall', label: 'SelF Mall', to: { name: 'self-mall' } },
   { name: 'fresh-mall', label: 'Fresh Mall', to: { name: 'fresh-mall' } }
 ] as const
-
 const isHome = computed(() => route.name === 'home')
 const isLightMode = computed(() => navState.value === 'light')
-
 const headerToneClass = computed(() => {
   if (navState.value === 'green') {
     return 'h-16 bg-brand-600 text-white shadow-lg shadow-brand-600/30'
@@ -169,14 +163,11 @@ const headerToneClass = computed(() => {
   }
   return 'h-24 bg-transparent text-white'
 })
-
 const searchQuery = ref('')
-
 const handleSearch = () => {
   const q = searchQuery.value.trim()
   router.push({ name: 'search', query: q ? { q } : {} })
 }
-
 const handleLogoClick = () => {
   if (route.name === 'home') {
     scrollToTop()
@@ -184,11 +175,9 @@ const handleLogoClick = () => {
     router.push({ name: 'home' })
   }
 }
-
 const goTo = (path: string) => {
   router.push(path)
 }
-
 const linkClass = (name: string) => {
   const isActive = route.name === name
   const base = 'pb-2 border-b-2 transition-colors'
@@ -200,29 +189,24 @@ const linkClass = (name: string) => {
     : 'border-transparent'
   return [base, color, active]
 }
-
 const selfBaseClass = (name: string) => {
   const isActive = route.name === name
   if (isActive) return isLightMode.value ? 'text-brand-600' : 'text-white'
   return isLightMode.value ? 'text-gray-800' : 'text-white/80'
 }
-
 const selfAccentClass = (name: string) => {
   const isActive = route.name === name
   if (isActive) return isLightMode.value ? 'text-brand-500' : 'text-brand-200'
   return isLightMode.value ? 'text-brand-500' : 'text-brand-200'
 }
-
 const handleLogout = async () => {
   await authStore.logout()
 }
-
 const applyScrollState = () => {
   if (!isHome.value) {
     navState.value = 'light'
     return
   }
-
   const sentinel = document.getElementById('nav-sentinel')
   if (sentinel) {
     const top = sentinel.getBoundingClientRect().top
@@ -231,24 +215,19 @@ const applyScrollState = () => {
       return
     }
   }
-
   navState.value = window.scrollY > LIGHT_SCROLL_Y ? 'light' : 'hero'
 }
-
 const handleIntersect: IntersectionObserverCallback = (entries) => {
   if (!isHome.value) return
   const entry = entries[0]
   if (!entry) return
-
   const isAboveViewport = entry.boundingClientRect.top <= 0
-
   if (!entry.isIntersecting && isAboveViewport) {
     navState.value = 'green'
   } else {
     applyScrollState()
   }
 }
-
 const initObserver = () => {
   if (!isHome.value) return
   if (observer) {
@@ -257,7 +236,6 @@ const initObserver = () => {
   }
   const sentinel = document.getElementById('nav-sentinel')
   if (!sentinel) return
-
   observer = new IntersectionObserver(handleIntersect, {
     root: null,
     threshold: 0,
@@ -265,13 +243,11 @@ const initObserver = () => {
   })
   observer.observe(sentinel)
 }
-
 onMounted(() => {
   applyScrollState()
   window.addEventListener('scroll', applyScrollState, { passive: true })
   initObserver()
 })
-
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', applyScrollState)
   if (observer) {
@@ -279,8 +255,6 @@ onBeforeUnmount(() => {
     observer = null
   }
 })
-
-
 watch(
   () => route.name,
   () => {

@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import os
+import sys
 from dotenv import load_dotenv
 
 # .env 파일 로드 (인코딩 명시)
@@ -159,15 +160,26 @@ else:
     }
 
 # Cache (Redis)
-# 상품 리스트 등 읽기 성능/안정성 강화를 위해 Redis 캐시를 기본 캐시로 사용합니다.
-# - Docker 환경: REDIS_URL=redis://redis:6379/0 (docker-compose에서 주입)
-# - 로컬 개발: 필요 시 REDIS_URL 환경변수로 오버라이드
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": REDIS_URL,
+# 기본: RedisCache. 테스트 실행 시(CI 포함) 로컬 메모리 캐시로 전환해 외부 의존성 없이 검증.
+_cache_backend = os.getenv('DJANGO_CACHE_BACKEND', 'redis')
+_is_test_env = 'test' in sys.argv
+if _is_test_env:
+    _cache_backend = os.getenv('DJANGO_TEST_CACHE_BACKEND', 'locmem')
+
+if _cache_backend == 'locmem':
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-locmem',
+        }
     }
-}
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
+    }
 
 
 # Password validation
