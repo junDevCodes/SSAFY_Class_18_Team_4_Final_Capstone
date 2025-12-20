@@ -292,6 +292,42 @@ class CartSerializer(serializers.ModelSerializer):
 
 # ========================= v2.1 신규 Serializer =========================
 
+class NewProductListSerializer(serializers.ModelSerializer):
+    """신상품 목록용 Serializer
+
+    신상품 페이지에서 사용하는 간소화된 Serializer입니다.
+    프론트엔드에서 7일 필터링을 위해 created_at 필드를 포함합니다.
+    """
+    category_name = serializers.SerializerMethodField()
+    main_image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            'id',
+            'slug',
+            'name',
+            'price',
+            'original_price',
+            'main_image',
+            'category_name',
+            'created_at',
+        ]
+
+    def get_category_name(self, obj):
+        """카테고리명 반환 (null 안전)"""
+        if obj.category:
+            return obj.category.name
+        return None
+
+    def get_main_image(self, obj):
+        """메인 이미지 URL 반환 (ProductImage 테이블에서, display_order 기준)"""
+        first_image = obj.images.order_by('display_order').first()
+        if first_image:
+            return first_image.image_url
+        return None
+
+
 class ProductListSerializerV2(serializers.ModelSerializer):
     """상품 목록용 Serializer v2.1 (v2.1 테이블 포함)
 
