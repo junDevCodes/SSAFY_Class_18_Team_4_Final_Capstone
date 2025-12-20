@@ -16,6 +16,7 @@ from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from django.db.models import F
 
@@ -49,6 +50,42 @@ class StandardResultsSetPagination(PageNumberPagination):
     max_page_size = 100
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=['주문'],
+        summary='주문 목록 조회',
+        description='현재 로그인한 사용자의 주문 목록을 조회합니다.',
+    ),
+    retrieve=extend_schema(
+        tags=['주문'],
+        summary='주문 상세 조회',
+        description='특정 주문의 상세 정보를 조회합니다.',
+    ),
+    create_order=extend_schema(
+        tags=['주문'],
+        summary='주문 생성',
+        description='''장바구니 기반으로 주문을 생성합니다.
+
+### 처리 순서
+1. 재고 확인 및 차감 (동시성 제어)
+2. Order 생성
+3. OrderItem 생성 (Cart 기반)
+4. Shipment 생성 (배송 정보)
+5. Payment 생성 (모의 결제)
+6. Cart 항목 삭제
+''',
+    ),
+    cancel=extend_schema(
+        tags=['주문'],
+        summary='주문 취소',
+        description='주문을 취소합니다. pending, paid, processing 상태에서만 가능합니다.',
+    ),
+    confirm_delivery=extend_schema(
+        tags=['주문'],
+        summary='배송 완료 확인',
+        description='배송 완료를 확인합니다.',
+    ),
+)
 class OrderViewSet(viewsets.ReadOnlyModelViewSet):
     """주문 ViewSet (조회 + 커스텀 액션)
 
@@ -334,6 +371,18 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 
+@extend_schema_view(
+    create_order=extend_schema(
+        tags=['주문'],
+        summary='비회원 주문 생성',
+        description='비회원이 상품을 주문합니다. 이메일과 전화번호로 주문 조회가 가능합니다.',
+    ),
+    lookup=extend_schema(
+        tags=['주문'],
+        summary='비회원 주문 조회',
+        description='주문번호와 이메일로 비회원 주문을 조회합니다.',
+    ),
+)
 class GuestOrderViewSet(viewsets.GenericViewSet):
     """비회원 주문 ViewSet
 

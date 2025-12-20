@@ -14,6 +14,7 @@ from .views import (
     CartViewSet,
     ReviewViewSet,
     ProductRecommendClickView,
+    NewProductListView,
 )
 
 # Router 설정
@@ -28,6 +29,8 @@ router.register(r'reviews', ReviewViewSet, basename='review')
 urlpatterns = [
     # 상품 API (새로운 버전)
     path('products/', ProductListView.as_view(), name='product-list'),
+    # 신상품 목록 API (product_type='main', 최신순 40개)
+    path('products/new/', NewProductListView.as_view(), name='product-new-list'),
     path('products/<int:pk>/', ProductDetailView.as_view(), name='product-detail'),
     # 한글 slug 지원을 위해 re_path 사용 (유니코드 문자 허용)
     re_path(r'^products/(?P<slug>[\w\-]+)/$', ProductDetailView.as_view(), name='product-detail-slug'),
