@@ -77,7 +77,7 @@ const scrollByStep = (direction: number) => {
 }
 
 const displayName = (name: string) => {
-  return name === '怨쇱씪' ? '怨쇱씪/寃ш낵' : name
+  return name === '과일' ? '과일/견과' : name
 }
 
 const goToCategory = (id: number) => {
