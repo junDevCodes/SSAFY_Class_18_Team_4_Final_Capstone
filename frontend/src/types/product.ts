@@ -249,6 +249,22 @@ export interface ProductListResponse {
   results: Product[]
 }
 
+export interface NewProductSummary {
+  id: number
+  slug: string
+  name: string
+  price: number
+  original_price: number | null
+  main_image: string | null
+  category_name: string | null
+  created_at: string
+}
+
+export interface NewProductListResponse {
+  count: number
+  results: NewProductSummary[]
+}
+
 // 카테고리 목록 응답
 export interface CategoryListResponse {
   count: number

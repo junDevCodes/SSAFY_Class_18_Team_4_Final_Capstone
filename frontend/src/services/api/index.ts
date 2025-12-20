@@ -20,6 +20,7 @@ import type {
   ProductListResponse,
   ProductFilterParams,
   CategoryListResponse,
+  NewProductListResponse,
 } from '@/types/product'
 import { analyticsAPI, adminAnalyticsAPI } from './analytics'
 
@@ -136,6 +137,12 @@ export const productsAPI = {
     apiClient.get<ProductListResponse>('/api/products/', {
       params: { is_new: true, page_size: limit },
     }),
+
+  /**
+   * ??? ?? ?? (40? ?? - /api/products/new/)
+   */
+  getNewProductList: () =>
+    apiClient.get<NewProductListResponse>('/api/products/new/'),
 
   /**
    * 할인 상품 목록 조회

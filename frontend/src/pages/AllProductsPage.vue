@@ -72,6 +72,10 @@
           {{ productStore.error }}
         </div>
 
+        <div v-else-if="productType === 'seller' && totalCount === 0" class="flex justify-center items-center py-20 text-gray-500">
+          등록된 상품이 없습니다.
+        </div>
+
         <div v-else class="space-y-10">
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-12">
             <ProductCard
@@ -143,6 +147,8 @@ const currentPage = computed(() => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
 })
 
+const productType = computed(() => (route.query.product_type === 'seller' ? 'seller' : undefined))
+
 const sort = ref((route.query.sort as string) || 'recent')
 const bestOnly = ref(route.query.best === '1' || route.query.best === 'true')
 const saleOnly = ref(route.query.sale === '1' || route.query.sale === 'true')
@@ -178,6 +184,7 @@ const fetchAll = async () => {
     category: categoryId.value,
     is_best: bestOnly.value || undefined,
     is_on_sale: saleOnly.value || undefined,
+    product_type: productType.value,
     ordering: mapSort(sort.value),
   })
   totalCount.value = res?.count || 0
@@ -217,6 +224,7 @@ type QueryUpdate = {
   best?: number | undefined
   sale?: number | undefined
   sort?: string | undefined
+  product_type?: 'main' | 'seller' | undefined
 }
 
 const updateQuery = (update: QueryUpdate) => {
@@ -228,6 +236,7 @@ const updateQuery = (update: QueryUpdate) => {
       best: update.best !== undefined ? update.best : (bestOnly.value ? 1 : undefined),
       sale: update.sale !== undefined ? update.sale : (saleOnly.value ? 1 : undefined),
       sort: update.sort !== undefined ? update.sort : sort.value,
+      product_type: update.product_type !== undefined ? update.product_type : productType.value,
     },
   })
 }
