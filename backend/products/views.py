@@ -9,7 +9,8 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import F
+from django.db.models import F, Subquery, OuterRef, Value, IntegerField
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from decimal import Decimal
@@ -22,14 +23,14 @@ from drf_spectacular.types import OpenApiTypes
 from .models import (
     Category, Product, ProductImage, Wishlist, Cart,
     ProductDetail as ProductDetailModel, ProductStats, UserProductStats,
-    Review, ReviewImage, ReviewStatus
+    Review, ReviewImage, ReviewStatus, DailySalesStats
 )
 from .serializers import (
     CategorySerializer, ProductSerializer, ProductDetailSerializer,
     ProductListSerializer, ProductImageSerializer, WishlistSerializer, CartSerializer,
     ProductListSerializerV2, ProductDetailSerializerV2,
     ReviewSerializer, ReviewCreateSerializer,
-    NewProductListSerializer
+    NewProductListSerializer, BestProductListSerializer
 )
 
 
@@ -898,6 +899,109 @@ class NewProductListView(APIView):
         ).select_related('category').prefetch_related('images').order_by('-created_at')[:40]
 
         serializer = NewProductListSerializer(products, many=True)
+
+        return Response({
+            'count': len(serializer.data),
+            'results': serializer.data
+        })
+
+
+class BestProductListView(APIView):
+    """베스트 상품 목록 API
+
+    GET /api/products/best/
+
+    product_type='seller'인 판매자 상품 중:
+    1. 오늘 일일 판매량(주문 횟수) 상위 40개를 우선 선정
+    2. 부족하면 누적 판매량(order_event_count) 순으로 채움
+    3. 최종 40개를 판매량 내림차순 정렬하여 반환
+
+    응답에는 리뷰 개수, 평균 평점, 일일/누적 판매량 정보가 포함됩니다.
+    """
+
+    @extend_schema(
+        tags=['베스트 상품'],
+        summary='베스트 상품 목록 조회',
+        description='''판매자 상품 중 베스트 상품 40개를 조회합니다.
+
+### 조회 조건
+- `product_type='seller'` (판매자 상품만)
+- `status='active'` (판매중인 상품만)
+
+### 정렬 우선순위
+1. **일일 판매량 (오늘)**: 오늘 주문 횟수 기준 상위
+2. **누적 판매량**: 일일 판매량이 동일하거나 없으면 누적 주문 횟수로 정렬
+3. **등록일**: 판매량이 동일하면 최신 상품 우선
+
+### 응답 포함 정보
+- 기본 상품 정보 (id, name, price, main_image 등)
+- `review_count`: 리뷰 개수
+- `average_rating`: 평균 평점 (1~5)
+- `daily_order_count`: 오늘 주문 횟수
+- `total_order_count`: 누적 주문 횟수
+''',
+        responses={
+            200: OpenApiExample(
+                name='성공 응답',
+                value={
+                    'count': 40,
+                    'results': [
+                        {
+                            'id': 1,
+                            'slug': 'fresh-milk-1l',
+                            'name': '신선한 우유 1L',
+                            'price': 3500,
+                            'original_price': 4000,
+                            'main_image': 'https://example.com/milk.jpg',
+                            'category_name': '유제품',
+                            'review_count': 42,
+                            'average_rating': '4.50',
+                            'daily_order_count': 15,
+                            'total_order_count': 230,
+                            'created_at': '2025-12-01T10:30:00Z'
+                        }
+                    ]
+                }
+            )
+        }
+    )
+    def get(self, request):
+        """베스트 상품 40개 조회 (판매량 기준 정렬)"""
+        today = timezone.now().date()
+
+        # 오늘 일일 판매량 서브쿼리
+        daily_sales_subquery = DailySalesStats.objects.filter(
+            product=OuterRef('pk'),
+            date=today
+        ).values('order_count')[:1]
+
+        # 베이스 쿼리: 판매자 상품 + 활성 상태
+        # 일일 판매량과 누적 판매량을 annotate로 추가
+        products = Product.objects.filter(
+            product_type='seller',
+            status='active'
+        ).select_related(
+            'category', 'stats'
+        ).prefetch_related(
+            'images'
+        ).annotate(
+            daily_order_count=Coalesce(
+                Subquery(daily_sales_subquery),
+                Value(0),
+                output_field=IntegerField()
+            ),
+            total_order_count=Coalesce(
+                F('stats__order_event_count'),
+                Value(0),
+                output_field=IntegerField()
+            )
+        ).order_by(
+            '-daily_order_count',   # 일일 판매량 내림차순
+            '-total_order_count',   # 누적 판매량 내림차순
+            '-created_at'           # 최신순
+        )[:40]
+
+        serializer = BestProductListSerializer(products, many=True)
 
         return Response({
             'count': len(serializer.data),

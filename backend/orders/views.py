@@ -20,7 +20,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from django.db.models import F
 
-from products.models import Cart, ProductInventory, ProductStats, UserProductStats
+from products.models import Cart, ProductInventory, ProductStats, UserProductStats, DailySalesStats
 
 from .models import (
     Order,
@@ -259,6 +259,25 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
                         product=product,
                         order_event_count=1
                     )
+
+        # 8) DailySalesStats 업데이트: 일일 판매량 기록 (베스트 상품 산정용)
+        today = timezone.now().date()
+        for cart_item in cart_items:
+            product = cart_item.product
+
+            # UPDATE 먼저 시도 (기존 레코드가 있는 경우)
+            rows_updated = DailySalesStats.objects.filter(
+                product=product,
+                date=today
+            ).update(order_count=F('order_count') + 1)
+
+            # 기존 레코드가 없으면 생성
+            if rows_updated == 0:
+                DailySalesStats.objects.create(
+                    product=product,
+                    date=today,
+                    order_count=1
+                )
 
         response_serializer = OrderSerializer(order)
         return Response(
@@ -526,6 +545,25 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
             ProductStats.objects.filter(product_id=product.id).update(
                 order_event_count=F('order_event_count') + 1
             )
+
+        # 7) DailySalesStats 업데이트: 일일 판매량 기록 (비회원 주문도 반영)
+        today = timezone.now().date()
+        for item in items:
+            product = item["product"]
+
+            # UPDATE 먼저 시도 (기존 레코드가 있는 경우)
+            rows_updated = DailySalesStats.objects.filter(
+                product=product,
+                date=today
+            ).update(order_count=F('order_count') + 1)
+
+            # 기존 레코드가 없으면 생성
+            if rows_updated == 0:
+                DailySalesStats.objects.create(
+                    product=product,
+                    date=today,
+                    order_count=1
+                )
 
         response_serializer = OrderSerializer(order)
         return Response(
