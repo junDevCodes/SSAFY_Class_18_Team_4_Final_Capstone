@@ -2,8 +2,8 @@
   <section class="bg-white border border-gray-100 rounded-xl shadow-sm">
     <div class="flex items-start justify-between px-4 pt-4">
       <div class="space-y-1">
-        <p class="text-[11px] font-semibold text-brand-600 tracking-tight uppercase">상품추천</p>
-        <p class="text-sm text-gray-600">함께 담으면 잘 어울리는 상품을 골라드려요</p>
+        <p class="text-[11px] font-semibold text-brand-600 tracking-tight uppercase">상품 추천</p>
+        <p class="text-sm text-gray-600">고객 취향을 바탕으로 골라봤어요</p>
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -69,6 +69,8 @@
                 <button
                   type="button"
                   class="w-8 h-8 inline-flex items-center justify-center rounded-full bg-white border border-gray-200 text-brand-600 hover:border-brand-500 hover:bg-brand-50 transition-colors"
+                  :class="isAdding(product.id) ? 'opacity-60 cursor-not-allowed' : ''"
+                  :disabled="isAdding(product.id)"
                   @click.stop="addItem(product)"
                 >
                   <Plus :size="16" stroke-width="2.5" />
@@ -109,6 +111,7 @@ const cartStore = useCartStore()
 const uiStore = useUIStore()
 
 const loading = ref(false)
+const addingIds = ref<string[]>([])
 const error = ref<string | null>(null)
 const recommendations = ref<Product[]>([])
 const currentSlide = ref(0)
@@ -137,14 +140,13 @@ const fetchRecommendations = async () => {
     const { data } = await productsAPI.getBestProducts(props.limit ?? 9)
     recommendations.value = data.results || []
     currentSlide.value = 0
-    // fallback: 없을 경우 신규/추천 한 번 더 호출
     if (recommendations.value.length === 0) {
       const fallback = await productsAPI.getFeaturedProducts(props.limit ?? 9)
       recommendations.value = fallback.data.results || []
     }
   } catch (err) {
     console.error('추천 상품 불러오기 실패:', err)
-    error.value = '추천을 불러올 수 없습니다.'
+    error.value = '추천을 불러오지 못했어요.'
   } finally {
     loading.value = false
   }
@@ -167,14 +169,31 @@ const goProduct = (product: Product) => {
 }
 
 const addItem = async (product: Product) => {
+  const productId = product?.id
+  if (!productId || product.price == null) {
+    uiStore.showToast('상품 정보가 부족해 담지 못했어요.')
+    return
+  }
+
+  const idKey = String(productId)
+  if (addingIds.value.includes(idKey)) return
+  addingIds.value = [...addingIds.value, idKey]
+
   try {
     await cartStore.addToCart(product, 1)
-    uiStore.showToast('장바구니에 담았어요!')
+    const message = cartStore.isGuest
+      ? '담겼어요. 로그인하면 서버 장바구니와 동기화됩니다.'
+      : '장바구니에 담았어요!'
+    uiStore.showToast(message)
   } catch (err) {
     console.error('추천 상품 장바구니 추가 실패:', err)
-    uiStore.showToast('담기에 실패했습니다. 다시 시도해주세요.')
+    uiStore.showToast('장바구니 담기에 실패했어요. 잠시 후 다시 시도해주세요.')
+  } finally {
+    addingIds.value = addingIds.value.filter(id => id !== idKey)
   }
 }
+
+const isAdding = (id: number | string) => addingIds.value.includes(String(id))
 
 onMounted(fetchRecommendations)
 </script>

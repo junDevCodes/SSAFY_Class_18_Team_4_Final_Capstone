@@ -16,8 +16,19 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
+from django.conf import settings
 
 urlpatterns = [
+    # Django Admin
+    path(
+        'admin/analytics/',
+        RedirectView.as_view(
+            url=f"{settings.FRONTEND_ORIGIN}/admin/analytics",
+            permanent=False
+        ),
+        name='admin-analytics-redirect'
+    ),
     path('admin/', admin.site.urls),
     path('', include('authentication.urls', namespace='authentication')),
     path('api/', include('products.urls')),

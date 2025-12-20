@@ -96,6 +96,16 @@
               <p>등록된 상품을 관리하세요</p>
             </router-link>
 
+            <router-link to="/seller/analytics" class="action-card">
+              <div class="action-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 12h4l3-8 4 16 3-8h3" />
+                </svg>
+              </div>
+              <h3>유입·전환 분석</h3>
+              <p>채널/상품별 전환 추이를 바로 확인하세요</p>
+            </router-link>
+
             <a href="#orders" class="action-card">
               <div class="action-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">

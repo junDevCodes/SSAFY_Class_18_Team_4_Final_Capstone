@@ -14,6 +14,9 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from decimal import Decimal
 from django.db.models import Avg
+from django.core.cache import cache
+from django.utils.encoding import iri_to_uri
+from django.conf import settings
 from .models import (
     Category, Product, ProductImage, Wishlist, Cart,
     ProductDetail as ProductDetailModel, ProductStats, UserProductStats,
@@ -41,7 +44,7 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     list: 카테고리 목록 조회
     retrieve: 카테고리 상세 조회
     """
-    queryset = Category.objects.all()
+    queryset = Category.objects.all().order_by('id')
     serializer_class = CategorySerializer
     pagination_class = StandardResultsSetPagination
 
@@ -145,6 +148,27 @@ class ProductListView(generics.ListAPIView):
             ).order_by('-created_at')
 
         return queryset
+
+    def list(self, request, *args, **kwargs):
+        """
+        상품 목록 응답을 Redis 캐시에 저장하여 배치/가격 추적 중에도
+        최근 결과를 안정적으로 제공한다.
+
+        - 캐시 키: 요청 URL 전체 (쿼리 파라미터 포함)
+        - TTL: settings.PRODUCT_LIST_CACHE_TTL (기본 60초, 환경변수로 조정 가능)
+        """
+        cache_key = "product_list:" + iri_to_uri(request.get_full_path())
+
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        response = super().list(request, *args, **kwargs)
+
+        # 정상 응답 데이터를 캐시에 저장 (기본 TTL 60초, 환경변수로 조정)
+        cache.set(cache_key, response.data, timeout=settings.PRODUCT_LIST_CACHE_TTL)
+
+        return response
 
 
 class ProductDetailView(generics.RetrieveAPIView):

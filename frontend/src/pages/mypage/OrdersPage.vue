@@ -61,21 +61,43 @@
             :key="item.id"
             class="order-item"
           >
-            <div class="item-image">
+            <div class="item-image clickable" @click="goProductDetail(item)">
               <img
                 :src="item.image_url || DEFAULT_PRODUCT_IMAGE"
                 :alt="item.product_name"
                 @error="handleImageError"
               />
             </div>
-            <div class="item-info">
-              <h4 class="item-name">{{ item.product_name }}</h4>
-              <p class="item-quantity">
+            <div class="item-info clickable" @click="goProductDetail(item)">
+              <h4 class="item-name link">{{ item.product_name }}</h4>
+              <p class="item-quantity link-sub">
                 {{ item.quantity }}개 × {{ formatPrice(item.unit_price || 0) }}
               </p>
             </div>
             <div class="item-total">
               {{ formatPrice(item.total_price) }}
+            </div>
+            <div v-if="reviewMap[item.id]" class="item-actions">
+              <button class="btn-review" @click="goEditReview(item, reviewMap[item.id])">
+                리뷰 수정
+              </button>
+              <button
+                class="btn-review danger"
+                :disabled="deletingReviewId === reviewMap[item.id].id"
+                @click="handleDeleteReview(reviewMap[item.id])"
+              >
+                {{ deletingReviewId === reviewMap[item.id].id ? '삭제 중...' : '리뷰 삭제' }}
+              </button>
+            </div>
+            <div v-else-if="isReviewedToday(item)" class="item-actions">
+              <button class="btn-review" disabled>
+                이미 작성했어요!
+              </button>
+            </div>
+            <div v-else-if="isReviewWriteAvailable(order, item)" class="item-actions">
+              <button class="btn-review" @click="openWriteReview(order, item)">
+                리뷰 작성
+              </button>
             </div>
           </div>
 
@@ -168,23 +190,51 @@
         </button>
       </div>
     </div>
+
+    <ReviewWriteModal
+      :open="writeModalOpen"
+      :product-id="writeModalProductId"
+      :order-item-id="writeModalOrderItemId"
+      :product-name="writeModalProductName"
+      @close="writeModalOpen = false"
+      @submitted="handleReviewSubmitted"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useOrdersStore } from '@/stores/orders'
+import { useRouter } from 'vue-router'
+import { useOrdersStore, type Order, type OrderItem } from '@/stores/orders'
 import { formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 import { getOrderStatusText } from '@/utils/status'
+import { reviewApi, type Review } from '@/services/api/reviews'
+import ReviewWriteModal from '@/components/order/ReviewWriteModal.vue'
 
 const ordersStore = useOrdersStore()
+const router = useRouter()
 
 const loading = ref(true)
 const error = ref<string | null>(null)
 const cancelling = ref<number | null>(null)
 const confirming = ref<number | null>(null)
+const deletingReviewId = ref<number | null>(null)
 const currentPage = ref(1)
 const pageSize = 10
+const myReviews = ref<Review[]>([])
+const writeModalOpen = ref(false)
+const writeModalProductId = ref<number | null>(null)
+const writeModalOrderItemId = ref<number | null>(null)
+const writeModalProductName = ref<string>('')
+const reviewMap = computed<Record<number, Review>>(() => {
+  const map: Record<number, Review> = {}
+  myReviews.value.forEach((r) => {
+    if (r.order_item) {
+      map[r.order_item] = r
+    }
+  })
+  return map
+})
 
 // Computed
 const orders = computed(() => ordersStore.orders)
@@ -227,6 +277,135 @@ const loadOrders = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const loadMyReviews = async () => {
+  try {
+    const results: Review[] = []
+    let page = 1
+    let hasNext = true
+
+    while (hasNext) {
+      const data = await reviewApi.getMyReviews({ page, page_size: 100 })
+      results.push(...data.results)
+      hasNext = Boolean(data.next)
+      page += 1
+    }
+
+    myReviews.value = results
+  } catch (err: any) {
+    console.error('리뷰 목록 로드 실패:', err)
+  }
+}
+
+const getProductSlug = (item: OrderItem): string | number | null => {
+  const productAny = (item as any).product
+  if (productAny && typeof productAny === 'object') {
+    return productAny.slug ?? productAny.id ?? null
+  }
+  if (typeof productAny === 'string' || typeof productAny === 'number') {
+    return productAny
+  }
+  return null
+}
+
+const normalizeId = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const num = Number(value)
+    if (Number.isFinite(num)) return num
+  }
+  return null
+}
+
+const getProductId = (item: OrderItem): number | null => {
+  const anyItem = item as any
+  // 직접 필드 우선
+  const direct = normalizeId(anyItem.product_id)
+  if (direct !== null) return direct
+
+  const productAny = anyItem.product
+  if (productAny && typeof productAny === 'object') {
+    const fromObj = normalizeId((productAny as any).id) ?? normalizeId((productAny as any).product_id)
+    if (fromObj !== null) return fromObj
+  }
+
+  return normalizeId(productAny)
+}
+
+const hasAnyReview = (productId: number) =>
+  myReviews.value.some((r) => r.product === productId)
+
+const isReviewedToday = (item: OrderItem) => {
+  const productId = getProductId(item)
+  if (!productId) return false
+  return hasAnyReview(productId)
+}
+
+const isReviewWriteAvailable = (order: Order, item: OrderItem) => {
+  if (!isDelivered(order)) return false
+  const productId = getProductId(item)
+  if (!productId) return false
+  // 이미 리뷰가 있으면 날짜와 관계없이 재작성 버튼을 숨김
+  if (hasAnyReview(productId)) return false
+  return true
+}
+
+const goEditReview = (item: OrderItem, review: Review) => {
+  const slug = getProductSlug(item)
+  if (!slug) {
+    alert('상품 정보를 찾을 수 없습니다.')
+    return
+  }
+  router.push({
+    name: 'product-detail',
+    params: { slug },
+    query: { tab: 'review', editReviewId: review.id },
+  })
+}
+
+const goProductDetail = (item: OrderItem) => {
+  const slug = getProductSlug(item)
+  if (!slug) {
+    alert('상품 정보를 찾을 수 없습니다.')
+    return
+  }
+  router.push({ name: 'product-detail', params: { slug } })
+}
+
+const handleDeleteReview = async (review: Review) => {
+  const confirmed = confirm('리뷰를 삭제하시겠습니까?')
+  if (!confirmed) return
+  deletingReviewId.value = review.id
+  try {
+    await reviewApi.deleteReview(review.id)
+    myReviews.value = myReviews.value.filter((r) => r.id !== review.id)
+    alert('리뷰가 삭제되었습니다.')
+  } catch (err: any) {
+    console.error('리뷰 삭제 실패:', err)
+    alert(err?.response?.data?.detail || '리뷰 삭제에 실패했습니다.')
+  } finally {
+    deletingReviewId.value = null
+  }
+}
+
+const openWriteReview = (order: Order, item: OrderItem) => {
+  if (!isReviewWriteAvailable(order, item)) return
+  const productId = getProductId(item)
+  if (!productId) {
+    alert('상품 정보를 찾을 수 없습니다.')
+    return
+  }
+  writeModalProductId.value = productId
+  writeModalOrderItemId.value = item.id
+  writeModalProductName.value = item.product_name
+  writeModalOpen.value = true
+}
+
+const handleReviewSubmitted = (payload?: { message?: string; alreadyReviewed?: boolean }) => {
+  if (payload?.message) alert(payload.message)
+  writeModalOpen.value = false
+  loadMyReviews()
 }
 
 // Pagination
@@ -285,6 +464,8 @@ const canConfirmDelivery = (order: any): boolean => {
   return ['paid', 'shipped'].includes(order.status)
 }
 
+const isDelivered = (order: Order): boolean => order.status === 'delivered'
+
 // Format date
 const formatDate = (dateString: string): string => {
   const date = new Date(dateString)
@@ -304,6 +485,7 @@ const handleImageError = (event: Event) => {
 // Initialize
 onMounted(() => {
   loadOrders()
+  loadMyReviews()
 })
 </script>
 
@@ -575,6 +757,47 @@ onMounted(() => {
   font-size: 1rem;
   font-weight: 600;
   color: #1a1a1a;
+}
+
+.clickable { cursor: pointer; }
+.item-name.link { color: #1a1a1a; }
+.item-name.link:hover { color: #5f0080; text-decoration: underline; }
+.item-quantity.link-sub { color: #666; }
+
+.item-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: 1rem;
+}
+
+.btn-review {
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-review:hover:not(:disabled) {
+  border-color: #5f0080;
+  color: #5f0080;
+}
+
+.btn-review.danger {
+  border-color: #f5c2c7;
+  color: #dc3545;
+}
+
+.btn-review.danger:hover:not(:disabled) {
+  background: #dc3545;
+  color: #fff;
+}
+
+.btn-review:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .more-items {
