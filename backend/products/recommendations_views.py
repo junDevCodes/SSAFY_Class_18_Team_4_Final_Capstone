@@ -5,6 +5,7 @@
 """
 import logging
 
+from django.db.models import F, FloatField, ExpressionWrapper
 from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -111,10 +112,18 @@ class HomeRecommendationsView(APIView):
 
         serializer = ProductListSerializerV2(ordered_products, many=True)
 
+        # model_results가 None 이거나 비 dict 타입이어도 안전하게 처리
+        model_results = result.get('model_results') or []
+        first_model = model_results[0] if model_results else None
+        if isinstance(first_model, dict):
+            model_name = first_model.get('model_name', 'unknown')
+        else:
+            model_name = 'unknown'
+
         return Response({
             'products': serializer.data,
             'user_type': result.get('user_type', 'cold'),
-            'model_name': result.get('model_results', [{}])[0].get('model_name', 'unknown') if result.get('model_results') else 'unknown',
+            'model_name': model_name,
         })
 
     def _fallback_products(self, limit):
@@ -258,10 +267,24 @@ class DealRecommendationsView(APIView):
         })
 
     def _fallback_deals(self, limit):
-        """할인율 높은 상품"""
+        """할인율 높은 상품
+
+        Product 모델에는 discount_rate 필드가 없으므로,
+        price와 original_price를 기반으로 할인율을 계산하여 정렬한다.
+        """
+        # 할인율 = (1 - price / original_price) * 100
+        discount_expr = ExpressionWrapper(
+            (1.0 - F('price') / F('original_price')) * 100.0,
+            output_field=FloatField(),
+        )
+
         products = Product.objects.filter(
             status="active",
-            discount_rate__gt=0,
+            original_price__isnull=False,
+            original_price__gt=0,
+            price__lt=F('original_price'),
+        ).annotate(
+            discount_rate=discount_expr,
         ).select_related(
             'category', 'stats', 'inventory'
         ).prefetch_related(

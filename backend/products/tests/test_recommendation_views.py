@@ -46,6 +46,25 @@ class RecommendationViewsEdgeCaseTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("products", response.data)
 
+    @patch("products.recommendations_views.pred_client.get_home_recommendations")
+    def test_home_추천_model_results_비정상값이어도_500_발생하지_않음(self, mock_get_home):
+        """홈 추천에서 model_results가 None 또는 비 dict 리스트여도 에러 없이 처리해야 한다"""
+        # Arrange: model_results가 [None] 인 경우
+        mock_get_home.return_value = {
+            "success": True,
+            "recommendations": [{"product_id": 999}],
+            "model_results": [None],
+        }
+
+        # Act
+        response = self.client.get("/api/recommendations/home/")
+
+        # Assert
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("products", response.data)
+        # model_name은 안전하게 'unknown'으로 처리되어야 함
+        self.assertEqual(response.data.get("model_name"), "unknown")
+
     @patch("products.recommendations_views.pred_client.get_product_recommendations")
     def test_product_추천_recommendations_null_이어도_500_발생하지_않음(self, mock_get_product):
         """상품 상세 추천에서 recommendations가 null이어도 TypeError 없이 응답해야 한다"""
