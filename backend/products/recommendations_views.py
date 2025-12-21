@@ -94,7 +94,7 @@ class HomeRecommendationsView(APIView):
             return self._fallback_products(limit)
 
         # pred 응답의 product_id로 실제 Product 조회
-        product_ids = [r.get("product_id") for r in result.get("recommendations", [])]
+        product_ids = [r.get("product_id") for r in (result.get("recommendations") or [])]
         if not product_ids:
             return self._fallback_products(limit)
 
@@ -163,7 +163,7 @@ class ProductRecommendationsView(APIView):
             return self._fallback_products(product_id, limit)
 
         # pred 응답의 product_id로 실제 Product 조회
-        product_ids = [r.get("product_id") for r in result.get("recommendations", [])]
+        product_ids = [r.get("product_id") for r in (result.get("recommendations") or [])]
         if not product_ids:
             return self._fallback_products(product_id, limit)
 
@@ -219,13 +219,17 @@ class DealRecommendationsView(APIView):
         except (ValueError, TypeError):
             limit = 10
 
-        category_id = request.query_params.get('category_id')
+        category_id_raw = request.query_params.get('category_id')
+        try:
+            category_id = int(category_id_raw) if category_id_raw else None
+        except (ValueError, TypeError):
+            category_id = None
         user_id = request.user.id if request.user.is_authenticated else None
 
         # pred 서비스 호출
         result = pred_client.get_deal_recommendations(
             user_id=user_id,
-            category_id=int(category_id) if category_id else None,
+            category_id=category_id,
             limit=limit,
         )
 
@@ -233,7 +237,7 @@ class DealRecommendationsView(APIView):
             # pred 실패 시 fallback: 할인율 높은 상품
             return self._fallback_deals(limit)
 
-        product_ids = [r.get("product_id") for r in result.get("recommendations", [])]
+        product_ids = [r.get("product_id") for r in (result.get("recommendations") or [])]
         if not product_ids:
             return self._fallback_deals(limit)
 
