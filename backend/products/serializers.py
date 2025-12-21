@@ -640,3 +640,154 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
             )
 
         return review
+
+
+# ========================= 판매자 상품 이미지 업로드 Serializers =========================
+
+class ProductImageUploadSerializer(serializers.Serializer):
+    """상품 메인 이미지 업로드 Serializer (파일 업로드)
+
+    multipart/form-data로 이미지 파일을 받아 S3에 업로드합니다.
+    """
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        required=True,
+        help_text="업로드할 이미지 파일 목록 (최대 10개)",
+    )
+
+    def validate_images(self, value):
+        """이미지 파일 유효성 검사"""
+        if len(value) > 10:
+            raise serializers.ValidationError("이미지는 최대 10개까지 업로드할 수 있습니다.")
+
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        max_size = 5 * 1024 * 1024  # 5MB
+
+        for img in value:
+            if img.content_type not in allowed_types:
+                raise serializers.ValidationError(
+                    f"지원하지 않는 이미지 형식입니다: {img.content_type}. "
+                    f"허용 형식: JPEG, PNG, GIF, WebP"
+                )
+            if img.size > max_size:
+                raise serializers.ValidationError(
+                    f"이미지 크기가 너무 큽니다: {img.name}. 최대 5MB까지 업로드 가능합니다."
+                )
+
+        return value
+
+
+class ProductDetailImageUploadSerializer(serializers.Serializer):
+    """상품 상세 설명 이미지 업로드 Serializer
+
+    상세 페이지 본문에 표시되는 이미지들을 업로드합니다.
+    """
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        required=True,
+        help_text="업로드할 상세 설명 이미지 파일 목록 (최대 20개)",
+    )
+
+    def validate_images(self, value):
+        """이미지 파일 유효성 검사"""
+        if len(value) > 20:
+            raise serializers.ValidationError("상세 이미지는 최대 20개까지 업로드할 수 있습니다.")
+
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        max_size = 10 * 1024 * 1024  # 10MB (상세 이미지는 더 클 수 있음)
+
+        for img in value:
+            if img.content_type not in allowed_types:
+                raise serializers.ValidationError(
+                    f"지원하지 않는 이미지 형식입니다: {img.content_type}"
+                )
+            if img.size > max_size:
+                raise serializers.ValidationError(
+                    f"이미지 크기가 너무 큽니다: {img.name}. 최대 10MB까지 업로드 가능합니다."
+                )
+
+        return value
+
+
+class SellerProductCreateSerializer(serializers.ModelSerializer):
+    """판매자 상품 생성 Serializer
+
+    상품 생성 시 ProductDetail, ProductInventory, ProductStats를 자동으로 생성합니다.
+    """
+    category_id = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(),
+        source='category',
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text="카테고리 ID"
+    )
+
+    # 재고 정보 (옵션)
+    stock_quantity = serializers.IntegerField(
+        write_only=True,
+        required=False,
+        default=0,
+        help_text="초기 재고 수량"
+    )
+
+    # 상세 설명 (옵션)
+    short_description = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="짧은 설명"
+    )
+    full_description = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="상세 설명"
+    )
+
+    class Meta:
+        model = Product
+        fields = [
+            'name', 'slug', 'price', 'original_price',
+            'category_id', 'unit', 'unit_quantity',
+            'shipping_required', 'shipping_fee',
+            'free_shipping_threshold', 'estimated_delivery_days',
+            'stock_quantity', 'short_description', 'full_description'
+        ]
+
+    def validate_slug(self, value):
+        """slug 중복 체크"""
+        if value and Product.objects.filter(slug=value).exists():
+            raise serializers.ValidationError("이미 사용 중인 슬러그입니다.")
+        return value
+
+    def create(self, validated_data):
+        """상품 생성 + 관련 테이블 자동 생성"""
+        # 추가 필드 추출
+        stock_quantity = validated_data.pop('stock_quantity', 0)
+        short_description = validated_data.pop('short_description', '')
+        full_description = validated_data.pop('full_description', '')
+
+        # 상품 생성
+        product = Product.objects.create(**validated_data)
+
+        # ProductDetail 생성
+        ProductDetail.objects.create(
+            product=product,
+            short_description=short_description,
+            full_description=full_description,
+            full_image_description=[]  # 빈 배열로 초기화
+        )
+
+        # ProductInventory 생성
+        ProductInventory.objects.create(
+            product=product,
+            stock_quantity=stock_quantity,
+            safe_stock_level=10,
+            is_unlimited=False
+        )
+
+        # ProductStats 생성
+        ProductStats.objects.create(product=product)
+
+        return product

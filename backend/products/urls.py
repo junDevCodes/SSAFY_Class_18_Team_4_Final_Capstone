@@ -10,6 +10,8 @@ from .views import (
     ProductDetailView,
     SellerProductViewSet,
     ProductImageManageView,
+    ProductImageUploadView,
+    ProductDetailImageUploadView,
     WishlistViewSet,
     CartViewSet,
     ReviewViewSet,
@@ -41,9 +43,13 @@ urlpatterns = [
     # 추천 클릭 기록 API
     path('products/<int:pk>/recommend-click/', ProductRecommendClickView.as_view(), name='product-recommend-click'),
 
-    # 판매자 상품 이미지 관리
+    # 판매자 상품 이미지 관리 (URL 기반)
     path('seller-products/<int:product_id>/images/', ProductImageManageView.as_view(), name='product-image-add'),
     path('seller-products/<int:product_id>/images/<int:image_id>/', ProductImageManageView.as_view(), name='product-image-delete'),
+
+    # 판매자 상품 이미지 업로드 (파일 업로드 → S3)
+    path('seller-products/<int:product_id>/images/upload/', ProductImageUploadView.as_view(), name='product-image-upload'),
+    path('seller-products/<int:product_id>/detail-images/upload/', ProductDetailImageUploadView.as_view(), name='product-detail-image-upload'),
 
     # ViewSet URLs
     path('', include(router.urls)),
