@@ -144,7 +144,7 @@ class SelFPriceAnalyzer:
             self.scaler.data_max_ = self.scaler.data_min_ + (1.0 / safe_scale)
         
         version = packet.get('version', 'unknown')
-        logger.info(f"📦 SelF Model Loaded (Version: {version})")
+        logger.info(f"SelF Model Loaded (Version: {version})")
             
     def analyze(self, current_data: pd.DataFrame) -> pd.DataFrame:
         """가격 데이터 분석
