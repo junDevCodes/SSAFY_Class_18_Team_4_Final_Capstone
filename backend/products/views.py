@@ -13,6 +13,7 @@ from django.db.models import F, Subquery, OuterRef, Value, IntegerField
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from django.db import transaction
 from decimal import Decimal
 from django.db.models import Avg
 from django.core.cache import cache
@@ -25,13 +26,16 @@ from .models import (
     ProductDetail as ProductDetailModel, ProductStats, UserProductStats,
     Review, ReviewImage, ReviewStatus, DailySalesStats
 )
+from rest_framework.parsers import MultiPartParser, FormParser
 from .serializers import (
     CategorySerializer, ProductSerializer, ProductDetailSerializer,
     ProductListSerializer, ProductImageSerializer, WishlistSerializer, CartSerializer,
     ProductListSerializerV2, ProductDetailSerializerV2,
     ReviewSerializer, ReviewCreateSerializer,
-    NewProductListSerializer, BestProductListSerializer
+    NewProductListSerializer, BestProductListSerializer,
+    SellerProductCreateSerializer, ProductImageUploadSerializer, ProductDetailImageUploadSerializer
 )
+from .services.s3_upload import S3ImageUploader, S3UploadError
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -304,11 +308,64 @@ class ProductDetailView(generics.RetrieveAPIView):
         return queryset.get(slug=slug)
 
 
-class SellerProductViewSet(viewsets.ModelViewSet):
-    """판매자 상품 관리 ViewSet"""
+@extend_schema_view(
+    list=extend_schema(
+        tags=['판매자'],
+        summary='내 상품 목록 조회',
+        description='판매자 본인이 등록한 상품 목록을 조회합니다.',
+    ),
+    retrieve=extend_schema(
+        tags=['판매자'],
+        summary='내 상품 상세 조회',
+        description='판매자 본인이 등록한 특정 상품의 상세 정보를 조회합니다.',
+    ),
+    create=extend_schema(
+        tags=['판매자'],
+        summary='상품 등록',
+        description='''새로운 상품을 등록합니다.
 
-    serializer_class = ProductSerializer
+### 자동 생성되는 데이터
+- ProductDetail (상세 정보)
+- ProductInventory (재고 정보)
+- ProductStats (통계 정보)
+
+### 초기 상태
+- status: 'draft' (임시저장)
+- product_type: 'seller' (판매자 상품)
+
+### 발행 절차
+상품 등록 후 `/api/seller-products/{id}/publish/` 엔드포인트로 발행해야 실제 판매가 시작됩니다.
+''',
+    ),
+    update=extend_schema(
+        tags=['판매자'],
+        summary='상품 수정',
+        description='판매자 본인이 등록한 상품을 수정합니다.',
+    ),
+    partial_update=extend_schema(
+        tags=['판매자'],
+        summary='상품 부분 수정',
+        description='판매자 본인이 등록한 상품을 부분 수정합니다.',
+    ),
+    destroy=extend_schema(
+        tags=['판매자'],
+        summary='상품 삭제',
+        description='판매자 본인이 등록한 상품을 삭제합니다.',
+    ),
+)
+class SellerProductViewSet(viewsets.ModelViewSet):
+    """판매자 상품 관리 ViewSet
+
+    상품 CRUD와 함께 ProductDetail, ProductInventory, ProductStats를 자동 관리합니다.
+    """
+
     pagination_class = StandardResultsSetPagination
+
+    def get_serializer_class(self):
+        """액션별 시리얼라이저 분기"""
+        if self.action == 'create':
+            return SellerProductCreateSerializer
+        return ProductSerializer
 
     def get_permissions(self):
         """액션별 권한 설정"""
@@ -328,7 +385,9 @@ class SellerProductViewSet(viewsets.ModelViewSet):
         if hasattr(self.request.user, 'seller_profile'):
             return Product.objects.filter(
                 seller=self.request.user.seller_profile
-            ).select_related('category').order_by('-created_at')
+            ).select_related(
+                'category', 'detail', 'inventory', 'stats'
+            ).prefetch_related('images').order_by('-created_at')
         return Product.objects.none()
 
     def perform_create(self, serializer):
@@ -340,6 +399,11 @@ class SellerProductViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=['post'])
+    @extend_schema(
+        tags=['판매자'],
+        summary='상품 발행',
+        description='임시저장 상태의 상품을 발행하여 판매를 시작합니다.',
+    )
     def publish(self, request, pk=None):
         """상품 발행 (draft → active)"""
         product = self.get_object()
@@ -363,11 +427,16 @@ class SellerProductViewSet(viewsets.ModelViewSet):
         })
 
     @action(detail=True, methods=['post'])
+    @extend_schema(
+        tags=['판매자'],
+        summary='상품 비공개',
+        description='발행된 상품을 비공개 처리합니다.',
+    )
     def unpublish(self, request, pk=None):
         """상품 비공개 (active → inactive)"""
         product = self.get_object()
         product.status = 'inactive'
-        product.save()
+        product.save(update_fields=['status', 'updated_at'])
 
         return Response({
             'message': '상품이 비공개 처리되었습니다.',
@@ -375,16 +444,213 @@ class SellerProductViewSet(viewsets.ModelViewSet):
         })
 
 
-class ProductImageManageView(APIView):
-    """상품 이미지 추가/삭제 API (판매자용)"""
+class ProductImageUploadView(APIView):
+    """상품 메인 이미지 업로드 API (파일 업로드 → S3)
+
+    POST /api/seller-products/{product_id}/images/upload/
+
+    multipart/form-data로 이미지 파일을 받아 S3에 업로드하고
+    ProductImage 레코드를 생성합니다.
+    """
+    parser_classes = [MultiPartParser, FormParser]
 
     def get_permissions(self):
         """판매자만 접근 가능"""
         from sellers.permissions import IsSeller
         return [IsSeller()]
 
+    @extend_schema(
+        tags=['판매자'],
+        summary='상품 메인 이미지 업로드',
+        description='''상품의 메인 이미지(썸네일)를 S3에 업로드합니다.
+
+### 요청 형식
+- Content-Type: multipart/form-data
+- images: 이미지 파일 (여러 개 가능, 최대 10개)
+
+### S3 저장 경로
+- `homeplus/thumnail/{product_id}_{uuid}.{ext}`
+
+### 이미지 순서
+- 업로드 순서대로 display_order가 자동 할당됩니다.
+- 기존 이미지가 있으면 마지막 순서 다음부터 할당됩니다.
+
+### 지원 형식
+- JPEG, PNG, GIF, WebP
+- 최대 크기: 5MB/파일
+''',
+        request=ProductImageUploadSerializer,
+        responses={201: ProductImageSerializer(many=True)}
+    )
     def post(self, request, product_id):
-        """이미지 추가 (URL 기반 - MVP)"""
+        """이미지 파일 업로드 → S3 → DB 저장"""
+        # 자신의 상품인지 확인
+        product = get_object_or_404(
+            Product,
+            id=product_id,
+            seller=request.user.seller_profile
+        )
+
+        serializer = ProductImageUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        images = serializer.validated_data['images']
+
+        # S3 업로더 초기화
+        uploader = S3ImageUploader()
+
+        # 기존 이미지의 마지막 display_order 조회
+        last_order = product.images.order_by('-display_order').values_list(
+            'display_order', flat=True
+        ).first()
+        if last_order is None:
+            last_order = -1
+
+        created_images = []
+        uploaded_urls = []  # 롤백 시 S3 정리용
+        try:
+            with transaction.atomic():
+                for i, file_obj in enumerate(images):
+                    # S3에 업로드
+                    url = uploader.upload_thumbnail(file_obj, product.id, file_obj.name)
+                    uploaded_urls.append(url)
+
+                    # DB에 저장
+                    image = ProductImage.objects.create(
+                        product=product,
+                        image_url=url,
+                        display_order=last_order + 1 + i
+                    )
+                    created_images.append(image)
+        except S3UploadError as e:
+            # 업로드 실패 시 이미 업로드된 S3 이미지 정리
+            for url in uploaded_urls:
+                try:
+                    uploader.delete_image(url)
+                except Exception:
+                    pass  # S3 정리 실패는 무시 (로그는 delete_image에서 처리)
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        result_serializer = ProductImageSerializer(created_images, many=True)
+        return Response({
+            'message': f'{len(created_images)}개의 이미지가 업로드되었습니다.',
+            'images': result_serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+
+class ProductDetailImageUploadView(APIView):
+    """상품 상세 설명 이미지 업로드 API
+
+    POST /api/seller-products/{product_id}/detail-images/upload/
+
+    상세 페이지 본문에 표시되는 이미지들을 S3에 업로드하고
+    ProductDetail.full_image_description 배열에 추가합니다.
+    """
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_permissions(self):
+        """판매자만 접근 가능"""
+        from sellers.permissions import IsSeller
+        return [IsSeller()]
+
+    @extend_schema(
+        tags=['판매자'],
+        summary='상품 상세 설명 이미지 업로드',
+        description='''상품 상세 페이지 본문에 표시되는 이미지를 S3에 업로드합니다.
+
+### 요청 형식
+- Content-Type: multipart/form-data
+- images: 이미지 파일 (여러 개 가능, 최대 20개)
+
+### S3 저장 경로
+- `homeplus/product_detail/{product_id}_{uuid}.{ext}`
+
+### 저장 방식
+- ProductDetail.full_image_description 배열에 URL이 순서대로 추가됩니다.
+- 기존 이미지가 있으면 배열 끝에 추가됩니다.
+
+### 지원 형식
+- JPEG, PNG, GIF, WebP
+- 최대 크기: 10MB/파일
+''',
+        request=ProductDetailImageUploadSerializer,
+    )
+    def post(self, request, product_id):
+        """상세 이미지 파일 업로드 → S3 → ProductDetail 업데이트"""
+        # 자신의 상품인지 확인
+        product = get_object_or_404(
+            Product,
+            id=product_id,
+            seller=request.user.seller_profile
+        )
+
+        serializer = ProductDetailImageUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        images = serializer.validated_data['images']
+
+        # S3 업로더 초기화
+        uploader = S3ImageUploader()
+
+        # ProductDetail 조회 (없으면 생성)
+        detail, created = ProductDetailModel.objects.get_or_create(
+            product=product,
+            defaults={
+                'full_image_description': []
+            }
+        )
+
+        uploaded_urls = []
+        try:
+            for file_obj in images:
+                url = uploader.upload_detail_image(file_obj, product.id, file_obj.name)
+                uploaded_urls.append(url)
+        except S3UploadError as e:
+            # 업로드 실패 시 이미 업로드된 S3 이미지 정리
+            for url in uploaded_urls:
+                try:
+                    uploader.delete_image(url)
+                except Exception:
+                    pass  # S3 정리 실패는 무시
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # 기존 배열에 새 URL 추가 (트랜잭션으로 보호)
+        with transaction.atomic():
+            detail.refresh_from_db()  # 최신 상태 반영
+            current_images = detail.full_image_description or []
+            detail.full_image_description = current_images + uploaded_urls
+            detail.save(update_fields=['full_image_description'])
+
+        return Response({
+            'message': f'{len(uploaded_urls)}개의 상세 이미지가 업로드되었습니다.',
+            'image_urls': uploaded_urls,
+            'total_images': len(detail.full_image_description)
+        }, status=status.HTTP_201_CREATED)
+
+
+class ProductImageManageView(APIView):
+    """상품 이미지 관리 API (URL 기반 추가/삭제)"""
+
+    def get_permissions(self):
+        """판매자만 접근 가능"""
+        from sellers.permissions import IsSeller
+        return [IsSeller()]
+
+    @extend_schema(
+        tags=['판매자'],
+        summary='상품 이미지 추가 (URL)',
+        description='이미지 URL을 직접 입력하여 상품 이미지를 추가합니다.',
+    )
+    def post(self, request, product_id):
+        """이미지 추가 (URL 기반)"""
         # 자신의 상품인지 확인
         product = get_object_or_404(
             Product,
@@ -420,8 +686,13 @@ class ProductImageManageView(APIView):
             'images': serializer.data
         }, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        tags=['판매자'],
+        summary='상품 이미지 삭제',
+        description='상품 이미지를 삭제합니다. S3에서도 함께 삭제됩니다.',
+    )
     def delete(self, request, product_id, image_id):
-        """이미지 삭제"""
+        """이미지 삭제 (S3 + DB)"""
         # 자신의 상품인지 확인
         product = get_object_or_404(
             Product,
@@ -429,8 +700,14 @@ class ProductImageManageView(APIView):
             seller=request.user.seller_profile
         )
 
-        # 이미지 삭제
+        # 이미지 조회
         image = get_object_or_404(ProductImage, id=image_id, product=product)
+
+        # S3에서 이미지 삭제 시도 (실패해도 DB 레코드는 삭제)
+        uploader = S3ImageUploader()
+        uploader.delete_image(image.image_url)
+
+        # DB에서 삭제
         image.delete()
 
         return Response({
