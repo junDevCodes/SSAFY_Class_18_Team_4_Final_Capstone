@@ -279,7 +279,7 @@ SSAFY Class 18 Team 4 Final Capstone Project - 식료품 쇼핑몰 백엔드 API
         {'name': '찜 목록', 'description': '위시리스트 관리'},
         {'name': '주문', 'description': '주문 생성 및 조회'},
         {'name': '리뷰', 'description': '상품 리뷰 CRUD'},
-        {'name': '판매자', 'description': '판매자 상품 관리'},
+        {'name': '판매자', 'description': '판매자 상품 관리, 이미지 S3 업로드'},
         {'name': '추천', 'description': '개인화 추천 API'},
         {'name': '카테고리', 'description': '카테고리 조회'},
     ],
@@ -347,3 +347,22 @@ DEFAULT_FROM_EMAIL = os.getenv('EMAIL_VERIFICATION_FROM_EMAIL', 'noreply@example
 
 # SMTP 타임아웃 설정 (초 단위)
 EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', 5))
+
+# ========================= AWS S3 설정 =========================
+# 판매자 상품 이미지 업로드용 S3 설정
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', '')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '')
+AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_S3_BUCKET', 'self-json-backup')
+AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION', 'ap-northeast-2')
+AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
+
+# S3 업로드 경로 설정
+AWS_S3_THUMBNAIL_PREFIX = os.getenv('AWS_S3_THUMBNAIL_PREFIX', 'homeplus/thumnail/')
+AWS_S3_PRODUCT_DETAIL_PREFIX = os.getenv('AWS_S3_PRODUCT_DETAIL_PREFIX', 'homeplus/product_detail/')
+
+# S3 파일 설정
+AWS_S3_FILE_OVERWRITE = False  # 동일 파일명 덮어쓰기 방지
+AWS_DEFAULT_ACL = 'public-read'  # 공개 읽기 권한
+AWS_S3_OBJECT_PARAMETERS = {
+    'CacheControl': 'max-age=86400',  # 24시간 캐시
+}
