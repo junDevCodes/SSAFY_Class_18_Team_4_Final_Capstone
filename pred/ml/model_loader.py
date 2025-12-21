@@ -8,6 +8,7 @@ Pickle 기반 ML 모델 로더
 import os
 import json
 import pickle
+import joblib
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -74,8 +75,30 @@ class ModelLoader:
         for model_file in model_files:
             try:
                 model_name = model_file.stem  # 확장자 제외 파일명
-                with open(model_file, 'rb') as f:
-                    model_data = pickle.load(f)
+                
+                # joblib.load를 사용하여 순수 딕셔너리 형태 로드 (클래스 경로 에러 무시)
+                try:
+                    # joblib.load는 기본적으로 클래스 경로를 찾으려 하지만, 
+                    # 순수 딕셔너리만 저장되어 있다면 문제없이 로드됨
+                    model_data = joblib.load(model_file, mmap_mode=None)
+                except (ModuleNotFoundError, AttributeError, TypeError) as joblib_error:
+                    # 클래스 경로 관련 에러인 경우, pickle로 재시도 (하위 호환성)
+                    logger.warning(f"joblib.load 실패 (클래스 경로 에러 가능): {joblib_error}, pickle.load 시도")
+                    try:
+                        with open(model_file, 'rb') as f:
+                            model_data = pickle.load(f)
+                    except Exception as pickle_error:
+                        logger.error(f"pickle.load도 실패: {pickle_error}")
+                        raise pickle_error
+                except Exception as joblib_error:
+                    # 기타 에러는 그대로 전파
+                    logger.error(f"joblib.load 실패: {joblib_error}")
+                    raise joblib_error
+
+                # 순수 딕셔너리인지 확인
+                if not isinstance(model_data, dict):
+                    logger.warning(f"모델 {model_name}이 딕셔너리 형태가 아닙니다: {type(model_data)}")
+                    continue
 
                 self._models[model_name] = model_data
 

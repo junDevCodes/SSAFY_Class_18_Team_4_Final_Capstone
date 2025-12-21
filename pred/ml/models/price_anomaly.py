@@ -4,12 +4,21 @@ Price Anomaly 추천 모델
 가격 이상치(할인, 저평가) 상품 탐지 및 추천
 
 모드:
-1. Pickle 모드: 사전 계산된 카테고리 통계/베스트 딜 활용 (프로덕션)
+1. Pickle 모드: SelF 지능형 모델 (Prophet 기반 시계열 예측 + Weber-Fechner Law)
 2. DB 모드: 실시간 쿼리 기반 추천 (폴백/개발)
 """
 
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
+import pandas as pd
+import numpy as np
+import warnings
+from prophet import Prophet
+from prophet.serialize import model_from_json
+from sklearn.preprocessing import MinMaxScaler
+
+# 모든 경고 무시 (버전 차이로 인한 경고 방지)
+warnings.filterwarnings("ignore")
 
 from ml.base import HybridModel, RecommendationContext
 from ml.model_loader import model_loader
@@ -24,6 +33,163 @@ from core.cache import CacheManager
 from core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class SelFPriceAnalyzer:
+    """SelF 지능형 가격 분석기
+    
+    Prophet 기반 시계열 예측과 Weber-Fechner Law를 활용한 가격 신호 판정
+    JSON 패키징 방식의 모델을 지원합니다.
+    """
+    
+    def __init__(self):
+        """초기화"""
+        self.model = None
+        self.scaler = None
+        
+    def load_from_packet(self, packet: Dict[str, Any]) -> None:
+        """패키지 데이터에서 모델 로드
+        
+        순수 딕셔너리 형태의 패키지에서 Prophet 모델과 scaler를 복원합니다.
+        
+        Args:
+            packet: 딕셔너리 형태의 패키지 (prophet_json, scaler, version 포함)
+        """
+        if not isinstance(packet, dict):
+            raise TypeError(f"packet은 딕셔너리 형태여야 합니다. 현재 타입: {type(packet)}")
+        
+        # JSON 문자열에서 Prophet 모델 복원
+        prophet_json = packet.get('prophet_json')
+        if not prophet_json:
+            raise ValueError("패키지에 'prophet_json' 키가 없거나 값이 비어있습니다.")
+        
+        # prophet_json이 딕셔너리인 경우 JSON 문자열로 변환
+        if isinstance(prophet_json, dict):
+            import json
+            prophet_json = json.dumps(prophet_json)
+            logger.info("prophet_json 딕셔너리를 JSON 문자열로 변환")
+        elif not isinstance(prophet_json, str):
+            raise TypeError(f"prophet_json은 문자열 또는 딕셔너리여야 합니다. 현재 타입: {type(prophet_json)}")
+        
+        # Prophet 모델 로드 (경고는 이미 상단에서 무시됨)
+        try:
+            self.model = model_from_json(prophet_json)
+        except Exception as e:
+            logger.error(f"Prophet 모델 복원 실패: {e}")
+            raise ValueError(f"Prophet 모델 복원 실패: {e}. Prophet 버전을 확인하세요: pip install --upgrade prophet")
+        
+        # 딕셔너리 형태의 scaler 상태 정보로 MinMaxScaler 재구성 (안전한 키 접근)
+        scaler_dict = packet.get('scaler')
+        if scaler_dict is None:
+            raise ValueError("패키지에 'scaler' 키가 없습니다.")
+        
+        if not isinstance(scaler_dict, dict):
+            raise TypeError(f"scaler는 딕셔너리 형태여야 합니다. 현재 타입: {type(scaler_dict)}")
+        
+        # 필수 키 확인 (안전한 접근)
+        min_ = scaler_dict.get('min_')
+        scale_ = scaler_dict.get('scale_')
+        
+        if min_ is None or scale_ is None:
+            raise ValueError(f"scaler 딕셔너리에 필수 키가 없습니다. min_: {min_ is not None}, scale_: {scale_ is not None}")
+        
+        # 새 MinMaxScaler 생성 및 상태 정보 복원 (경고는 이미 상단에서 무시됨)
+        self.scaler = MinMaxScaler()
+        
+        try:
+            # 배열 변환 (리스트, 튜플, numpy 배열 등 다양한 형태 지원)
+            min_array = np.array(min_, dtype=np.float64)
+            scale_array = np.array(scale_, dtype=np.float64)
+            
+            # 차원 확인 및 조정 (MinMaxScaler는 1D 또는 2D 배열을 받음)
+            if min_array.ndim == 0:
+                min_array = min_array.reshape(1)
+            if scale_array.ndim == 0:
+                scale_array = scale_array.reshape(1)
+            
+            self.scaler.min_ = min_array
+            self.scaler.scale_ = scale_array
+            
+            # 0으로 나누기 방지
+            if np.any(self.scaler.scale_ == 0):
+                logger.warning("scale_에 0이 포함되어 있습니다. 작은 값으로 대체합니다.")
+                self.scaler.scale_ = np.where(self.scaler.scale_ == 0, 1e-10, self.scaler.scale_)
+                
+        except Exception as e:
+            logger.error(f"Scaler 상태 정보 변환 실패: {e}")
+            logger.error(f"  min_ 타입: {type(min_)}, 값: {min_}")
+            logger.error(f"  scale_ 타입: {type(scale_)}, 값: {scale_}")
+            raise ValueError(f"Scaler 상태 정보 변환 실패: {e}")
+        
+        # data_min_과 data_max_ 복원 (선택적 키)
+        data_min_ = scaler_dict.get('data_min_')
+        if data_min_ is not None:
+            data_min_array = np.array(data_min_, dtype=np.float64)
+            if data_min_array.ndim == 0:
+                data_min_array = data_min_array.reshape(1)
+            self.scaler.data_min_ = data_min_array
+        else:
+            self.scaler.data_min_ = self.scaler.min_.copy()
+        
+        data_max_ = scaler_dict.get('data_max_')
+        if data_max_ is not None:
+            data_max_array = np.array(data_max_, dtype=np.float64)
+            if data_max_array.ndim == 0:
+                data_max_array = data_max_array.reshape(1)
+            self.scaler.data_max_ = data_max_array
+        else:
+            # data_max_ = data_min_ + 1 / scale_ (scale_ = 1 / (max - min))
+            # 0으로 나누기 방지
+            safe_scale = np.where(self.scaler.scale_ != 0, self.scaler.scale_, 1e-10)
+            self.scaler.data_max_ = self.scaler.data_min_ + (1.0 / safe_scale)
+        
+        version = packet.get('version', 'unknown')
+        logger.info(f"📦 SelF Model Loaded (Version: {version})")
+            
+    def analyze(self, current_data: pd.DataFrame) -> pd.DataFrame:
+        """가격 데이터 분석
+        
+        정규화 -> Prophet 예측 -> 역변환 -> 신호 판정 파이프라인
+        
+        Args:
+            current_data: 분석할 가격 데이터 (ds, y 컬럼 필요)
+            
+        Returns:
+            분석 결과가 추가된 DataFrame (expected_price, diff_percent, signal 컬럼 포함)
+        """
+        if self.model is None or self.scaler is None:
+            raise ValueError("모델이 로드되지 않았습니다. load_from_packet()을 먼저 호출하세요.")
+            
+        # 1. 입력 데이터 정규화 (학습 때 사용한 scaler 그대로 사용)
+        df_for_pred = current_data.copy()
+        df_for_pred['y_scaled'] = self.scaler.transform(current_data[['y']])
+        
+        # 2. Prophet 예측
+        forecast = self.model.predict(df_for_pred[['ds']])
+        
+        # 3. 예측값 역변환 (원화 복원)
+        expected_scaled = forecast['yhat'].values.reshape(-1, 1)
+        expected_price = self.scaler.inverse_transform(expected_scaled).flatten()
+        
+        # 결과 계산
+        current_data['expected_price'] = expected_price
+        current_data['diff_percent'] = ((current_data['y'] - expected_price) / expected_price) * 100
+        
+        # 4. 신호 판정 (±5%, ±15%)
+        def get_label(pct):
+            """가격 차이 퍼센트에 따른 신호 판정 (Weber-Fechner Law 기반)"""
+            if pct <= -15:
+                return 'Must Buy'
+            if pct <= -5:
+                return 'Good Price'
+            if pct >= 15:
+                return 'Avoid'
+            if pct >= 5:
+                return 'Pricey'
+            return 'Normal'
+        
+        current_data['signal'] = current_data['diff_percent'].apply(get_label)
+        return current_data
 
 
 class PriceAnomalyModel(HybridModel):
@@ -54,6 +220,7 @@ class PriceAnomalyModel(HybridModel):
         # Pickle 모델 데이터 (initialize에서 로드)
         self._pickle_model = None
         self._use_pickle = False
+        self._self_analyzer = None  # SelFPriceAnalyzer 인스턴스
 
     @property
     def model_name(self) -> str:
@@ -66,24 +233,33 @@ class PriceAnomalyModel(HybridModel):
         return "1.0.0"
 
     async def initialize(self) -> None:
-        """모델 초기화 - pickle 모델 로드 시도"""
-        # Pickle 모델 로드 시도
+        """모델 초기화 - SelF 지능형 모델 로드 시도"""
+        # SelF 지능형 모델 로드 시도
         self._pickle_model = model_loader.get_model("price_anomaly")
 
         if self._pickle_model:
             self._use_pickle = True
-            # pickle에서 하이퍼파라미터 로드
-            hyperparams = self._pickle_model.get("hyperparameters", {})
-            self.z_threshold = hyperparams.get("z_threshold", 2.0)
-            self.min_discount_rate = hyperparams.get("min_discount_rate", 10.0)
+            
+            # SelFPriceAnalyzer 초기화 및 로드
+            try:
+                self._self_analyzer = SelFPriceAnalyzer()
+                self._self_analyzer.load_from_packet(self._pickle_model)
+                
+                # 하이퍼파라미터 로드 (호환성을 위해 유지)
+                hyperparams = self._pickle_model.get("hyperparameters", {})
+                self.z_threshold = hyperparams.get("z_threshold", 2.0)
+                self.min_discount_rate = hyperparams.get("min_discount_rate", 10.0)
 
-            logger.info(
-                "Pickle 모델 로드 완료 (price_anomaly)",
-                extra={"version": self.model_version}
-            )
+                logger.info(
+                    "SelF 지능형 가격 분석 모델 로드 완료",
+                    extra={"version": self.model_version}
+                )
+            except Exception as e:
+                logger.warning(f"SelFPriceAnalyzer 초기화 실패: {e}", exc_info=True)
+                self._use_pickle = False
         else:
             self._use_pickle = False
-            logger.info("Pickle 모델 없음, DB 폴백 모드로 동작")
+            logger.info("SelF 지능형 모델 없음, DB 폴백 모드로 동작")
 
         self._initialized = True
 
@@ -117,9 +293,9 @@ class PriceAnomalyModel(HybridModel):
         context: RecommendationContext,
         limit: int,
     ) -> List[Dict[str, Any]]:
-        """Pickle 모델 기반 추천
+        """SelF 지능형 모델 기반 추천
 
-        카테고리 통계를 활용하여 가격 이상치(할인) 상품 탐지
+        Prophet 시계열 예측과 Weber-Fechner Law를 활용한 가격 신호 판정
 
         Args:
             context: 추천 컨텍스트
@@ -128,26 +304,13 @@ class PriceAnomalyModel(HybridModel):
         Returns:
             추천 상품 목록
         """
-        import numpy as np
-
-        components = self._pickle_model.get("components", {})
-        hyperparams = self._pickle_model.get("hyperparameters", {})
-
-        # 카테고리 통계 가져오기
-        category_stats = components.get("category_statistics", {})
-        global_stats = components.get("global_statistics", {})
-        thresholds = components.get("thresholds", {})
-
-        warning_thresh = thresholds.get("warning", hyperparams.get("warning_threshold", 2.5))
-        use_log = hyperparams.get("use_log_transform", True)
-
-        if not category_stats and not global_stats:
-            # 통계 정보 없으면 DB 폴백
+        if self._self_analyzer is None:
+            logger.warning("SelFPriceAnalyzer가 초기화되지 않음")
             return []
 
-        # DB에서 할인 상품 조회
+        # DB에서 활성 상품 조회 (가격 이력이 있는 상품 우선)
         query = """
-            SELECT p.id AS product_id, p.name, p.price, p.original_price,
+            SELECT DISTINCT p.id AS product_id, p.name, p.price, p.original_price,
                    p.category_id, c.name AS category_name, p.seller_id,
                    (p.original_price - p.price) AS savings,
                    ROUND((1 - p.price::DECIMAL / NULLIF(p.original_price, 0)) * 100, 1) AS discount_rate,
@@ -156,8 +319,7 @@ class PriceAnomalyModel(HybridModel):
             LEFT JOIN product_stats ps ON p.id = ps.product_id
             LEFT JOIN categories c ON p.category_id = c.id
             WHERE p.status = 'active'
-              AND p.original_price IS NOT NULL
-              AND p.original_price > p.price
+              AND p.price > 0
         """
         params = []
 
@@ -165,51 +327,96 @@ class PriceAnomalyModel(HybridModel):
             query += f" AND p.category_id = ${len(params)+1}"
             params.append(context.category_id)
 
-        query += f" ORDER BY discount_rate DESC LIMIT ${len(params)+1}"
-        params.append(limit * 3)  # 여유분
+        query += f" ORDER BY COALESCE(ps.order_event_count, 0) DESC LIMIT ${len(params)+1}"
+        params.append(limit * 5)  # 여유분 확보
 
         records = await self.db.fetch_all(query, *params)
-        products = []
+        
+        if not records:
+            return []
 
+        # 각 상품에 대해 가격 이력 조회 및 분석
+        products = []
+        current_date = datetime.now()
+        
         for record in records:
             product = dict(record)
-            price = product.get("price", 0)
-            category_name = product.get("category_name", "")
-
-            # 카테고리 통계 선택
-            if category_name and category_name in category_stats:
-                stats = category_stats[category_name]
-            elif global_stats:
-                stats = global_stats
-            else:
-                stats = None
-
-            # Modified Z-Score 계산
-            anomaly_score = 0.0
-            if stats and price > 0:
-                if use_log:
-                    log_price = np.log10(max(1, price))
-                else:
-                    log_price = price
-
-                median = stats.get("log_median", 0)
-                mad = stats.get("log_mad", 0.0001) or 0.0001
-
-                modified_zscore = 0.6745 * (log_price - median) / mad
-
-                # 낮은 가격(음수 z-score)은 좋은 딜
-                if modified_zscore < -warning_thresh:
-                    anomaly_score = abs(modified_zscore)
-
-            # 최종 점수: 할인율 + 이상치 점수
-            discount_rate = float(product.get("discount_rate", 0) or 0)
-            combined_score = discount_rate * 0.7 + anomaly_score * 30 * 0.3
-
-            product["_score"] = combined_score
-            product["anomaly_score"] = round(anomaly_score, 3)
-            product["_source"] = "pickle_anomaly"
-            product["anomaly_reason"] = "statistical_low_price" if anomaly_score > 0 else "current_discount"
-            products.append(product)
+            product_id = product.get("product_id")
+            current_price = product.get("price", 0)
+            
+            if current_price <= 0:
+                continue
+                
+            try:
+                # 가격 이력 조회 (최근 30일)
+                price_history = await self.price_history_repo.get_price_history(
+                    product_id=product_id,
+                    days=30,
+                )
+                
+                if not price_history or len(price_history) < 3:
+                    # 이력이 부족하면 기본 할인율 기반으로 처리
+                    discount_rate = float(product.get("discount_rate", 0) or 0)
+                    if discount_rate > 0:
+                        product["_score"] = discount_rate * 10
+                        product["_source"] = "current_discount"
+                        product["signal"] = "Good Price" if discount_rate >= 5 else "Normal"
+                        product["expected_price"] = product.get("original_price", current_price)
+                        product["diff_percent"] = -discount_rate
+                    else:
+                        continue
+                    products.append(product)
+                    continue
+                
+                # Prophet 분석을 위한 데이터 준비
+                df_history = pd.DataFrame(price_history)
+                df_history['ds'] = pd.to_datetime(df_history.get('created_at', df_history.get('date')))
+                df_history['y'] = df_history['price']
+                
+                # 현재 시점 데이터 추가
+                df_current = pd.DataFrame([{
+                    'ds': current_date,
+                    'y': current_price
+                }])
+                
+                # 전체 데이터 결합
+                df_all = pd.concat([df_history, df_current], ignore_index=True)
+                df_all = df_all.sort_values('ds').reset_index(drop=True)
+                
+                # SelFPriceAnalyzer로 분석
+                df_analyzed = self._self_analyzer.analyze(df_all)
+                
+                # 마지막 행(현재 시점) 결과 추출
+                last_row = df_analyzed.iloc[-1]
+                signal = last_row.get('signal', 'Normal')
+                diff_percent = last_row.get('diff_percent', 0)
+                expected_price = last_row.get('expected_price', current_price)
+                
+                # 신호에 따른 점수 계산
+                if signal == 'Must Buy':
+                    score = abs(diff_percent) * 20  # 높은 점수
+                elif signal == 'Good Price':
+                    score = abs(diff_percent) * 15
+                elif signal == 'Pricey':
+                    score = abs(diff_percent) * 5
+                elif signal == 'Avoid':
+                    score = 0  # 추천하지 않음
+                else:  # Normal
+                    score = abs(diff_percent) * 2
+                
+                # Must Buy, Good Price만 추천 대상으로 포함
+                if signal in ['Must Buy', 'Good Price']:
+                    product["_score"] = score
+                    product["_source"] = "self_price_analyzer"
+                    product["signal"] = signal
+                    product["expected_price"] = round(expected_price, 2)
+                    product["diff_percent"] = round(diff_percent, 2)
+                    product["anomaly_reason"] = f"prophet_prediction_{signal.lower().replace(' ', '_')}"
+                    products.append(product)
+                    
+            except Exception as e:
+                logger.warning(f"상품 {product_id} 분석 실패: {e}")
+                continue
 
         # 점수순 정렬
         products.sort(key=lambda x: x.get("_score", 0), reverse=True)
@@ -496,9 +703,9 @@ class PriceAnomalyModel(HybridModel):
         self,
         product_id: int,
     ) -> Dict[str, Any]:
-        """상품 가격 분석
+        """상품 가격 분석 (SelF 지능형 모델 기반)
 
-        개별 상품의 가격 이상 여부 분석
+        Prophet 시계열 예측과 Weber-Fechner Law를 활용한 가격 신호 판정
 
         Args:
             product_id: 상품 ID
@@ -506,18 +713,6 @@ class PriceAnomalyModel(HybridModel):
         Returns:
             가격 분석 결과
         """
-        # 가격 통계 조회
-        stats = await self.price_history_repo.get_price_statistics(
-            product_id=product_id,
-            days=90,
-        )
-
-        # 가격 이력 조회
-        history = await self.price_history_repo.get_price_history(
-            product_id=product_id,
-            days=30,
-        )
-
         # 현재 가격 조회
         current_prices = await self.price_history_repo.get_current_prices([product_id])
         current = current_prices.get(product_id, {})
@@ -526,6 +721,74 @@ class PriceAnomalyModel(HybridModel):
             return {"error": "상품을 찾을 수 없습니다"}
 
         current_price = current.get("price", 0)
+        
+        # 가격 이력 조회
+        history = await self.price_history_repo.get_price_history(
+            product_id=product_id,
+            days=30,
+        )
+
+        if not history or len(history) < 3:
+            return {
+                "product_id": product_id,
+                "current_price": current_price,
+                "error": "분석에 필요한 가격 이력 데이터가 부족합니다 (최소 3개 필요)",
+                "signal": "Normal",
+                "diff_percent": 0,
+            }
+
+        # SelF 지능형 모델이 있으면 사용
+        if self._use_pickle and self._self_analyzer:
+            try:
+                # Prophet 분석을 위한 데이터 준비
+                df_history = pd.DataFrame(history)
+                df_history['ds'] = pd.to_datetime(df_history.get('created_at', df_history.get('date')))
+                df_history['y'] = df_history['price']
+                
+                # 현재 시점 데이터 추가
+                current_date = datetime.now()
+                df_current = pd.DataFrame([{
+                    'ds': current_date,
+                    'y': current_price
+                }])
+                
+                # 전체 데이터 결합
+                df_all = pd.concat([df_history, df_current], ignore_index=True)
+                df_all = df_all.sort_values('ds').reset_index(drop=True)
+                
+                # SelFPriceAnalyzer로 분석
+                df_analyzed = self._self_analyzer.analyze(df_all)
+                
+                # 마지막 행(현재 시점) 결과 추출
+                last_row = df_analyzed.iloc[-1]
+                signal = last_row.get('signal', 'Normal')
+                diff_percent = last_row.get('diff_percent', 0)
+                expected_price = last_row.get('expected_price', current_price)
+                
+                return {
+                    "product_id": product_id,
+                    "current_price": current_price,
+                    "expected_price": round(expected_price, 2),
+                    "diff_percent": round(diff_percent, 2),
+                    "signal": signal,
+                    "is_anomaly": signal in ['Must Buy', 'Good Price', 'Avoid', 'Pricey'],
+                    "anomaly_type": signal.lower().replace(' ', '_') if signal != 'Normal' else None,
+                    "price_history": history,
+                    "recent_change": current.get("price_change"),
+                    "recent_change_rate": current.get("price_change_rate"),
+                    "method": "self_prophet_analyzer",
+                }
+            except Exception as e:
+                logger.warning(f"SelFPriceAnalyzer 분석 실패: {e}", exc_info=True)
+                # 폴백: 기본 통계 분석
+                pass
+
+        # 폴백: 기본 통계 분석 (Z-score 기반)
+        stats = await self.price_history_repo.get_price_statistics(
+            product_id=product_id,
+            days=90,
+        )
+        
         avg_price = stats.get("avg_price") or current_price
         stddev = stats.get("stddev_price") or 1
 
@@ -551,6 +814,7 @@ class PriceAnomalyModel(HybridModel):
             "price_history": history,
             "recent_change": current.get("price_change"),
             "recent_change_rate": current.get("price_change_rate"),
+            "method": "fallback_statistical",
         }
 
     def _deduplicate_and_rank(

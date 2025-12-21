@@ -4,7 +4,7 @@
   "description": "SelF 추천 시스템 ML 모델 메타데이터",
   "active_models": {
     "self_personalized": "self_personalized_v1",
-    "price_anomaly": "price_anomaly_v1",
+    "price_anomaly": "self_price_analyzer_v1",
     "instacart_cold_start": "instacart_cold_start_v1",
     "recipe_gap_filling": "recipe_gapfilling_v1"
   },
@@ -34,16 +34,26 @@
       "description": "가격 이상치 탐지 모델 (Modified Z-Score + 카테고리별 통계)",
       "version": "1.0.0",
       "type": "statistical_anomaly",
-      "components": [
-        "category_statistics",
-        "global_statistics",
-        "thresholds"
-      ],
+      "components": ["category_statistics", "global_statistics", "thresholds"],
       "hyperparameters": {
         "warning_threshold": 2.5,
         "danger_threshold": 3.5,
         "use_log_transform": true,
         "method": "modified_z_score"
+      }
+    },
+    "self_price_analyzer_v1": {
+      "description": "SelF 지능형 가격 분석 모델 (Prophet 기반 시계열 예측 + Weber-Fechner Law)",
+      "version": "1.0.0",
+      "type": "prophet_time_series",
+      "components": ["prophet_model", "scaler"],
+      "hyperparameters": {
+        "contamination": 0.05,
+        "good_price_threshold": -5,
+        "must_buy_threshold": -15,
+        "pricey_threshold": 5,
+        "avoid_threshold": 15,
+        "method": "weber_fechner_law"
       }
     },
     "instacart_cold_start_v1": {
