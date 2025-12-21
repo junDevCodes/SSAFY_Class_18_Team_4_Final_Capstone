@@ -622,17 +622,21 @@ class ProductDetailImageUploadView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        # 기존 배열에 새 URL 추가 (트랜잭션으로 보호)
+        # 기존 배열에 새 URL 추가 (select_for_update로 동시성 문제 방지)
         with transaction.atomic():
-            detail.refresh_from_db()  # 최신 상태 반영
-            current_images = detail.full_image_description or []
-            detail.full_image_description = current_images + uploaded_urls
-            detail.save(update_fields=['full_image_description'])
+            # row lock을 걸어 다른 트랜잭션이 동시에 수정하지 못하도록 함
+            locked_detail = ProductDetailModel.objects.select_for_update().get(
+                product=product
+            )
+            current_images = locked_detail.full_image_description or []
+            locked_detail.full_image_description = current_images + uploaded_urls
+            locked_detail.save(update_fields=['full_image_description'])
+            total_count = len(locked_detail.full_image_description)
 
         return Response({
             'message': f'{len(uploaded_urls)}개의 상세 이미지가 업로드되었습니다.',
             'image_urls': uploaded_urls,
-            'total_images': len(detail.full_image_description)
+            'total_images': total_count
         }, status=status.HTTP_201_CREATED)
 
 
