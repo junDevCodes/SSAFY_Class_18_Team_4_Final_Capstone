@@ -1,12 +1,12 @@
 <template>
   <!-- Backdrop -->
   <Transition name="drawer-backdrop">
-    <div v-if="uiStore.isCartOpen" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100]" @click="uiStore.closeCart"></div>
+    <div v-if="uiStore.isCartOpen" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[130]" @click="uiStore.closeCart"></div>
   </Transition>
 
   <!-- Drawer -->
   <Transition name="drawer-slide">
-    <div v-if="uiStore.isCartOpen" class="fixed top-0 right-0 h-full w-full sm:w-[400px] bg-white z-[101] shadow-2xl flex flex-col">
+    <div v-if="uiStore.isCartOpen" class="fixed top-0 right-0 h-full w-full sm:w-[400px] bg-white z-[131] shadow-2xl flex flex-col">
       <div class="h-14 px-5 flex items-center justify-between border-b border-gray-100 bg-white">
         <h2 class="font-bold text-lg text-gray-900">장바구니</h2>
         <button @click="uiStore.closeCart" class="p-2 -mr-2 text-gray-400 hover:text-gray-900">
