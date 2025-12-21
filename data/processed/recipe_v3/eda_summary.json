@@ -1,0 +1,25 @@
+{
+  "total_recipes": 202181,
+  "total_ingredients": 12132,
+  "avg_ingredients_per_recipe": 7.780736073122598,
+  "network_nodes": 150,
+  "network_edges": 3602,
+  "num_communities": 4,
+  "top_10_ingredients": [
+    "파",
+    "마늘",
+    "양파",
+    "간장",
+    "설탕",
+    "고추가루",
+    "고추",
+    "소금",
+    "계란",
+    "후추"
+  ],
+  "frequency_distribution": {
+    "head": 139,
+    "torso": 894,
+    "tail": 11099
+  }
+}
