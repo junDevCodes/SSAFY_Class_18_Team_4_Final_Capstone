@@ -2,10 +2,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# ML 라이브러리 설치에 필요한 시스템 패키지 설치
+# ML 라이브러리 및 PostgreSQL 클라이언트 설치 (마이그레이션 대기용)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 패키지 설치

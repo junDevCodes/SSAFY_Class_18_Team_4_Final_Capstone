@@ -23,8 +23,7 @@
         condition: service_healthy
       redis:
         condition: service_healthy
-      pred:
-        condition: service_started
+      # pred 의존성 제거: 순환 의존성 방지 (pred가 backend 마이그레이션 완료 대기)
     ports:
       - "8000:8000"
     # 컨테이너 시작 시 migrate + Site 설정 + CSV 임포트 + gunicorn 실행
@@ -53,9 +52,16 @@
     env_file:
       - backend/.env
     environment:
+      # DB 설정 (backend와 동일한 PostgreSQL 사용)
       DB_HOST: db
       DB_PORT: "5432"
-      REDIS_URL: redis://redis:6379/1
+      DB_NAME: selfdb
+      DB_USER: selfuser
+      DB_PASSWORD: selfpass
+      # Redis 설정
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_DB: "1"
     depends_on:
       db:
         condition: service_healthy
@@ -64,6 +70,14 @@
     ports:
       - "8001:8001"
     restart: unless-stopped
+    # 마이그레이션 완료 대기 후 서버 시작 (products 테이블 = Django 커스텀 테이블명)
+    command: >
+      sh -c "echo '[PRED] Backend 마이그레이션 대기 중...' &&
+             while ! PGPASSWORD=selfpass psql -h db -U selfuser -d selfdb -c 'SELECT 1 FROM products LIMIT 1;' >/dev/null 2>&1; do
+               sleep 3;
+             done &&
+             echo '[PRED] 테이블 확인 완료, 서버 시작' &&
+             uvicorn main:app --host 0.0.0.0 --port 8001"
 
   db:
     image: postgres:16-alpine
