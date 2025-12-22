@@ -408,6 +408,9 @@ class ProductListSerializerV2(serializers.ModelSerializer):
     # 재고 정보
     stock_quantity = serializers.SerializerMethodField()
 
+    # GMS 재료 추출 정보
+    main_ingredient = serializers.SerializerMethodField()
+
     class Meta:
         model = Product
         fields = [
@@ -428,6 +431,7 @@ class ProductListSerializerV2(serializers.ModelSerializer):
             'wishlist_count',
             'quality_score',
             'stock_quantity',
+            'main_ingredient',
             'created_at',
         ]
 
@@ -480,6 +484,12 @@ class ProductListSerializerV2(serializers.ModelSerializer):
             return obj.inventory.stock_quantity
         return None
 
+    def get_main_ingredient(self, obj):
+        """주요 재료명 반환 (GMS 추출 결과에서)"""
+        if obj.parsed_ingredients:
+            return obj.parsed_ingredients.get('main_ingredient')
+        return None
+
 
 class ProductDetailSerializerV2(serializers.ModelSerializer):
     """상품 상세 Serializer v2.1 (분리된 테이블 포함)
@@ -499,6 +509,10 @@ class ProductDetailSerializerV2(serializers.ModelSerializer):
     is_wishlist = serializers.SerializerMethodField()
     related_products = serializers.SerializerMethodField()
     main_image = serializers.SerializerMethodField()
+
+    # GMS 재료 추출 정보
+    parsed_ingredients = serializers.JSONField(read_only=True)
+    main_ingredient = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -526,6 +540,9 @@ class ProductDetailSerializerV2(serializers.ModelSerializer):
             'shipping_fee',
             'free_shipping_threshold',
             'estimated_delivery_days',
+            # GMS 재료 추출 정보
+            'parsed_ingredients',
+            'main_ingredient',
             # 추가 정보
             'is_wishlist',
             'related_products',
@@ -549,6 +566,12 @@ class ProductDetailSerializerV2(serializers.ModelSerializer):
         first_image = obj.images.order_by('display_order').first()
         if first_image:
             return first_image.image_url
+        return None
+
+    def get_main_ingredient(self, obj):
+        """주요 재료명 반환 (GMS 추출 결과에서)"""
+        if obj.parsed_ingredients:
+            return obj.parsed_ingredients.get('main_ingredient')
         return None
 
     def get_related_products(self, obj):
@@ -762,7 +785,10 @@ class SellerProductCreateSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        """상품 생성 + 관련 테이블 자동 생성"""
+        """상품 생성 + 관련 테이블 자동 생성 + GMS 재료 추출"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         # 추가 필드 추출
         stock_quantity = validated_data.pop('stock_quantity', 0)
         short_description = validated_data.pop('short_description', '')
@@ -789,5 +815,29 @@ class SellerProductCreateSerializer(serializers.ModelSerializer):
 
         # ProductStats 생성
         ProductStats.objects.create(product=product)
+
+        # GMS 재료 추출 (Celery 비동기 태스크로 처리)
+        try:
+            from products.tasks import extract_single_product
+            extract_single_product.apply_async(
+                args=[product.id],
+                kwargs={'use_fallback': True},
+                queue='high_priority',
+            )
+            logger.info(f"GMS 재료 추출 태스크 발행: product_id={product.id}")
+        except ImportError:
+            # Celery가 없는 환경에서는 동기 추출 시도
+            try:
+                from products.services import get_gms_extractor
+                extractor = get_gms_extractor()
+                parsed = extractor.extract_sync(product.name)
+                if parsed:
+                    product.parsed_ingredients = parsed.to_dict()
+                    product.save(update_fields=['parsed_ingredients'])
+                    logger.info(f"GMS 재료 추출 성공 (동기): product_id={product.id}")
+            except Exception as e:
+                logger.warning(f"GMS 재료 추출 실패 (product_id={product.id}): {e}")
+        except Exception as e:
+            logger.warning(f"GMS 태스크 발행 실패 (product_id={product.id}): {e}")
 
         return product
