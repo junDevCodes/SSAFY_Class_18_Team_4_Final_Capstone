@@ -43,3 +43,6 @@ certifi==2025.11.12
 charset-normalizer==3.4.4
 idna==3.11
 urllib3==2.5.0
+
+# ===== GMS (SSAFY GPT Proxy) =====
+openai>=1.0.0

@@ -237,6 +237,7 @@ class DataProcessor:
                 'new_products': 0,
                 'updated_products': 0,
                 'skipped_products': 0,
+                'new_product_ids': [],  # GMS 추출 대상 상품 ID 목록
                 'errors': [],
             }
 
@@ -288,6 +289,7 @@ class DataProcessor:
                     results['new_products'] = batch_result['new']
                     results['updated_products'] = batch_result['updated']
                     results['skipped_products'] = batch_result['skipped']
+                    results['new_product_ids'] = batch_result.get('new_product_ids', [])
                 except Exception as e:
                     print(f"[오류] 배치 처리 실패: {e}")
                     results['errors'].append({
@@ -309,12 +311,16 @@ class DataProcessor:
                         results['processed_files'] += 1
                     except Exception as e:
                         print(f"[오류] 백업 이동 실패: {file_path.name} - {e}")
+
+                # 6. GMS 재료 추출 태스크 발행 (신규 상품만)
+                if results['new_product_ids']:
+                    _trigger_gms_extraction(results['new_product_ids'])
             else:
                 results['processed_files'] = len(file_batches)
 
             return results
 
-    def _process_batch(self, products: List[ProductData]) -> Dict[str, int]:
+    def _process_batch(self, products: List[ProductData]) -> Dict[str, Any]:
         """상품 배치 처리 (트랜잭션)
 
         전체 배치를 하나의 트랜잭션으로 처리하여 일관성을 보장합니다.
@@ -323,9 +329,9 @@ class DataProcessor:
             products: 처리할 상품 목록
 
         Returns:
-            처리 결과 (new, updated, skipped 카운트)
+            처리 결과 (new, updated, skipped 카운트, new_product_ids 목록)
         """
-        result = {'new': 0, 'updated': 0, 'skipped': 0}
+        result = {'new': 0, 'updated': 0, 'skipped': 0, 'new_product_ids': []}
 
         # 가격 추적 전용 배치 여부 판단
         # - crawl_type == "price_refresh" 이거나
@@ -352,8 +358,10 @@ class DataProcessor:
             with transaction.atomic():
                 for product in products:
                     try:
-                        action = self._process_product(product, dry_run=False)
+                        action, product_id = self._process_product(product, dry_run=False)
                         result[action] += 1
+                        if action == 'new' and product_id:
+                            result['new_product_ids'].append(product_id)
                     except Exception as e:
                         print(f"[경고] 상품 처리 실패: {product.name} - {e}")
                         result['skipped'] += 1
@@ -363,8 +371,10 @@ class DataProcessor:
         # 서버 전체 병목을 줄이기 위해, 개별 상품 단위로 처리한다.
         for product in products:
             try:
-                action = self._process_product(product, dry_run=False)
+                action, product_id = self._process_product(product, dry_run=False)
                 result[action] += 1
+                if action == 'new' and product_id:
+                    result['new_product_ids'].append(product_id)
             except Exception as e:
                 print(f"[경고] 상품 처리 실패: {product.name} - {e}")
                 result['skipped'] += 1
@@ -416,7 +426,7 @@ class DataProcessor:
 
         return result
 
-    def _process_product(self, product: ProductData, dry_run: bool = False) -> str:
+    def _process_product(self, product: ProductData, dry_run: bool = False) -> Tuple[str, Optional[int]]:
         """개별 상품 처리
 
         핵심 로직:
@@ -429,11 +439,11 @@ class DataProcessor:
             dry_run: 시뮬레이션 모드
 
         Returns:
-            처리 결과 ('new', 'updated', 'skipped')
+            (처리 결과, 상품 ID) 튜플 - 상품 ID는 신규 생성 시에만 반환
         """
         if dry_run:
             # 드라이런 모드에서는 실제 DB 변경 없이 신규로만 집계
-            return 'new'
+            return ('new', None)
 
         # Django ORM 사용
         try:
@@ -470,7 +480,7 @@ class DataProcessor:
                     and product.price > 0
                 ):
                     # 필수 피쳐가 하나라도 없으면 가격 추적 대상에서 제외
-                    return "skipped"
+                    return ("skipped", None)
 
             # 기존 상품 조회
             # - 기본 키는 source_url
@@ -509,22 +519,22 @@ class DataProcessor:
                     existing.save(update_fields=['price', 'original_price', 'updated_at'])
 
                 # 기존 ProductDetail 은 보존만 하고, 여기서는 수정/생성하지 않는다.
-                return action
+                return (action, None)
             else:
                 # 가격 추적 모드에서는 신규 상품을 생성하지 않고 스킵
                 if price_tracking_mode:
-                    return 'skipped'
+                    return ('skipped', None)
                 # 일반 크롤 모드에서는 신규 상품 생성
                 return self._create_new_product(product)
 
         except ImportError as e:
             print(f"[경고] Django 모델 import 실패: {e}")
-            return 'new'
+            return ('new', None)
         except Exception as e:
             print(f"[오류] 상품 처리 실패: {product.name} - {e}")
             raise
 
-    def _create_new_product(self, product: ProductData) -> str:
+    def _create_new_product(self, product: ProductData) -> Tuple[str, Optional[int]]:
         """신규 상품 생성
 
         ERD V2.1 구조에 맞게 상품 및 관련 테이블을 생성합니다.
@@ -533,7 +543,7 @@ class DataProcessor:
             product: 상품 데이터
 
         Returns:
-            'new'
+            ('new', product_id) 튜플 - product_id는 GMS 추출용
         """
         from django.db import transaction
         from products.models import (
@@ -646,7 +656,7 @@ class DataProcessor:
                 source='import',
             )
 
-        return 'new'
+        return ('new', new_product.id)
 
     def _make_slug(self, text: str) -> str:
         """한글을 포함한 텍스트에서 슬러그 생성"""
@@ -880,6 +890,11 @@ class PipelineWatcher:
         print(f"    - 업데이트: {results['updated_products']}개")
         print(f"    - 건너뜀: {results['skipped_products']}개")
 
+        # GMS 추출 상태 출력
+        gms_count = len(results.get('new_product_ids', []))
+        if gms_count > 0:
+            print(f"  - GMS 추출 발행: {gms_count}개 상품")
+
         if results['errors']:
             print("[오류 목록]")
             for err in results['errors']:
@@ -897,6 +912,33 @@ def start_watcher(interval: int = 5, base_dir: str = None):
     """
     watcher = PipelineWatcher(base_dir=base_dir, interval=interval)
     watcher.start()
+
+
+def _trigger_gms_extraction(product_ids: List[int]) -> None:
+    """GMS 재료 추출 Celery 태스크 발행
+
+    파이프라인 처리 완료 후 신규 상품에 대해
+    비동기로 GMS 재료 추출을 시작합니다.
+
+    Args:
+        product_ids: 신규 생성된 상품 ID 목록
+    """
+    if not product_ids:
+        return
+
+    try:
+        from products.tasks import trigger_gms_extraction_for_pipeline
+
+        result = trigger_gms_extraction_for_pipeline.delay(
+            product_ids=product_ids,
+            priority='default',
+        )
+        print(f"[GMS] 재료 추출 태스크 발행: {len(product_ids)}개 상품, task_id={result.id}")
+
+    except ImportError:
+        print("[경고] Celery 태스크를 찾을 수 없습니다. GMS 추출을 건너뜁니다.")
+    except Exception as e:
+        print(f"[경고] GMS 추출 태스크 발행 실패: {e}")
 
 
 if __name__ == '__main__':
