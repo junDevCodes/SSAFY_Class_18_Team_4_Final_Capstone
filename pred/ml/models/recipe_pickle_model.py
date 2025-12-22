@@ -1823,3 +1823,255 @@ class RecipePickleModel(HybridModel):
         recipe_ratio = with_recipe / len(products) if products else 0
 
         return min(1.0, base + recipe_ratio * 0.3)
+
+    # =======================================================================
+    # 장바구니 추천 API용 메서드 (parsed_ingredients 활용)
+    # =======================================================================
+
+    async def _get_ingredients_from_cart_with_parsed(
+        self,
+        cart_product_ids: List[int],
+    ) -> Tuple[List[str], List[str]]:
+        """장바구니 상품에서 재료명 추출 (parsed_ingredients 우선 사용)
+
+        parsed_ingredients.main_ingredient 필드가 있으면 우선 사용하고,
+        없으면 기존 상품명 파싱 로직으로 폴백합니다.
+
+        Args:
+            cart_product_ids: 장바구니 상품 ID 목록
+
+        Returns:
+            (재료명 목록, 검출된 요리명 목록) 튜플
+        """
+        if not cart_product_ids:
+            return ([], [])
+
+        # parsed_ingredients 포함하여 조회
+        query = """
+            SELECT id, name, parsed_ingredients
+            FROM products
+            WHERE id = ANY($1) AND status = 'active'
+        """
+        records = await self.db.fetch_all(query, cart_product_ids)
+
+        ingredients = []
+        detected_dishes = []
+
+        for r in records:
+            parsed = r['parsed_ingredients']
+
+            # parsed_ingredients.main_ingredient 우선 사용
+            if parsed and isinstance(parsed, dict):
+                main_ing = parsed.get('main_ingredient')
+                if main_ing:
+                    ingredients.append(main_ing)
+                    logger.debug(f"parsed_ingredients 사용: {r['name']} → {main_ing}")
+                    continue
+
+            # 폴백: 기존 상품명 파싱
+            ingredient, dish = self._extract_ingredient_from_product_name(r['name'])
+            if ingredient:
+                ingredients.append(ingredient)
+                logger.debug(f"상품명 파싱 사용: {r['name']} → {ingredient}")
+            if dish:
+                detected_dishes.append(dish)
+
+        return (list(set(ingredients)), list(set(detected_dishes)))
+
+    async def _search_products_for_ingredient_with_parsed(
+        self,
+        ingredient: str,
+        exclude_ids: Optional[List[int]] = None,
+        limit: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """재료명으로 상품 검색 (parsed_ingredients 활용 + 판매량 정렬)
+
+        parsed_ingredients->>'main_ingredient' 필드를 우선 검색하고,
+        결과가 부족하면 상품명 ILIKE 검색으로 보완합니다.
+
+        Args:
+            ingredient: 재료명
+            exclude_ids: 제외할 상품 ID 목록 (장바구니에 이미 있는 상품)
+            limit: 검색 결과 개수
+
+        Returns:
+            매칭된 상품 목록 (판매량 순 정렬)
+        """
+        if not ingredient:
+            return []
+
+        exclude_ids = exclude_ids or []
+        results = []
+
+        # 1단계: parsed_ingredients->>'main_ingredient' 정확 매칭
+        query_parsed = """
+            SELECT p.id, p.name, p.slug, p.price, p.original_price,
+                   (
+                       SELECT pi.image_url
+                       FROM product_images pi
+                       WHERE pi.product_id = p.id
+                       ORDER BY pi.display_order ASC
+                       LIMIT 1
+                   ) as main_image,
+                   COALESCE(ps.order_event_count, 0) as order_count
+            FROM products p
+            LEFT JOIN product_stats ps ON p.id = ps.product_id
+            WHERE p.status = 'active'
+              AND p.parsed_ingredients->>'main_ingredient' = $1
+              AND p.id != ALL($2)
+            ORDER BY COALESCE(ps.order_event_count, 0) DESC
+            LIMIT $3
+        """
+        records_parsed = await self.db.fetch_all(
+            query_parsed, ingredient, exclude_ids, limit
+        )
+
+        for r in records_parsed:
+            results.append({
+                'product_id': r['id'],
+                'name': r['name'],
+                'slug': r['slug'],
+                'price': r['price'],
+                'original_price': r['original_price'],
+                'main_image': r['main_image'],
+                'order_count': r['order_count'],
+                'ingredient': ingredient,
+            })
+
+        # 결과가 충분하면 반환
+        if len(results) >= limit:
+            return results[:limit]
+
+        # 2단계: 기존 검색 로직으로 보완
+        remaining = limit - len(results)
+        existing_ids = [r['product_id'] for r in results] + exclude_ids
+
+        additional = await self._search_products_for_ingredient(
+            ingredient, limit=remaining + 5
+        )
+
+        for p in additional:
+            if p['product_id'] not in existing_ids:
+                results.append(p)
+                if len(results) >= limit:
+                    break
+
+        return results[:limit]
+
+    async def get_simple_cart_recommendations(
+        self,
+        cart_product_ids: List[int],
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """장바구니 기반 간단 추천 API (상품만 반환)
+
+        레시피 정보 없이 추천 상품만 반환하는 간소화된 API입니다.
+        parsed_ingredients.main_ingredient 필드를 우선 사용합니다.
+
+        Args:
+            cart_product_ids: 장바구니 상품 ID 목록
+            limit: 추천 상품 개수 (최대)
+
+        Returns:
+            {
+                'products': [상품 목록 - 최대 limit개],
+                'cart_ingredients': [인식된 재료],
+                'model_version': 'v2',
+            }
+        """
+        if not cart_product_ids:
+            return {
+                'products': [],
+                'cart_ingredients': [],
+                'model_version': 'v2',
+            }
+
+        # 1. 장바구니 상품에서 재료 추출 (parsed_ingredients 우선)
+        cart_ingredients, detected_dishes = await self._get_ingredients_from_cart_with_parsed(
+            cart_product_ids
+        )
+
+        if not cart_ingredients:
+            logger.warning(f"재료 인식 실패: product_ids={cart_product_ids}")
+            return {
+                'products': [],
+                'cart_ingredients': [],
+                'model_version': 'v2',
+            }
+
+        logger.info(
+            f"장바구니 재료 인식: {len(cart_ingredients)}개",
+            extra={"ingredients": cart_ingredients[:5], "dishes": detected_dishes},
+        )
+
+        # 2. ML 모델로 추천 재료 생성
+        recommended_ingredients = []
+
+        if self._use_v2_model and self._v2_model:
+            # v2 모델: Masked Set Transformer로 재료 추천
+            recommended_ingredients = self._recommend_with_v2_model(
+                cart_ingredients,
+                top_k=min(limit, 15),  # 추천 재료 개수
+            )
+            logger.info(
+                f"v2 모델 추천: {len(recommended_ingredients)}개 재료",
+                extra={"recommendations": recommended_ingredients[:5]},
+            )
+        elif self._use_pickle and self._pickle_model:
+            # v1 모델: 레시피 기반 Gap 재료 추출
+            recipes = self._recommend_with_pickle(
+                cart_ingredients,
+                detected_dishes=detected_dishes,
+                limit=5,
+            )
+            # 모든 레시피의 gap 재료 수집
+            all_gaps = set()
+            for recipe in recipes:
+                all_gaps.update(recipe.get('gap_ingredients', [])[:5])
+            recommended_ingredients = list(all_gaps)[:15]
+
+        if not recommended_ingredients:
+            logger.warning("추천 재료 없음")
+            return {
+                'products': [],
+                'cart_ingredients': cart_ingredients,
+                'model_version': 'v2' if self._use_v2_model else 'v1',
+            }
+
+        # 3. 추천 재료별 상품 검색 (parsed_ingredients 활용)
+        products = []
+        seen_product_ids = set(cart_product_ids)  # 장바구니 상품 제외
+
+        for ingredient in recommended_ingredients:
+            if len(products) >= limit:
+                break
+
+            # 재료당 검색할 상품 수 계산
+            remaining = limit - len(products)
+            per_ingredient = max(1, min(3, remaining // max(1, len(recommended_ingredients) - recommended_ingredients.index(ingredient))))
+
+            found_products = await self._search_products_for_ingredient_with_parsed(
+                ingredient,
+                exclude_ids=list(seen_product_ids),
+                limit=per_ingredient,
+            )
+
+            for p in found_products:
+                if p['product_id'] not in seen_product_ids:
+                    seen_product_ids.add(p['product_id'])
+                    p['ingredient'] = ingredient  # 어떤 재료로 추천되었는지 기록
+                    products.append(p)
+
+                    if len(products) >= limit:
+                        break
+
+        logger.info(
+            f"최종 추천 상품: {len(products)}개",
+            extra={"product_ids": [p['product_id'] for p in products[:5]]},
+        )
+
+        return {
+            'products': products,
+            'cart_ingredients': cart_ingredients,
+            'model_version': 'v2' if self._use_v2_model else 'v1',
+        }
