@@ -24,6 +24,11 @@ from dataclasses import dataclass, asdict
 from django.conf import settings
 from django.core.cache import cache
 
+try:
+    import openai
+except ImportError:
+    openai = None  # openai 패키지 미설치 시 None
+
 logger = logging.getLogger(__name__)
 
 
@@ -143,10 +148,7 @@ class GMSIngredientExtractor:
 
     def __init__(self):
         """GMS 클라이언트 초기화"""
-        try:
-            import openai
-            self.openai = openai
-        except ImportError:
+        if openai is None:
             logger.error("openai 패키지가 설치되지 않았습니다. pip install openai 실행 필요")
             raise ImportError("openai 패키지가 필요합니다. pip install openai")
 

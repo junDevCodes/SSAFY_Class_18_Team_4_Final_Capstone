@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
+from rest_framework.permissions import IsAdminUser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F, Subquery, OuterRef, Value, IntegerField
 from django.db.models.functions import Coalesce
@@ -1296,8 +1297,9 @@ class GMSExtractionStatusView(APIView):
     GET /api/products/gms-status/
 
     GMS 재료 추출 처리 현황을 반환합니다.
-    관리자 또는 인증된 사용자만 접근 가능합니다.
+    관리자만 접근 가능합니다.
     """
+    permission_classes = [IsAdminUser]
 
     @extend_schema(
         tags=['GMS 모니터링'],
