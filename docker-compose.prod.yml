@@ -132,5 +132,65 @@ services:
         max-file: "3"
     restart: unless-stopped
 
+  # Celery Worker: GMS 재료 추출 비동기 태스크 처리
+  celery-worker:
+    image: ${ECR_REPO_BACKEND:-733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-backend}:${IMAGE_TAG:-latest}
+    container_name: self-celery-worker
+    env_file:
+      - .env
+    environment:
+      DB_ENGINE: django.db.backends.postgresql
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      ML_API_URL: http://pred:8001
+      CELERY_CONCURRENCY: "${CELERY_CONCURRENCY:-4}"
+    extra_hosts:
+      - "metadata:169.254.169.254"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A project_self worker
+      --loglevel=info
+      --concurrency=${CELERY_CONCURRENCY:-4}
+      -Q high_priority,default,low_priority
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  # Celery Beat: 스케줄러 (매시 정각 미처리 상품 추출, 매일 새벽 재처리)
+  celery-beat:
+    image: ${ECR_REPO_BACKEND:-733002311297.dkr.ecr.ap-northeast-2.amazonaws.com/self-backend}:${IMAGE_TAG:-latest}
+    container_name: self-celery-beat
+    env_file:
+      - .env
+    environment:
+      DB_ENGINE: django.db.backends.postgresql
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A project_self beat
+      --loglevel=info
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
 volumes:
   postgres_data:

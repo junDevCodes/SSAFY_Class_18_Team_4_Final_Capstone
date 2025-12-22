@@ -93,5 +93,59 @@
       timeout: 5s
       retries: 5
 
+  # Celery Worker: GMS 재료 추출 비동기 태스크 처리
+  celery-worker:
+    build: ./backend
+    container_name: self-celery-worker
+    env_file:
+      - backend/.env
+    environment:
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: selfdb
+      DB_USER: selfuser
+      DB_PASSWORD: selfpass
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      ML_API_URL: http://pred:8001
+      CELERY_CONCURRENCY: "4"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A project_self worker
+      --loglevel=info
+      --concurrency=4
+      -Q high_priority,default,low_priority
+    restart: unless-stopped
+
+  # Celery Beat: 스케줄러 (매시 정각 미처리 상품 추출, 매일 새벽 재처리)
+  celery-beat:
+    build: ./backend
+    container_name: self-celery-beat
+    env_file:
+      - backend/.env
+    environment:
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: selfdb
+      DB_USER: selfuser
+      DB_PASSWORD: selfpass
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A project_self beat
+      --loglevel=info
+    restart: unless-stopped
+
 volumes:
   postgres_data:
