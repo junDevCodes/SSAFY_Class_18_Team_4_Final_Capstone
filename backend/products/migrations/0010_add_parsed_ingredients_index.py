@@ -7,10 +7,11 @@ from django.db import migrations, connection
 def add_gin_index(apps, schema_editor):
     """PostgreSQL에서만 GIN 인덱스 생성"""
     if connection.vendor == 'postgresql':
+        # Django 커스텀 테이블명 사용 (db_table='products')
         schema_editor.execute(
             """
             CREATE INDEX IF NOT EXISTS ix_products_parsed_gin
-            ON products_product USING GIN (parsed_ingredients)
+            ON products USING GIN (parsed_ingredients)
             """
         )
 

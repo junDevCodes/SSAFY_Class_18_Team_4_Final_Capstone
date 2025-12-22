@@ -270,6 +270,34 @@ export const guestOrdersAPI = {
     apiClient.post('/api/orders/guest/lookup/', data),
 }
 
+// ==================== Recommendations API ====================
+export interface CartRecommendedProduct {
+  product_id: number
+  name: string
+  slug: string
+  price: number
+  original_price: number | null
+  main_image: string | null
+  order_count: number
+  ingredient: string  // 이 상품이 커버하는 재료
+}
+
+export interface CartRecommendationsResponse {
+  products: CartRecommendedProduct[]
+  cart_ingredients: string[]
+  model_version: string
+  total_count: number
+}
+
+export const recommendationsAPI = {
+  // 장바구니 기반 ML 추천 (비회원 허용)
+  getCartRecommendations: (productIds: number[], limit: number = 20) =>
+    apiClient.post<CartRecommendationsResponse>('/api/recommendations/cart/', {
+      product_ids: productIds,
+      limit,
+    }),
+}
+
 // ==================== Sellers API ====================
 export const sellersAPI = {
   // 판매자 목록
@@ -374,6 +402,7 @@ export const api = {
   cart: cartAPI,
   orders: ordersAPI,
   guestOrders: guestOrdersAPI,
+  recommendations: recommendationsAPI,
   sellers: sellersAPI,
   sellerProducts: sellerProductsAPI,
   analytics: analyticsAPI,
