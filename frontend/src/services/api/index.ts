@@ -395,6 +395,19 @@ export const sellersAPI = {
   // 판매자 대시보드
   getDashboard: () =>
     apiClient.get('/api/sellers/dashboard/'),
+
+  // ?ë§¤???´ë?ì§€ ?…ë¡œ??
+  uploadSellerImage: (image: File, imageType: 'profile' | 'logo' | 'banner') => {
+    const formData = new FormData()
+    formData.append('image', image)
+    formData.append('image_type', imageType)
+
+    return apiClient.post(
+      '/api/sellers/me/images/upload/',
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  },
 }
 
 // ==================== Seller Products API ====================
@@ -411,12 +424,14 @@ export const sellerProductsAPI = {
   createProduct: (data: {
     name: string
     price: number
+    slug?: string
+    original_price?: number
     category_id?: number
-    description?: string
+    full_description?: string
     short_description?: string
-    main_image_url?: string
     stock_quantity?: number
     unit?: string
+    description?: string
   }) => apiClient.post('/api/seller-products/', data),
 
   // 상품 수정
@@ -442,9 +457,47 @@ export const sellerProductsAPI = {
     display_order?: number
   }>) => apiClient.post(`/api/seller-products/${product_id}/images/`, { images }),
 
+  // 상품 메인 이미지 업로드 (S3)
+  uploadProductImages: (product_id: number, files: File[]) => {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('images', file))
+
+    return apiClient.post(
+      `/api/seller-products/${product_id}/images/upload/`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  },
+
+  // 상품 상세 설명 이미지 업로드 (S3)
+  uploadProductDetailImages: (product_id: number, files: File[]) => {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('images', file))
+
+    return apiClient.post(
+      `/api/seller-products/${product_id}/detail-images/upload/`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  },
+
   // 상품 이미지 삭제
   deleteProductImage: (product_id: number, image_id: number) =>
     apiClient.delete(`/api/seller-products/${product_id}/images/${image_id}/`),
+}
+
+// ==================== Seller Orders API ====================
+export const sellerOrdersAPI = {
+  // 판매자 상품 기준 주문 항목 목록
+  getOrderItems: (params?: { status?: string; page?: number; page_size?: number }) =>
+    apiClient.get('/api/sellers/orders/', { params }),
+
+  // 상태별 개수 요약
+  getSummary: () => apiClient.get('/api/sellers/orders/summary/'),
+
+  // 주문 항목 상태 변경
+  updateStatus: (id: number, status: string) =>
+    apiClient.patch(`/api/sellers/orders/${id}/status/`, { status }),
 }
 
 // 전체 API를 하나의 객체로 export
@@ -459,6 +512,7 @@ export const api = {
   recommendations: recommendationsAPI,
   sellers: sellersAPI,
   sellerProducts: sellerProductsAPI,
+  sellerOrders: sellerOrdersAPI,
   analytics: analyticsAPI,
   adminAnalytics: adminAnalyticsAPI,
 }

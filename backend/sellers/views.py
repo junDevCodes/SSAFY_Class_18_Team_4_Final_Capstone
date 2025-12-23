@@ -1,15 +1,18 @@
 """
 판매자 관련 뷰 (ERD V2.1)
 """
-from rest_framework import viewsets, generics, status
+from rest_framework import viewsets, generics, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.pagination import PageNumberPagination
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import Count
 from drf_spectacular.utils import extend_schema, extend_schema_view
+from orders.models import OrderItem, OrderItemStatus, OrderStatus
 from .models import Seller, SellerBusiness, SellerSchedule
 from .serializers import (
     SellerSerializer,
@@ -18,9 +21,19 @@ from .serializers import (
     SellerPublicSerializer,
     SellerScheduleSerializer,
     SellerImageUploadSerializer,
+    SellerOrderItemSerializer,
+    SellerOrderItemStatusUpdateSerializer,
 )
 from .permissions import IsSeller, IsOwnerSeller
 from products.services.s3_upload import S3ImageUploader, S3UploadError
+
+
+class SellerOrderPagination(PageNumberPagination):
+    """판매자 주문관리 기본 페이지네이션"""
+
+    page_size = 15
+    page_size_query_param = "page_size"
+    max_page_size = 50
 
 
 @extend_schema(
@@ -198,7 +211,8 @@ class SellerDashboardView(generics.RetrieveAPIView):
 
         # 추가 통계 정보 계산 (ERD V2.1: ProductStats 테이블에서 집계)
         from products.models import Product, ProductStats
-        from django.db.models import Sum, Avg, Count
+        from orders.models import OrderItem, OrderItemStatus, OrderStatus
+        from django.db.models import Sum, Avg, F, IntegerField
 
         products = Product.objects.filter(seller=seller)
 
@@ -206,10 +220,47 @@ class SellerDashboardView(generics.RetrieveAPIView):
         product_ids = products.values_list('id', flat=True)
         stats_qs = ProductStats.objects.filter(product_id__in=product_ids)
 
+        valid_order_statuses = [
+            OrderStatus.PAID,
+            OrderStatus.PROCESSING,
+            OrderStatus.SHIPPED,
+            OrderStatus.DELIVERED,
+        ]
+        order_items_qs = (
+            OrderItem.objects.filter(
+                seller=seller,
+                order__status__in=valid_order_statuses,
+            )
+            .exclude(status__in=[OrderItemStatus.CANCELLED, OrderItemStatus.REFUNDED])
+        )
+
+        revenue_expr = F('unit_price_snapshot') * F('quantity') - F('discount_amount')
+        total_revenue = (
+            order_items_qs.aggregate(
+                total=Sum(revenue_expr, output_field=IntegerField())
+            )['total']
+            or 0
+        )
+
+        total_review_count = stats_qs.aggregate(total=Sum('review_count'))['total'] or 0
+        if total_review_count:
+            weighted_rating_sum = (
+                stats_qs.annotate(
+                    weighted_rating=F('average_rating') * F('review_count')
+                ).aggregate(total=Sum('weighted_rating'))['total']
+                or 0
+            )
+            average_rating = float(weighted_rating_sum) / float(total_review_count)
+        else:
+            average_rating = 0.0
+
         stats = {
             'total_products': products.count(),
             'active_products': products.filter(status='active').count(),
             'draft_products': products.filter(status='draft').count(),
+            'total_orders': order_items_qs.count(),
+            'total_revenue': total_revenue,
+            'average_rating': round(average_rating, 2),
             'total_views': stats_qs.aggregate(Sum('view_count'))['view_count__sum'] or 0,
             'total_clicks': stats_qs.aggregate(Sum('recommend_clicked_count'))['recommend_clicked_count__sum'] or 0,
             'avg_quality_score': stats_qs.aggregate(Avg('quality_score'))['quality_score__avg'] or 0,
@@ -301,6 +352,11 @@ class SellerImageUploadView(APIView):
                 url = uploader.upload_brand_banner(image, seller.id, image.name)
                 seller.brand_banner_url = url
                 field_name = 'brand_banner_url'
+            else:
+                return Response(
+                    {'error': '지원하지 않는 이미지 타입입니다.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
             seller.save(update_fields=[field_name, 'updated_at'])
 
@@ -322,3 +378,75 @@ class SellerImageUploadView(APIView):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class SellerOrderItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """판매자 주문관리용 OrderItem ViewSet"""
+
+    serializer_class = SellerOrderItemSerializer
+    permission_classes = [IsAuthenticated, IsSeller]
+    pagination_class = SellerOrderPagination
+
+    def get_queryset(self):
+        seller = getattr(self.request.user, 'seller_profile', None)
+        if not seller:
+            return OrderItem.objects.none()
+
+        queryset = (
+            OrderItem.objects.filter(seller=seller)
+            .select_related('order', 'product')
+            .prefetch_related('product__images')
+            .order_by('-created_at')
+        )
+
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            queryset = queryset.filter(status=status_param)
+
+        return queryset
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """상태별 개수 요약 (탭 배지용)"""
+        counts = {choice[0]: 0 for choice in OrderItemStatus.choices}
+        for row in self.get_queryset().values('status').annotate(count=Count('id')):
+            counts[row['status']] = row['count']
+        return Response(counts)
+
+    @action(detail=True, methods=['patch'], url_path='status')
+    def update_status(self, request, pk=None):
+        """주문 항목 상태 변경 (주문확인중/배송출고/배송중/배송완료)"""
+        order_item = self.get_object()
+        serializer = SellerOrderItemStatusUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        new_status = serializer.validated_data['status']
+        order_item.status = new_status
+        order_item.save(update_fields=['status'])
+
+        self._sync_order_status(order_item.order)
+
+        return Response(
+            {
+                'message': '상태가 변경되었습니다.',
+                'item': SellerOrderItemSerializer(order_item).data,
+            }
+        )
+
+    def _sync_order_status(self, order):
+        """주문 아이템 상태에 맞춰 주문 상태도 최신화"""
+        statuses = list(order.items.values_list('status', flat=True))
+        target_status = order.status
+
+        if statuses and all(status == OrderItemStatus.DELIVERED for status in statuses):
+            target_status = OrderStatus.DELIVERED
+        elif any(status == OrderItemStatus.SHIPPING for status in statuses):
+            target_status = OrderStatus.SHIPPED
+        elif any(status == OrderItemStatus.PAID for status in statuses):
+            target_status = OrderStatus.PROCESSING
+        elif any(status == OrderItemStatus.PENDING for status in statuses):
+            target_status = OrderStatus.PAID
+
+        if target_status != order.status:
+            order.status = target_status
+            order.save(update_fields=['status', 'updated_at'])

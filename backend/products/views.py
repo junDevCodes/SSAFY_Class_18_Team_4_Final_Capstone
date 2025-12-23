@@ -34,7 +34,8 @@ from .serializers import (
     ProductListSerializerV2, ProductDetailSerializerV2,
     ReviewSerializer, ReviewCreateSerializer,
     NewProductListSerializer, BestProductListSerializer,
-    SellerProductCreateSerializer, ProductImageUploadSerializer, ProductDetailImageUploadSerializer
+    SellerProductCreateSerializer, SellerProductListSerializer,
+    ProductImageUploadSerializer, ProductDetailImageUploadSerializer
 )
 from .services.s3_upload import S3ImageUploader, S3UploadError
 
@@ -171,9 +172,11 @@ class ProductListView(generics.ListAPIView):
         from datetime import timedelta
         from django.db.models import Q
 
-        queryset = Product.objects.filter(status='active').select_related(
-            'category', 'stats', 'inventory'
-        )
+        include_inactive = self.request.query_params.get('include_inactive')
+
+        queryset = Product.objects.select_related('category', 'stats', 'inventory')
+        if not (include_inactive and include_inactive.lower() in ('true', '1', 'yes')):
+            queryset = queryset.filter(status='active')
 
         # 커스텀 필터: is_featured (추천 상품 - quality_score 기준)
         is_featured = self.request.query_params.get('is_featured')
@@ -188,7 +191,10 @@ class ProductListView(generics.ListAPIView):
         if is_best and is_best.lower() in ('true', '1'):
             # 주문 이벤트 또는 조회수가 높은 상품 (주문수 > 0 또는 조회수 > 100)
             queryset = queryset.filter(
-                Q(stats__order_event_count__gt=0) | Q(stats__view_count__gte=100)
+                Q(stats__order_event_count__gt=0)
+                | Q(stats__review_count__gt=0)
+                | Q(stats__average_rating__gt=0)
+                | Q(stats__view_count__gte=100)
             ).order_by('-stats__order_event_count', '-stats__view_count', '-created_at')
 
         # 커스텀 필터: is_new (신상품 - 최근 7일 내 등록)
@@ -365,7 +371,12 @@ class SellerProductViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         """액션별 시리얼라이저 분기"""
         if self.action == 'create':
+            # 상품 생성 시에는 SellerProductCreateSerializer 사용
             return SellerProductCreateSerializer
+        if self.action in ['list', 'retrieve']:
+            # 판매자 상품 목록/상세 조회에는 SellerProductListSerializer 사용
+            return SellerProductListSerializer
+        # 나머지 액션(update/partial_update 등)은 기본 ProductSerializer 사용
         return ProductSerializer
 
     def get_permissions(self):
@@ -470,7 +481,7 @@ class ProductImageUploadView(APIView):
 - images: 이미지 파일 (여러 개 가능, 최대 10개)
 
 ### S3 저장 경로
-- `homeplus/thumbnail/{product_id}_{uuid}.{ext}`
+- `seller_profile/seller_product_thumbnail/{product_id}_{uuid}.{ext}`
 
 ### 이미지 순서
 - 업로드 순서대로 display_order가 자동 할당됩니다.
@@ -577,7 +588,7 @@ class ProductDetailImageUploadView(APIView):
 - images: 이미지 파일 (여러 개 가능, 최대 20개)
 
 ### S3 저장 경로
-- `homeplus/product_detail/{product_id}_{uuid}.{ext}`
+- `seller_profile/seller_product_detail/{product_id}_{uuid}.{ext}`
 
 ### 저장 방식
 - ProductDetail.full_image_description 배열에 URL이 순서대로 추가됩니다.

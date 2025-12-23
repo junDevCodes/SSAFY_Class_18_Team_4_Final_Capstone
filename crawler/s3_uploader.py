@@ -31,9 +31,18 @@ class S3Uploader:
         self.region = self.config.s3.region
         self.presign_expires = self.config.s3.presign_expires
         self.use_public_url = self.config.s3.use_public_url
-        # boto3는 자동으로 EC2 IAM 역할 자격증명을 찾습니다 (메타데이터 서비스 169.254.169.254)
-        # 명시적으로 자격증명을 전달하지 않으면 환경변수 → ~/.aws/credentials → EC2 메타데이터 순으로 찾습니다
-        self._s3 = boto3.client("s3", region_name=self.region) if self.bucket else None
+        
+        # boto3 클라이언트 생성 (자격 증명 명시적 전달 추가)
+        s3_params = {
+            "region_name": self.region
+        }
+        if self.config.s3.access_key and self.config.s3.secret_key:
+            s3_params["aws_access_key_id"] = self.config.s3.access_key
+            s3_params["aws_secret_access_key"] = self.config.s3.secret_key
+            logger.info("환경변수로부터 S3 자격증명을 명시적으로 사용합니다.")
+        
+        self._s3 = boto3.client("s3", **s3_params) if self.bucket else None
+        
         # 리디렉션(302) 응답을 따라가도록 설정해 rtd -> td 전환 시 업로드가 실패하지 않게 함
         self._http = httpx.Client(timeout=15.0, follow_redirects=True)
         
@@ -65,6 +74,7 @@ class S3Uploader:
             image_type: 이미지 타입 ("thumbnail" 또는 "product_detail")
             image_hash: 이미지 URL 해시 (중복 방지용, 선택)
         """
+        import time
         # 이미지 타입에 따라 다른 prefix 사용
         if image_type == "product_detail":
             prefix = self.product_detail_prefix_tpl.rstrip('/')
@@ -78,20 +88,21 @@ class S3Uploader:
         prefix = prefix.replace('{batch_id}', batch_id)
         prefix = prefix.rstrip('/')
         
-        # 이미지 해시가 있으면 파일명에 포함 (같은 이미지면 같은 파일명)
+        # 파일명 생성: item_no + timestamp + hash/idx 조합으로 중복 철저히 방지
+        timestamp = time.strftime("%Y%m%d%H%M%S")
         if image_hash:
-            filename = f"{item_no}_{idx}_{image_hash[:8]}.jpg"
+            filename = f"{item_no}_{timestamp}_{idx}_{image_hash[:8]}.jpg"
         else:
-            filename = f"{item_no}_{idx}.jpg"
+            filename = f"{item_no}_{timestamp}_{idx}.jpg"
         return f"{prefix}/{filename}"
 
     def upload_and_presign(self, url: str, batch_id: str, item_no: str, idx: int, image_type: str = "thumbnail") -> Optional[str]:
-        """이미지 다운로드 → S3 업로드 → presigned URL 반환
+        """이미지 다운로드 → S3 업로드 → Public URL 반환 (명칭 유지, 동작은 Public URL 우선)
         
         최적화:
         - 이미지 URL 해시를 계산하여 파일명에 포함
         - S3에 이미 존재하는지 확인하여 중복 업로드 방지
-        - 같은 이미지는 같은 파일명을 사용하여 자동 중복 제거
+        - 항상 사용자에게 보여줄 수 있는 Public URL 반환
         """
         if not self._s3 or not self.bucket:
             logger.info("S3 비활성화 또는 버킷 미설정으로 원본 URL을 사용합니다: %s", url)
@@ -108,19 +119,9 @@ class S3Uploader:
                 self._s3.head_object(Bucket=self.bucket, Key=key)
                 # 이미 존재하면 업로드 스킵하고 URL만 생성
                 logger.debug("S3에 이미 존재하는 이미지 (업로드 스킵): key=%s", key)
-                # URL 생성: Public URL 또는 Presigned URL
-                if self.use_public_url:
-                    public_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
-                    logger.info("S3 Public URL 생성 (기존 파일 사용): bucket=%s key=%s url=%s", self.bucket, key, public_url)
-                    return public_url
-                else:
-                    presigned = self._s3.generate_presigned_url(
-                        "get_object",
-                        Params={"Bucket": self.bucket, "Key": key},
-                        ExpiresIn=self.presign_expires,
-                    )
-                    logger.info("S3 presigned URL 생성 (기존 파일 사용): bucket=%s key=%s", self.bucket, key)
-                    return presigned
+                # 항상 Public URL 반환
+                public_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
+                return public_url
             except self._s3.exceptions.ClientError as e:
                 # 파일이 없으면 (404) 정상적으로 업로드 진행
                 if e.response['Error']['Code'] != '404':
@@ -130,61 +131,23 @@ class S3Uploader:
             resp = self._http.get(url)
             resp.raise_for_status()
             
-            # 이미지 내용 해시 계산 (실제 이미지가 같은지 확인)
-            content_hash = hashlib.md5(resp.content).hexdigest()
-            
-            # URL 해시와 내용 해시가 다르면 파일명에 내용 해시도 포함
-            if url_hash != content_hash:
-                key = self._make_key(batch_id, str(item_no), idx, image_type=image_type, image_hash=content_hash[:8])
-                # 새 파일명으로 다시 존재 확인
-                try:
-                    self._s3.head_object(Bucket=self.bucket, Key=key)
-                    logger.debug("S3에 이미 존재하는 이미지 (내용 해시 기반, 업로드 스킵): key=%s", key)
-                    # URL 생성: Public URL 또는 Presigned URL
-                    if self.use_public_url:
-                        public_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
-                        logger.info("S3 Public URL 생성 (기존 파일 사용, 내용 해시 기반): bucket=%s key=%s url=%s", self.bucket, key, public_url)
-                        return public_url
-                    else:
-                        presigned = self._s3.generate_presigned_url(
-                            "get_object",
-                            Params={"Bucket": self.bucket, "Key": key},
-                            ExpiresIn=self.presign_expires,
-                        )
-                        return presigned
-                except self._s3.exceptions.ClientError as e:
-                    if e.response['Error']['Code'] != '404':
-                        raise
-            
-            # 실제 업로드 수행
+            # 실제 업로드 수행 (ACL 설정 제외하여 권한 오류 방지, 버킷 정책 의존)
             put_params = {
                 "Bucket": self.bucket,
                 "Key": key,
                 "Body": resp.content,
                 "ContentType": "image/jpeg"
             }
-            # Public URL 사용 시 ACL 설정
-            if self.use_public_url:
-                put_params["ACL"] = "public-read"
             
             self._s3.put_object(**put_params)
             
-            # URL 생성: Public URL 또는 Presigned URL
-            if self.use_public_url:
-                public_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
-                logger.info("S3 업로드/Public URL 생성 성공: bucket=%s key=%s size=%d bytes url=%s",
-                           self.bucket, key, len(resp.content), public_url)
-                return public_url
-            else:
-                presigned = self._s3.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": self.bucket, "Key": key},
-                    ExpiresIn=self.presign_expires,
-                )
-                logger.info("S3 업로드/프리사인 성공: bucket=%s key=%s size=%d bytes", self.bucket, key, len(resp.content))
-                return presigned
+            # 항상 Public URL 반환
+            public_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
+            logger.info("S3 업로드 성공 (Public URL 반환): bucket=%s key=%s url=%s", self.bucket, key, public_url)
+            return public_url
+
         except Exception as exc:
-            # 업로드 실패 시 원본 URL을 그대로 사용
+            # 업로드 실패 시 원본 URL을 그대로 사용 (로그만 남기고 fallback)
             error_type = type(exc).__name__
             error_msg = str(exc)
             logger.warning(
