@@ -282,6 +282,8 @@ export interface ProductFilterParams {
   price__lte?: number
   status?: 'active' | 'inactive' | 'draft' | 'out_of_stock' | 'discontinued'
   product_type?: 'main' | 'seller'
+  // 판매자/브랜드 필터
+  brand_slug?: string
   include_inactive?: boolean
 
   // 커스텀 필터 (백엔드 v2.1 지원)
