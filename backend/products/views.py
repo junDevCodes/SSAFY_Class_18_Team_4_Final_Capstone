@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
+from rest_framework.permissions import IsAdminUser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F, Subquery, OuterRef, Value, IntegerField
 from django.db.models.functions import Coalesce
@@ -1288,3 +1289,207 @@ class BestProductListView(APIView):
             'count': len(serializer.data),
             'results': serializer.data
         })
+
+
+class GMSExtractionStatusView(APIView):
+    """GMS 재료 추출 상태 모니터링 API
+
+    GET /api/products/gms-status/
+
+    GMS 재료 추출 처리 현황을 반환합니다.
+    관리자만 접근 가능합니다.
+    """
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(
+        tags=['GMS 모니터링'],
+        summary='GMS 재료 추출 상태 조회',
+        description='''GMS 재료 추출 처리 현황을 조회합니다.
+
+### 응답 정보
+- `total_products`: 전체 활성 상품 수
+- `extracted`: 추출 완료된 상품 수
+- `pending`: 미처리 상품 수 (parsed_ingredients IS NULL)
+- `low_confidence`: 저신뢰도 상품 수 (confidence < 0.7)
+- `extraction_rate`: 추출 완료율 (%)
+- `celery_status`: Celery 연결 상태
+- `recent_tasks`: 최근 처리된 태스크 정보 (최대 10개)
+''',
+        responses={
+            200: OpenApiExample(
+                name='성공 응답',
+                value={
+                    'total_products': 5000,
+                    'extracted': 4850,
+                    'pending': 100,
+                    'low_confidence': 50,
+                    'extraction_rate': 97.0,
+                    'celery_status': 'connected',
+                    'queue_info': {
+                        'high_priority': 0,
+                        'default': 5,
+                        'low_priority': 12
+                    },
+                    'schedule_info': {
+                        'next_pending_run': '2025-12-22T14:00:00Z',
+                        'next_reprocess_run': '2025-12-23T03:00:00Z'
+                    }
+                }
+            )
+        }
+    )
+    def get(self, request):
+        """GMS 추출 상태 조회"""
+        from products.models import Product
+
+        # 기본 통계
+        total = Product.objects.filter(status='active').count()
+        pending = Product.objects.filter(
+            status='active',
+            parsed_ingredients__isnull=True
+        ).count()
+        extracted = total - pending
+
+        # 저신뢰도 상품 카운트 (Python 레벨)
+        low_confidence = self._count_low_confidence()
+
+        # 추출 완료율
+        extraction_rate = round(100 * extracted / total, 1) if total > 0 else 0
+
+        # Celery 상태 확인
+        celery_status = self._check_celery_status()
+
+        # 큐 정보
+        queue_info = self._get_queue_info()
+
+        # 스케줄 정보
+        schedule_info = self._get_schedule_info()
+
+        # 최근 추출된 상품 샘플 (최신 5개)
+        recent_extractions = self._get_recent_extractions()
+
+        return Response({
+            'total_products': total,
+            'extracted': extracted,
+            'pending': pending,
+            'low_confidence': low_confidence,
+            'extraction_rate': extraction_rate,
+            'celery_status': celery_status,
+            'queue_info': queue_info,
+            'schedule_info': schedule_info,
+            'recent_extractions': recent_extractions,
+        })
+
+    def _count_low_confidence(self) -> int:
+        """저신뢰도 상품 카운트"""
+        from products.models import Product
+
+        min_conf = getattr(settings, 'GMS_EXTRACTION_MIN_CONFIDENCE', 0.7)
+        count = 0
+
+        products = Product.objects.filter(
+            status='active'
+        ).exclude(
+            parsed_ingredients__isnull=True
+        ).values_list('parsed_ingredients', flat=True)[:5000]
+
+        for parsed in products:
+            if isinstance(parsed, dict):
+                if parsed.get('confidence', 0) < min_conf:
+                    count += 1
+
+        return count
+
+    def _check_celery_status(self) -> str:
+        """Celery 연결 상태 확인"""
+        try:
+            from project_self.celery import app
+
+            # Redis 연결 테스트
+            inspect = app.control.inspect()
+            ping = inspect.ping()
+
+            if ping:
+                return 'connected'
+            else:
+                return 'no_workers'
+
+        except ImportError:
+            return 'celery_not_installed'
+        except Exception as e:
+            return f'error: {str(e)[:50]}'
+
+    def _get_queue_info(self) -> dict:
+        """큐별 대기 태스크 수"""
+        try:
+            from project_self.celery import app
+
+            inspect = app.control.inspect()
+            reserved = inspect.reserved() or {}
+            active = inspect.active() or {}
+
+            # 큐별 카운트 (근사값)
+            queue_counts = {
+                'high_priority': 0,
+                'default': 0,
+                'low_priority': 0,
+            }
+
+            for worker_tasks in list(reserved.values()) + list(active.values()):
+                for task in worker_tasks:
+                    queue = task.get('delivery_info', {}).get('routing_key', 'default')
+                    if queue in queue_counts:
+                        queue_counts[queue] += 1
+
+            return queue_counts
+
+        except Exception:
+            return {'error': 'unable_to_fetch'}
+
+    def _get_schedule_info(self) -> dict:
+        """다음 스케줄 실행 시간"""
+        from datetime import datetime, timedelta
+
+        now = timezone.now()
+
+        # 매시 정각 (pending 처리)
+        next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+        # 매일 새벽 3시 (저신뢰도 재처리)
+        next_3am = now.replace(hour=3, minute=0, second=0, microsecond=0)
+        if now.hour >= 3:
+            next_3am += timedelta(days=1)
+
+        # 매일 새벽 4시 (실패 재시도)
+        next_4am = now.replace(hour=4, minute=0, second=0, microsecond=0)
+        if now.hour >= 4:
+            next_4am += timedelta(days=1)
+
+        return {
+            'next_pending_extraction': next_hour.isoformat(),
+            'next_low_confidence_reprocess': next_3am.isoformat(),
+            'next_failed_retry': next_4am.isoformat(),
+        }
+
+    def _get_recent_extractions(self) -> list:
+        """최근 추출된 상품 샘플"""
+        from products.models import Product
+
+        recent = Product.objects.filter(
+            status='active'
+        ).exclude(
+            parsed_ingredients__isnull=True
+        ).order_by('-updated_at')[:5]
+
+        result = []
+        for p in recent:
+            parsed = p.parsed_ingredients or {}
+            result.append({
+                'id': p.id,
+                'name': p.name[:50],
+                'main_ingredient': parsed.get('main_ingredient'),
+                'confidence': parsed.get('confidence'),
+                'updated_at': p.updated_at.isoformat() if p.updated_at else None,
+            })
+
+        return result

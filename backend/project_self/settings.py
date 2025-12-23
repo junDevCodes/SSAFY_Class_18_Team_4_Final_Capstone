@@ -366,3 +366,46 @@ AWS_DEFAULT_ACL = 'public-read'  # 공개 읽기 권한
 AWS_S3_OBJECT_PARAMETERS = {
     'CacheControl': 'max-age=86400',  # 24시간 캐시
 }
+
+# ========================= GMS (SSAFY GPT Proxy) 설정 =========================
+# 상품명에서 재료 추출을 위한 LLM API 설정
+GMS_API_BASE_URL = os.getenv('GMS_API_BASE_URL', 'https://gms.ssafy.io/gmsapi/api.openai.com/v1')
+GMS_API_KEY = os.getenv('GMS_API_KEY', '')
+GMS_MODEL = os.getenv('GMS_MODEL', 'gpt-4o-mini')
+GMS_MAX_RETRIES = int(os.getenv('GMS_MAX_RETRIES', 3))
+GMS_TIMEOUT = int(os.getenv('GMS_TIMEOUT', 30))
+
+# ========================= Celery 설정 =========================
+# Redis를 브로커와 결과 백엔드로 사용
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
+
+# 직렬화 설정
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+# 시간대 설정
+CELERY_TIMEZONE = 'Asia/Seoul'
+CELERY_ENABLE_UTC = True
+
+# 태스크 설정
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30분 (GMS API 배치 처리 고려)
+CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # 25분 (soft limit)
+
+# Worker 설정
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # 순차 처리 (Rate Limit 대응)
+CELERY_WORKER_CONCURRENCY = int(os.getenv('CELERY_CONCURRENCY', 4))
+
+# 재시도 설정
+CELERY_TASK_ACKS_LATE = True  # 태스크 완료 후 ACK (장애 복구)
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+
+# 결과 만료 시간 (24시간)
+CELERY_RESULT_EXPIRES = 60 * 60 * 24
+
+# GMS 추출 관련 설정
+GMS_EXTRACTION_BATCH_SIZE = int(os.getenv('GMS_EXTRACTION_BATCH_SIZE', 100))
+GMS_EXTRACTION_MIN_CONFIDENCE = float(os.getenv('GMS_EXTRACTION_MIN_CONFIDENCE', 0.7))
+GMS_EXTRACTION_USE_FALLBACK = os.getenv('GMS_EXTRACTION_USE_FALLBACK', 'True').lower() == 'true'

@@ -190,6 +190,14 @@ class Product(models.Model):
         verbose_name="예상 배송 일수",
     )
 
+    # GMS(GPT)로 추출된 재료 정보
+    parsed_ingredients = models.JSONField(
+        null=True,
+        blank=True,
+        verbose_name="파싱된 재료 정보",
+        help_text="GMS(GPT)로 추출된 상품명 분석 결과 (main_ingredient, normalized_ingredient, brand, weight 등)",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
 
@@ -206,6 +214,7 @@ class Product(models.Model):
             models.Index(fields=['slug'], name='ix_products_slug'),
             models.Index(fields=['created_at'], name='ix_products_created'),
         ]
+        # 참고: parsed_ingredients GIN 인덱스는 0010 마이그레이션에서 추가됨
 
     def __str__(self):
         return self.name
