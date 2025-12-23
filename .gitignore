@@ -444,3 +444,5 @@ plan/
 storage/
 plan/
 .claude-workspace/
+
+pred/models/AIRScout_model/
