@@ -7,6 +7,7 @@ Admin 분석용 집계 모델 테스트
 from datetime import date
 
 from django.test import TestCase
+from rest_framework.test import APIClient
 
 from analytics.models import AdminBizDaily, AdminRecoDaily, UserSegment
 from analytics.services import aggregate_biz_daily_for_date
@@ -183,4 +184,117 @@ class AdminBizDailyAggregationTests(TestCase):
         self.assertEqual(seller_row.orders, 1)
         self.assertEqual(seller_row.gmv, 30_000)
         self.assertEqual(seller_row.unique_buyers, 1)
+
+
+class AdminAnalyticsOverviewAPITests(TestCase):
+    """Admin Analytics Overview API 동작 테스트"""
+
+    def setUp(self) -> None:
+        """테스트용 데이터와 API 클라이언트 준비"""
+        self.client = APIClient()
+        self.target_date = date(2025, 3, 1)
+
+        # 유저 생성
+        self.consumer = User.objects.create(
+            email="overview-consumer@example.com",
+            username="overview-consumer",
+            role=UserRole.USER,
+        )
+        self.seller_user = User.objects.create(
+            email="overview-seller@example.com",
+            username="overview-seller",
+            role=UserRole.SELLER,
+        )
+        guest_email = "overview-guest@example.com"
+
+        # consumer 주문 1건 (10,000원)
+        consumer_order = Order.objects.create(
+            user=self.consumer,
+            status=OrderStatus.PAID,
+        )
+        self._force_created_at(consumer_order, self.target_date)
+        Payment.objects.create(
+            order=consumer_order,
+            amount=10_000,
+            status=PaymentStatus.SUCCESS,
+        )
+
+        # guest 주문 1건 (20,000원)
+        guest_order = Order.objects.create(
+            user=None,
+            guest_email=guest_email,
+            status=OrderStatus.DELIVERED,
+        )
+        self._force_created_at(guest_order, self.target_date)
+        Payment.objects.create(
+            order=guest_order,
+            amount=20_000,
+            status=PaymentStatus.SUCCESS,
+        )
+
+        # seller 주문 1건 (30,000원)
+        seller_order = Order.objects.create(
+            user=self.seller_user,
+            status=OrderStatus.PAID,
+        )
+        self._force_created_at(seller_order, self.target_date)
+        Payment.objects.create(
+            order=seller_order,
+            amount=30_000,
+            status=PaymentStatus.SUCCESS,
+        )
+
+        # Admin 집계 실행
+        aggregate_biz_daily_for_date(self.target_date)
+
+    def _force_created_at(self, order: Order, target_date: date) -> None:
+        """auto_now_add 필드를 가진 created_at 값을 강제로 지정"""
+        from datetime import datetime
+
+        naive_dt = datetime(
+            target_date.year,
+            target_date.month,
+            target_date.day,
+            10,
+            0,
+            0,
+        )
+        Order.objects.filter(pk=order.pk).update(created_at=naive_dt)
+        order.refresh_from_db()
+
+    def test_overview_returns_topline_kpis_and_trend(self) -> None:
+        """Overview API가 Top Line KPI와 추이 데이터를 반환해야 한다"""
+        response = self.client.get(
+            "/api/admin/analytics/overview/",
+            {
+                "start_date": self.target_date.isoformat(),
+                "end_date": self.target_date.isoformat(),
+                "granularity": "daily",
+                "segment": "all",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        # 상단 KPI 존재 여부 확인
+        self.assertIn("kpis", data)
+        self.assertGreater(len(data["kpis"]), 0)
+
+        # 총 매출/주문 수 KPI 값 검증
+        gmvs = [k for k in data["kpis"] if k["label"].startswith("총 매출")]
+        self.assertTrue(gmvs)
+        self.assertEqual(gmvs[0]["value"], 60_000.0)
+
+        orders_kpi = [k for k in data["kpis"] if k["label"].startswith("주문 수")]
+        self.assertTrue(orders_kpi)
+        self.assertEqual(orders_kpi[0]["value"], 3.0)
+
+        # 추이 데이터 검증
+        self.assertIn("trend", data)
+        self.assertIn("source", data["trend"])
+        trend = data["trend"]["source"]
+        self.assertEqual(len(trend), 1)
+        self.assertEqual(trend[0]["date"], self.target_date.isoformat())
+        self.assertEqual(trend[0]["revenue"], 60_000)
+        self.assertEqual(trend[0]["orders"], 3)
 
