@@ -357,7 +357,8 @@ AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION', 'ap-northeast-2')
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 
 # S3 업로드 경로 설정
-AWS_S3_THUMBNAIL_PREFIX = os.getenv('AWS_S3_THUMBNAIL_PREFIX', 'homeplus/thumnail/')
+# 참고: 기존 'thumnail' 오타 → 'thumbnail' 수정 (기존 데이터 호환을 위해 환경변수로 오버라이드 가능)
+AWS_S3_THUMBNAIL_PREFIX = os.getenv('AWS_S3_THUMBNAIL_PREFIX', 'homeplus/thumbnail/')
 AWS_S3_PRODUCT_DETAIL_PREFIX = os.getenv('AWS_S3_PRODUCT_DETAIL_PREFIX', 'homeplus/product_detail/')
 
 # S3 파일 설정

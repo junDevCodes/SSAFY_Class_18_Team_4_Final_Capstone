@@ -39,10 +39,32 @@ class S3ImageUploader:
         thumbnail_prefix: 메인 이미지(썸네일) S3 경로 접두사
         detail_prefix: 상세 설명 이미지 S3 경로 접두사
         custom_domain: S3 커스텀 도메인
+
+    Raises:
+        S3UploadError: AWS 자격증명이 설정되지 않은 경우
     """
 
     def __init__(self):
-        """S3 클라이언트 초기화"""
+        """S3 클라이언트 초기화
+
+        Raises:
+            S3UploadError: AWS 자격증명이 설정되지 않은 경우
+        """
+        # AWS 자격증명 검증
+        if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
+            logger.error("AWS 자격증명이 설정되지 않았습니다.")
+            raise S3UploadError(
+                "AWS 자격증명이 설정되지 않았습니다. "
+                "AWS_ACCESS_KEY_ID와 AWS_SECRET_ACCESS_KEY 환경변수를 확인해주세요."
+            )
+
+        if not settings.AWS_STORAGE_BUCKET_NAME:
+            logger.error("S3 버킷명이 설정되지 않았습니다.")
+            raise S3UploadError(
+                "S3 버킷명이 설정되지 않았습니다. "
+                "AWS_S3_BUCKET 환경변수를 확인해주세요."
+            )
+
         self.s3_client = boto3.client(
             's3',
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -53,6 +75,8 @@ class S3ImageUploader:
         self.thumbnail_prefix = settings.AWS_S3_THUMBNAIL_PREFIX
         self.detail_prefix = settings.AWS_S3_PRODUCT_DETAIL_PREFIX
         self.custom_domain = settings.AWS_S3_CUSTOM_DOMAIN
+
+        logger.info(f"S3ImageUploader 초기화: bucket={self.bucket_name}, region={settings.AWS_S3_REGION_NAME}")
 
     def _generate_unique_filename(self, original_filename: str, product_id: int) -> str:
         """고유한 파일명 생성
@@ -131,7 +155,7 @@ class S3ImageUploader:
     def upload_thumbnail(self, file_obj, product_id: int, original_filename: str) -> str:
         """상품 메인 이미지(썸네일) 업로드
 
-        S3 경로: homeplus/thumnail/{product_id}_{uuid}.{ext}
+        S3 경로: homeplus/thumbnail/{product_id}_{uuid}.{ext}
 
         Args:
             file_obj: 업로드할 이미지 파일
