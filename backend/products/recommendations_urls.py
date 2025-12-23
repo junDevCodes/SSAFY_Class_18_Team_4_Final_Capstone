@@ -9,6 +9,8 @@ from .recommendations_views import (
     CartRecommendationsView,
     PersonalizedRecommendationsView,
     RecentViewedProductsView,
+    TimeDealProductsView,
+    PriceHistoryView,
 )
 
 urlpatterns = [
@@ -18,4 +20,8 @@ urlpatterns = [
     path('cart/', CartRecommendationsView.as_view(), name='cart-recommendations'),
     # 개인화 추천 (로그인 필수) - MD's Pick 섹션용
     path('personalized/', PersonalizedRecommendationsView.as_view(), name='personalized-recommendations'),
+    # 타임세일 가성비 상품 (비회원 허용) - PriceScout 모델 기반
+    path('time-deal/', TimeDealProductsView.as_view(), name='time-deal-products'),
+    # 가격 히스토리 (비회원 허용) - 폴센트 스타일 가격 추적 그래프
+    path('price-history/<int:product_id>/', PriceHistoryView.as_view(), name='price-history'),
 ]
