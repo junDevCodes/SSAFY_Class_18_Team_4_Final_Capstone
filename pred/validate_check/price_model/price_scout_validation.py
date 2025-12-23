@@ -2,14 +2,28 @@
 
 실제 DB에 저장된 product_price_histories 데이터를 기반으로
 가격 하락률을 활용한 가성비 점수(PriceScout 값)를 계산하고
-랭킹/상태 변화를 확인하기 위한 진단용 도구.
+랭킹 변화를 확인하기 위한 진단용 도구.
+
+이 스크립트는 보통 `cd pred` 후
+
+    python validate_check/price_model/price_scout_validation.py
+
+형태로 실행되므로, `core`, `data` 패키지를 임포트할 수 있도록
+프로젝트 루트(`pred` 디렉터리)를 sys.path 에 추가합니다.
 """
 
 import asyncio
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
+from pathlib import Path
+import sys
 
 import pandas as pd
+
+# 프로젝트 루트를 Python 경로에 추가
+project_root = Path(__file__).resolve().parents[2]  # .../pred
+if str(project_root) not in map(str, sys.path):
+    sys.path.insert(0, str(project_root))
 
 from core.database import Database
 from data.repositories.price_repo import PriceHistoryRepository
@@ -131,7 +145,6 @@ async def run_price_scout_validation() -> None:
                 2.0   <  x <=20 -> INCREASE   (1.0)
                 > 20.0         -> ABNORMAL   (0.5)
             """
-
             if rate < -10.0:
                 return {"price_status": "SUPER_SALE", "score_boost": 1.3}
             if -10.0 <= rate < -2.0:
@@ -151,7 +164,6 @@ async def run_price_scout_validation() -> None:
 
         def calc_final_score(row: pd.Series) -> float:
             """상태/가중치를 모두 반영한 최종 가성비 점수 계산"""
-
             rate = float(row["price_change_rate"])
             boost = float(row["score_boost"])
 
@@ -186,7 +198,6 @@ async def run_price_scout_validation() -> None:
 
         def format_and_print(df_view: pd.DataFrame, title: str) -> None:
             """표 형태로 결과 출력 (TOP 5)"""
-
             if df_view.empty:
                 print(f"{title} 결과가 없습니다.")
                 return
@@ -215,6 +226,8 @@ async def run_price_scout_validation() -> None:
                 "base_score",
                 "final_score",
             ]
+
+            # 존재하는 컬럼만 사용 (예외 방지)
             cols = [c for c in cols if c in out.columns]
 
             print(out[cols].to_string(index=False))
@@ -374,16 +387,8 @@ async def run_price_scout_validation() -> None:
         min_rate = float(agg_record["min_rate"]) if agg_record["min_rate"] is not None else None
 
         print("현재 DB에서 관측된 전체 가격 변동률 범위:")
-        print(
-            f" - 최대 상승률: {max_rate:+.2f}%"
-            if max_rate is not None
-            else " - 최대 상승률 데이터를 찾을 수 없습니다."
-        )
-        print(
-            f" - 최대 하락률: {min_rate:+.2f}%"
-            if min_rate is not None
-            else " - 최대 하락률 데이터를 찾을 수 없습니다."
-        )
+        print(f" - 최대 상승률: {max_rate:+.2f}%" if max_rate is not None else " - 최대 상승률 데이터를 찾을 수 없습니다.")
+        print(f" - 최대 하락률: {min_rate:+.2f}%" if min_rate is not None else " - 최대 하락률 데이터를 찾을 수 없습니다.")
 
         if max_rate is not None and max_rate >= 100.0:
             print("※ 경고: 100% 이상 상승한 데이터가 있어 크롤링/전처리 오류 가능성이 있습니다.")
