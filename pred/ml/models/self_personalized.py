@@ -84,7 +84,7 @@ class SelfPersonalizedModel(HybridModel):
         return "1.0.0"
 
     async def initialize(self) -> None:
-        """모델 초기화 - pickle 모델 로드 시도"""
+        """모델 초기화 - pickle 모델 로드 및 임베딩 상태 검증"""
         # Pickle 모델 로드 시도
         self._pickle_model = model_loader.get_model("self_personalized")
 
@@ -117,11 +117,158 @@ class SelfPersonalizedModel(HybridModel):
                         "filter_already_liked": hyperparams.get("filter_already_liked_items", False),
                     }
                 )
+
+            # 임베딩 상태 검증
+            await self._validate_model_embeddings()
         else:
             self._use_pickle = False
-            logger.info("Pickle 모델 없음, DB 폴백 모드로 동작")
+            logger.warning(
+                "Pickle 모델 없음, DB 폴백 모드로 동작",
+                extra={"action_required": "모델 재학습 필요"}
+            )
 
         self._initialized = True
+
+    async def _validate_model_embeddings(self) -> None:
+        """모델 임베딩 상태 검증
+
+        시작 시 Pickle 모델의 사용자 임베딩과 DB 활성 사용자를 비교하여
+        누락된 임베딩이 있으면 경고 로깅
+
+        검증 항목:
+        1. 모델에 user_embeddings 존재 여부
+        2. DB 활성 사용자 vs 모델 user_id_to_idx 비교
+        3. 누락 사용자 수 및 비율 경고
+        """
+        if not self._pickle_model:
+            return
+
+        components = self._pickle_model.get("components", {})
+
+        # 1. 기본 임베딩 데이터 존재 여부 확인
+        user_embeddings_raw = components.get("user_embeddings")
+        product_embeddings_raw = components.get("product_embeddings")
+        user_id_to_idx = components.get("user_id_to_idx", {})
+        idx_to_product_id = components.get("idx_to_product_id", {})
+
+        if user_embeddings_raw is None:
+            logger.error(
+                "모델에 user_embeddings 없음 - 개인화 추천 불가",
+                extra={"action_required": "모델 재학습 필요"}
+            )
+            return
+
+        if product_embeddings_raw is None:
+            logger.error(
+                "모델에 product_embeddings 없음 - 개인화 추천 불가",
+                extra={"action_required": "모델 재학습 필요"}
+            )
+            return
+
+        model_user_ids = set(user_id_to_idx.keys())
+        model_product_ids = set(idx_to_product_id.values())
+
+        logger.info(
+            "모델 임베딩 통계",
+            extra={
+                "model_users": len(model_user_ids),
+                "model_products": len(model_product_ids),
+            }
+        )
+
+        # 2. DB 활성 사용자와 비교
+        try:
+            # 상호작용이 있는 활성 사용자 조회
+            active_users_query = """
+                SELECT DISTINCT user_id,
+                       SUM(order_event_count + cart_event_count + view_count) AS total_interactions
+                FROM user_product_stats
+                GROUP BY user_id
+                HAVING SUM(order_event_count + cart_event_count + view_count) > 0
+            """
+            active_users_records = await self.db.fetch_all(active_users_query)
+            db_active_user_ids = {r["user_id"] for r in active_users_records}
+
+            # 누락된 사용자 (DB에는 있지만 모델에 없음)
+            missing_users = db_active_user_ids - model_user_ids
+            coverage_ratio = (
+                (len(db_active_user_ids) - len(missing_users)) / len(db_active_user_ids) * 100
+                if db_active_user_ids else 0
+            )
+
+            if missing_users:
+                # 상호작용 수가 많은 상위 누락 사용자 식별
+                missing_with_stats = [
+                    (r["user_id"], r["total_interactions"])
+                    for r in active_users_records
+                    if r["user_id"] in missing_users
+                ]
+                missing_with_stats.sort(key=lambda x: x[1], reverse=True)
+                top_missing = missing_with_stats[:10]
+
+                logger.warning(
+                    "모델에 임베딩 누락된 활성 사용자 발견",
+                    extra={
+                        "db_active_users": len(db_active_user_ids),
+                        "model_users": len(model_user_ids),
+                        "missing_users": len(missing_users),
+                        "coverage_percent": round(coverage_ratio, 1),
+                        "top_missing_users": [
+                            {"user_id": uid, "interactions": int(cnt)}
+                            for uid, cnt in top_missing
+                        ],
+                        "action_required": "모델 재학습으로 새 사용자 임베딩 생성 필요",
+                    }
+                )
+            else:
+                logger.info(
+                    "모델 사용자 임베딩 커버리지 정상",
+                    extra={
+                        "db_active_users": len(db_active_user_ids),
+                        "model_users": len(model_user_ids),
+                        "coverage_percent": 100.0,
+                    }
+                )
+
+            # 3. 활성 상품과 비교
+            active_products_query = """
+                SELECT id FROM products WHERE status = 'active'
+            """
+            active_products_records = await self.db.fetch_all(active_products_query)
+            db_active_product_ids = {r["id"] for r in active_products_records}
+
+            missing_products = db_active_product_ids - model_product_ids
+            product_coverage = (
+                (len(db_active_product_ids) - len(missing_products)) / len(db_active_product_ids) * 100
+                if db_active_product_ids else 0
+            )
+
+            if len(missing_products) > 10:  # 10개 이상 누락 시 경고
+                logger.warning(
+                    "모델에 임베딩 누락된 활성 상품 발견",
+                    extra={
+                        "db_active_products": len(db_active_product_ids),
+                        "model_products": len(model_product_ids),
+                        "missing_products": len(missing_products),
+                        "coverage_percent": round(product_coverage, 1),
+                        "action_required": "새 상품 추가 후 모델 재학습 필요",
+                    }
+                )
+            else:
+                logger.info(
+                    "모델 상품 임베딩 커버리지 정상",
+                    extra={
+                        "db_active_products": len(db_active_product_ids),
+                        "model_products": len(model_product_ids),
+                        "coverage_percent": round(product_coverage, 1),
+                    }
+                )
+
+        except Exception as e:
+            logger.error(
+                "임베딩 상태 검증 중 오류",
+                extra={"error": str(e)}
+            )
 
     async def _recommend(
         self,
@@ -142,11 +289,11 @@ class SelfPersonalizedModel(HybridModel):
             products = await self._recommend_with_pickle(context, limit)
             if products:
                 return products
-            # Pickle 추천 실패 시 DB 폴백
-            logger.info("Pickle 추천 결과 없음, DB 폴백 사용")
+            # Pickle 추천 실패 시 user_product_stats 기반 폴백
+            logger.info("Pickle 추천 결과 없음, user_product_stats 기반 폴백 사용")
 
-        # DB 기반 추천 (폴백)
-        return await self._recommend_with_db(context, limit)
+        # user_product_stats 기반 추천 (폴백) - pred_* 테이블 없이 동작
+        return await self._recommend_with_user_stats(context, limit)
 
     def _is_pickle_v2(self) -> bool:
         """Pickle v2 포맷 여부 확인
@@ -354,6 +501,100 @@ class SelfPersonalizedModel(HybridModel):
 
         return cbf_weight, cf_weight
 
+    async def _get_realtime_activity_boost(
+        self,
+        user_id: int,
+        idx_to_product_id: Dict[int, int],
+    ) -> Dict[int, float]:
+        """실시간 활동 기반 부스트 점수 계산
+
+        모델 학습 이후 발생한 사용자 활동을 반영하여
+        해당 상품 및 관련 카테고리 상품에 가산점을 부여합니다.
+
+        Args:
+            user_id: 사용자 ID
+            idx_to_product_id: 인덱스 → 상품 ID 매핑
+
+        Returns:
+            {product_idx: boost_score} 딕셔너리
+        """
+        try:
+            # 최근 24시간 내 활동 조회 (실시간 반영)
+            query = """
+                SELECT ups.product_id, p.category_id,
+                       ups.order_event_count,
+                       ups.cart_event_count,
+                       ups.view_count,
+                       ups.last_interacted_at
+                FROM user_product_stats ups
+                JOIN products p ON ups.product_id = p.id
+                WHERE ups.user_id = $1
+                  AND ups.last_interacted_at > NOW() - INTERVAL '24 hours'
+                  AND p.status = 'active'
+                ORDER BY ups.last_interacted_at DESC
+                LIMIT 50
+            """
+
+            records = await self.db.fetch_all(query, user_id)
+
+            if not records:
+                return {}
+
+            # 상품 ID → 인덱스 역매핑
+            product_id_to_idx = {pid: idx for idx, pid in idx_to_product_id.items()}
+
+            boost_scores: Dict[int, float] = {}
+            recent_categories = set()
+
+            for r in records:
+                product_id = r["product_id"]
+                category_id = r["category_id"]
+
+                # 가중치 계산 (order > cart > view)
+                score = (
+                    r["order_event_count"] * 10.0 +
+                    r["cart_event_count"] * 5.0 +
+                    r["view_count"] * 0.5
+                )
+
+                # 해당 상품에 부스트
+                if product_id in product_id_to_idx:
+                    idx = product_id_to_idx[product_id]
+                    boost_scores[idx] = boost_scores.get(idx, 0) + score
+
+                # 카테고리 수집
+                if category_id:
+                    recent_categories.add(category_id)
+
+            # 최근 활동 카테고리의 다른 상품에도 약한 부스트 (카테고리 친화도)
+            if recent_categories:
+                category_boost_query = """
+                    SELECT p.id AS product_id
+                    FROM products p
+                    LEFT JOIN product_stats ps ON p.id = ps.product_id
+                    WHERE p.category_id = ANY($1)
+                      AND p.status = 'active'
+                    ORDER BY COALESCE(ps.order_event_count, 0) DESC
+                    LIMIT 30
+                """
+                category_records = await self.db.fetch_all(
+                    category_boost_query, list(recent_categories)
+                )
+
+                for r in category_records:
+                    product_id = r["product_id"]
+                    if product_id in product_id_to_idx:
+                        idx = product_id_to_idx[product_id]
+                        # 카테고리 부스트는 직접 활동보다 약하게
+                        if idx not in boost_scores:
+                            boost_scores[idx] = 1.0  # 기본 카테고리 부스트
+
+            return boost_scores
+
+        except Exception as e:
+            logger.warning(f"실시간 활동 부스트 계산 실패: {e}")
+            return {}
+
     async def _recommend_personalized_pickle_v2(
         self,
         context: RecommendationContext,
@@ -428,7 +669,23 @@ class SelfPersonalizedModel(HybridModel):
 
         # ALS: 내적 (dot product) 사용 - 코사인 유사도가 아님!
         # ALS는 이미 정규화된 latent factor를 학습하므로 내적이 적절
-        scores = np.dot(product_embeddings, user_vec)
+        als_scores = np.dot(product_embeddings, user_vec)
+
+        # ===== 실시간 활동 반영 (하이브리드 점수 결합) =====
+        # 모델 학습 이후 발생한 실시간 활동을 반영
+        realtime_boost = await self._get_realtime_activity_boost(
+            context.user_id, idx_to_product_id
+        )
+
+        # 하이브리드 점수: ALS 점수 + 실시간 활동 부스트
+        # 실시간 활동이 있는 상품에 가산점 부여
+        scores = als_scores.copy()
+        if realtime_boost:
+            max_als = np.max(als_scores) if len(als_scores) > 0 else 1.0
+            for product_idx, boost in realtime_boost.items():
+                if 0 <= product_idx < len(scores):
+                    # 부스트는 최대 ALS 점수의 30%까지
+                    scores[product_idx] += min(boost, max_als * 0.3)
 
         # 식료품 특화: 재구매 허용 (filter_already_liked_items=False)
         # 기존에 구매한 상품도 추천에 포함 (식료품은 반복 구매가 일반적)
@@ -602,6 +859,140 @@ class SelfPersonalizedModel(HybridModel):
         # 원래 순서 유지
         product_map = {r["product_id"]: dict(r) for r in records}
         return [product_map[pid] for pid in product_ids if pid in product_map]
+
+    async def _recommend_with_user_stats(
+        self,
+        context: RecommendationContext,
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        """user_product_stats 기반 추천 (폴백)
+
+        Pickle 모델에 사용자 임베딩이 없을 때 사용.
+        pred_* 테이블 없이 Django 테이블만으로 동작.
+
+        전략:
+        1. 사용자의 관심 카테고리 추출 (order > cart > view 가중치)
+        2. 해당 카테고리의 인기 상품 추천 (사용자가 이미 본 상품 제외)
+        3. 부족하면 전체 인기 상품으로 보충
+
+        Args:
+            context: 추천 컨텍스트
+            limit: 추천 개수
+
+        Returns:
+            추천 상품 목록
+        """
+        user_id = context.user_id
+        exclude_ids = context.cart_product_ids or []
+
+        # 1. 사용자 관심 카테고리 추출
+        interest_query = """
+            SELECT p.category_id,
+                   SUM(ups.order_event_count * 10 +
+                       ups.cart_event_count * 2 +
+                       ups.view_count * 0.1) AS score
+            FROM user_product_stats ups
+            JOIN products p ON ups.product_id = p.id
+            WHERE ups.user_id = $1
+              AND p.category_id IS NOT NULL
+              AND p.status = 'active'
+            GROUP BY p.category_id
+            HAVING SUM(ups.order_event_count * 10 +
+                       ups.cart_event_count * 2 +
+                       ups.view_count * 0.1) > 0
+            ORDER BY score DESC
+            LIMIT 5
+        """
+
+        try:
+            category_records = await self.db.fetch_all(interest_query, user_id)
+        except Exception as e:
+            logger.warning(f"관심 카테고리 조회 실패: {e}")
+            category_records = []
+
+        products = []
+
+        if category_records:
+            # 2. 관심 카테고리의 인기 상품 추천
+            category_ids = [r["category_id"] for r in category_records]
+
+            # 사용자가 이미 상호작용한 상품 조회
+            seen_query = """
+                SELECT product_id FROM user_product_stats WHERE user_id = $1
+            """
+            seen_records = await self.db.fetch_all(seen_query, user_id)
+            seen_ids = set(r["product_id"] for r in seen_records)
+            all_exclude = list(seen_ids | set(exclude_ids)) or [-1]
+
+            products_query = """
+                SELECT p.id AS product_id, p.name, p.price, p.original_price,
+                       p.category_id, p.seller_id,
+                       COALESCE(ps.order_event_count, 0) AS order_count,
+                       COALESCE(ps.view_count, 0) AS view_count,
+                       COALESCE(ps.average_rating, 0) AS average_rating
+                FROM products p
+                LEFT JOIN product_stats ps ON p.id = ps.product_id
+                WHERE p.category_id = ANY($1)
+                  AND p.status = 'active'
+                  AND p.id != ALL($2)
+                ORDER BY COALESCE(ps.order_event_count, 0) DESC,
+                         COALESCE(ps.view_count, 0) DESC
+                LIMIT $3
+            """
+
+            try:
+                records = await self.db.fetch_all(
+                    products_query, category_ids, all_exclude, limit
+                )
+                for r in records:
+                    product = dict(r)
+                    product["recommendation_score"] = 70.0  # 카테고리 기반
+                    product["recommendation_source"] = "user_stats_category"
+                    products.append(product)
+            except Exception as e:
+                logger.warning(f"카테고리 인기 상품 조회 실패: {e}")
+
+        # 3. 부족하면 전체 인기 상품으로 보충
+        remaining = limit - len(products)
+        if remaining > 0:
+            existing_ids = [p["product_id"] for p in products]
+            all_exclude = list(set(exclude_ids) | set(existing_ids)) or [-1]
+
+            popular_query = """
+                SELECT p.id AS product_id, p.name, p.price, p.original_price,
+                       p.category_id, p.seller_id,
+                       COALESCE(ps.order_event_count, 0) AS order_count,
+                       COALESCE(ps.view_count, 0) AS view_count,
+                       COALESCE(ps.average_rating, 0) AS average_rating
+                FROM products p
+                LEFT JOIN product_stats ps ON p.id = ps.product_id
+                WHERE p.status = 'active'
+                  AND p.id != ALL($1)
+                ORDER BY COALESCE(ps.order_event_count, 0) DESC,
+                         COALESCE(ps.view_count, 0) DESC
+                LIMIT $2
+            """
+
+            try:
+                records = await self.db.fetch_all(popular_query, all_exclude, remaining)
+                for r in records:
+                    product = dict(r)
+                    product["recommendation_score"] = 50.0  # 인기 상품
+                    product["recommendation_source"] = "user_stats_popular"
+                    products.append(product)
+            except Exception as e:
+                logger.warning(f"전체 인기 상품 조회 실패: {e}")
+
+        logger.info(
+            "user_product_stats 폴백 추천 완료",
+            extra={
+                "user_id": user_id,
+                "category_count": len(category_records) if category_records else 0,
+                "result_count": len(products),
+            }
+        )
+
+        return products
 
     async def _recommend_with_db(
         self,
@@ -1082,10 +1473,13 @@ class SelfPersonalizedModel(HybridModel):
 
             selected.append(remaining.pop(best_idx))
 
-        # 내부 필드 제거
+        # 내부 필드 → recommendation_source로 변환 후 제거
         for product in selected:
             product.pop("_score", None)
-            product.pop("_source", None)
+            # _source가 있으면 recommendation_source로 변환
+            source = product.pop("_source", None)
+            if source and "recommendation_source" not in product:
+                product["recommendation_source"] = f"db_{source}"
 
         return selected
 
