@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -22,10 +22,17 @@ from ml.base import RecommendationContext
 
 logger = get_logger(__name__)
 
-# 전역 모델 인스턴스
+# 전역 모델 인스턴스 및 동시성 제어 Lock
 _recipe_model = None
 _self_personalized_model = None
 _continuous_trainer = None
+_price_scout_service = None
+
+# 싱글톤 초기화용 Lock (Race Condition 방지)
+_recipe_model_lock = asyncio.Lock()
+_personalized_model_lock = asyncio.Lock()
+_price_scout_lock = asyncio.Lock()
+_continuous_trainer_lock = asyncio.Lock()
 
 # 연속 학습 모드 설정 (환경변수로 제어)
 # CONTINUOUS_TRAINING_MODE: "aggressive" | "scheduled" | "disabled"
@@ -33,13 +40,26 @@ CONTINUOUS_TRAINING_MODE = os.getenv("CONTINUOUS_TRAINING_MODE", "aggressive")
 
 
 async def get_recipe_model():
-    """RecipePickleModel 싱글톤 인스턴스 반환"""
+    """RecipePickleModel 싱글톤 인스턴스 반환
+
+    Double-checked locking 패턴으로 Race Condition 방지
+    """
     global _recipe_model
-    if _recipe_model is None:
-        from ml.models.recipe_pickle_model import RecipePickleModel
-        _recipe_model = RecipePickleModel(db=db)
-        await _recipe_model.initialize()
-        logger.info("RecipePickleModel 초기화 완료")
+
+    # 빠른 경로: 이미 초기화된 경우
+    if _recipe_model is not None:
+        return _recipe_model
+
+    # 느린 경로: Lock 획득 후 초기화
+    async with _recipe_model_lock:
+        # Double-check: Lock 획득 사이에 다른 코루틴이 초기화했을 수 있음
+        if _recipe_model is None:
+            from ml.models.recipe_pickle_model import RecipePickleModel
+            model = RecipePickleModel(db=db)
+            await model.initialize()
+            _recipe_model = model  # 완전히 초기화된 후에만 전역 변수에 할당
+            logger.info("RecipePickleModel 초기화 완료")
+
     return _recipe_model
 
 
@@ -49,14 +69,53 @@ async def get_self_personalized_model():
     ALS 32차원 기반 개인화 추천 모델
     - 하이브리드: CBF 0.7 + CF 0.3
     - 식료품 특화: 재구매 허용
+
+    Double-checked locking 패턴으로 Race Condition 방지
     """
     global _self_personalized_model
-    if _self_personalized_model is None:
-        from ml.models.self_personalized import SelfPersonalizedModel
-        _self_personalized_model = SelfPersonalizedModel(db=db)
-        await _self_personalized_model.initialize()
-        logger.info("SelfPersonalizedModel 초기화 완료")
+
+    # 빠른 경로: 이미 초기화된 경우
+    if _self_personalized_model is not None:
+        return _self_personalized_model
+
+    # 느린 경로: Lock 획득 후 초기화
+    async with _personalized_model_lock:
+        if _self_personalized_model is None:
+            from ml.models.self_personalized import SelfPersonalizedModel
+            model = SelfPersonalizedModel(db=db)
+            await model.initialize()
+            _self_personalized_model = model
+            logger.info("SelfPersonalizedModel 초기화 완료")
+
     return _self_personalized_model
+
+
+async def get_price_scout_service():
+    """PriceScoutService 싱글톤 인스턴스 반환
+
+    self_price_analyzer_v1.pkl 모델 기반 가성비 상품 추천 서비스
+    - PriceScout 점수 계산 (검증된 로직)
+    - 가격 하락 상품 우선 추천
+    - ABNORMAL 상품 제외
+
+    Double-checked locking 패턴으로 Race Condition 방지
+    """
+    global _price_scout_service
+
+    # 빠른 경로: 이미 초기화된 경우
+    if _price_scout_service is not None:
+        return _price_scout_service
+
+    # 느린 경로: Lock 획득 후 초기화
+    async with _price_scout_lock:
+        if _price_scout_service is None:
+            from ml.models.price_scout import PriceScoutService
+            service = PriceScoutService(db=db)
+            await service.initialize()
+            _price_scout_service = service
+            logger.info("PriceScoutService 초기화 완료")
+
+    return _price_scout_service
 
 
 async def get_continuous_trainer():
@@ -65,60 +124,107 @@ async def get_continuous_trainer():
     적극적 연속 학습 시스템:
     - 학습 완료 → 검증 → 배포 → 즉시 다음 학습
     - Model Validation Gate로 품질 보장
+
+    Double-checked locking 패턴으로 Race Condition 방지
     """
     global _continuous_trainer
-    if _continuous_trainer is None:
-        from ml.continuous_trainer import get_continuous_trainer as _get_ct
-        _continuous_trainer = _get_ct(db)
 
-        # 학습 완료 콜백: 모델 리로드 트리거
-        async def on_training_complete(metrics):
-            logger.info(
-                f"연속 학습 사이클 #{metrics.cycle_id} 배포 완료",
-                extra={
-                    "n_users": metrics.n_users,
-                    "user_coverage": metrics.user_coverage,
-                    "duration_seconds": metrics.duration_seconds,
-                }
-            )
-            # Hot Reload 트리거 (파일 변경 감지)
-            # model_loader의 check_and_reload_models가 자동으로 감지
+    # 빠른 경로: 이미 초기화된 경우
+    if _continuous_trainer is not None:
+        return _continuous_trainer
 
-        _continuous_trainer.set_training_complete_callback(on_training_complete)
+    # 느린 경로: Lock 획득 후 초기화
+    async with _continuous_trainer_lock:
+        if _continuous_trainer is None:
+            from ml.continuous_trainer import get_continuous_trainer as _get_ct
+            trainer = _get_ct(db)
 
-        # 검증 실패 콜백: 경고 로깅
-        async def on_validation_failed(metrics):
-            logger.warning(
-                f"연속 학습 사이클 #{metrics.cycle_id} 검증 실패",
-                extra={
-                    "result": metrics.validation_result.value,
-                    "error": metrics.error_message,
-                }
-            )
+            # 학습 완료 콜백: 모델 리로드 트리거
+            async def on_training_complete(metrics):
+                logger.info(
+                    f"연속 학습 사이클 #{metrics.cycle_id} 배포 완료",
+                    extra={
+                        "n_users": metrics.n_users,
+                        "user_coverage": metrics.user_coverage,
+                        "duration_seconds": metrics.duration_seconds,
+                    }
+                )
+                # Hot Reload 트리거 (파일 변경 감지)
+                # model_loader의 check_and_reload_models가 자동으로 감지
 
-        _continuous_trainer.set_validation_failed_callback(on_validation_failed)
+            trainer.set_training_complete_callback(on_training_complete)
+
+            # 검증 실패 콜백: 경고 로깅
+            async def on_validation_failed(metrics):
+                logger.warning(
+                    f"연속 학습 사이클 #{metrics.cycle_id} 검증 실패",
+                    extra={
+                        "result": metrics.validation_result.value,
+                        "error": metrics.error_message,
+                    }
+                )
+
+            trainer.set_validation_failed_callback(on_validation_failed)
+            _continuous_trainer = trainer
 
     return _continuous_trainer
 
 
 async def _on_model_reload(model_name: str):
-    """모델 리로드 콜백
+    """모델 리로드 콜백 (Atomic Swap 패턴)
 
-    모델 파일이 변경되면 해당 모델 인스턴스를 재초기화합니다.
+    모델 파일이 변경되면 새 인스턴스를 생성하고 초기화 완료 후 교체합니다.
+    이를 통해 초기화 중에도 기존 모델로 추천 서비스를 계속 제공할 수 있습니다.
     """
     global _self_personalized_model, _recipe_model
 
     if model_name.startswith("self_personalized"):
-        if _self_personalized_model is not None:
-            logger.info("SelfPersonalizedModel 재초기화 시작")
-            await _self_personalized_model.initialize()
-            logger.info("SelfPersonalizedModel 재초기화 완료")
+        logger.info("SelfPersonalizedModel 재초기화 시작 (Atomic Swap)")
+
+        # 1단계: 새 인스턴스 생성 및 완전 초기화 (기존 인스턴스는 유지)
+        from ml.models.self_personalized import SelfPersonalizedModel
+        new_model = SelfPersonalizedModel(db=db)
+
+        try:
+            await new_model.initialize()
+
+            # 2단계: 초기화 성공 후 Atomic Swap (Lock 보호 하에 참조만 교체)
+            async with _personalized_model_lock:
+                old_model = _self_personalized_model
+                _self_personalized_model = new_model
+
+            logger.info("SelfPersonalizedModel 재초기화 완료 (Atomic Swap 성공)")
+
+            # 3단계: 이전 모델 정리 (필요 시 리소스 해제)
+            del old_model
+
+        except Exception as e:
+            logger.error(
+                f"SelfPersonalizedModel 재초기화 실패, 기존 모델 유지: {e}",
+                exc_info=True
+            )
 
     elif model_name.startswith("recipe"):
-        if _recipe_model is not None:
-            logger.info("RecipePickleModel 재초기화 시작")
-            await _recipe_model.initialize()
-            logger.info("RecipePickleModel 재초기화 완료")
+        logger.info("RecipePickleModel 재초기화 시작 (Atomic Swap)")
+
+        from ml.models.recipe_pickle_model import RecipePickleModel
+        new_model = RecipePickleModel(db=db)
+
+        try:
+            await new_model.initialize()
+
+            async with _recipe_model_lock:
+                old_model = _recipe_model
+                _recipe_model = new_model
+
+            logger.info("RecipePickleModel 재초기화 완료 (Atomic Swap 성공)")
+            del old_model
+
+        except Exception as e:
+            logger.error(
+                f"RecipePickleModel 재초기화 실패, 기존 모델 유지: {e}",
+                exc_info=True
+            )
 
 
 async def classify_user(user_id: int) -> str:
@@ -213,30 +319,44 @@ async def lifespan(app: FastAPI):
     global _continuous_trainer
 
     # Startup
+    print("\n" + "=" * 60)
+    print("[SelF Pred] 서버 시작 중...")
+    print("=" * 60)
     logger.info(
         "서버 시작 - DB 연결 및 모델 로드 중...",
         extra={"training_mode": CONTINUOUS_TRAINING_MODE}
     )
     try:
+        print("[DB] 연결 중...")
         await db.connect()
+        print("[DB] ✓ 연결 완료")
+
         await model_loader.load_all_models()
 
         # 모델 파일 없으면 초기 학습 (블로킹)
         model_path = model_loader.models_dir / "self_personalized_v2.pkl"
         if not model_path.exists():
+            print("[Training] 모델 파일 없음 - 초기 학습 실행...")
             logger.warning("모델 파일 없음 - 초기 학습 실행 (블로킹)")
             from ml.trainer import get_trainer
             trainer = get_trainer(db)
             success = await trainer.train_and_save("self_personalized_v2")
             if success:
+                print("[Training] ✓ 초기 학습 완료")
                 logger.info("초기 학습 완료")
             else:
+                print("[Training] ✗ 초기 학습 실패 - 폴백 모드")
                 logger.error("초기 학습 실패 - 폴백 모드로 시작")
 
         # 레시피 모델 미리 초기화
+        print("[RecipeModel] 초기화 중...")
         await get_recipe_model()
+        print("[RecipeModel] ✓ 초기화 완료")
+
         # 개인화 모델 미리 초기화
+        print("[SelfPersonalizedModel] 초기화 중...")
         await get_self_personalized_model()
+        print("[SelfPersonalizedModel] ✓ 초기화 완료")
 
         # 모델 리로드 콜백 등록 및 파일 모니터링 시작
         model_loader.register_reload_callback(_on_model_reload)
@@ -245,18 +365,26 @@ async def lifespan(app: FastAPI):
         # 학습 모드에 따른 처리
         if CONTINUOUS_TRAINING_MODE == "aggressive":
             # 적극적 연속 학습 시작
+            print(f"[Training] 모드: aggressive (연속 학습)")
             logger.info("적극적 연속 학습 모드 활성화")
             ct = await get_continuous_trainer()
             await ct.start()
 
         elif CONTINUOUS_TRAINING_MODE == "scheduled":
             # 스케줄 기반 학습 (매일 새벽 3시)
+            print(f"[Training] 모드: scheduled (매일 03:00)")
             logger.info("스케줄 기반 학습 모드 활성화 (매일 03:00)")
             asyncio.create_task(_scheduled_training_loop())
 
         else:
+            print(f"[Training] 모드: disabled (수동 트리거만)")
             logger.info("학습 비활성화 - 수동 트리거만 가능")
 
+        print("=" * 60)
+        print("[SelF Pred] ✓ 서버 시작 완료!")
+        print(f"  - 포트: {settings.port}")
+        print(f"  - 로드된 모델: {model_loader.loaded_models}")
+        print("=" * 60 + "\n")
         logger.info("서버 시작 완료")
     except Exception as e:
         logger.error(f"서버 시작 실패: {e}")
@@ -414,6 +542,78 @@ class PersonalizedRecommendationResponse(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="추가 메타데이터")
 
 
+# ==================== 타임세일 (PriceScout) Pydantic 모델 ====================
+
+
+class TimeDealProduct(BaseModel):
+    """타임세일 가성비 상품 정보
+
+    self_price_analyzer_v1.pkl 모델 기반 가성비 상품
+    - PriceScout 점수로 정렬
+    - 가격 하락 상품 우선 노출
+    """
+    product_id: int = Field(..., description="상품 ID")
+    name: str = Field(..., description="상품명")
+    slug: str = Field(default="", description="상품 slug")
+    price: int = Field(..., description="현재 가격")
+    original_price: Optional[int] = Field(None, description="원가")
+    previous_price: Optional[int] = Field(None, description="이전 가격 (가격 이력 기반)")
+    main_image: Optional[str] = Field(None, description="대표 이미지 URL")
+    category_id: Optional[int] = Field(None, description="카테고리 ID")
+    category_name: Optional[str] = Field(None, description="카테고리명")
+    order_count: int = Field(default=0, description="주문 수")
+    view_count: int = Field(default=0, description="조회 수")
+    average_rating: float = Field(default=0.0, description="평균 평점")
+    # 모델 추천 관련 필드
+    price_change_rate: float = Field(..., description="가격 변동률 (%)")
+    price_status: str = Field(..., description="가격 상태 (SUPER_SALE, DISCOUNT, STABLE, INCREASE)")
+    score_boost: float = Field(default=1.0, description="상태별 점수 가중치")
+    final_score: float = Field(..., description="최종 가성비 점수 (모델 추천순)")
+    savings: int = Field(default=0, description="절감액 (원)")
+    is_lowest_ever: bool = Field(default=False, description="역대 최저가 여부")
+
+
+class TimeDealResponse(BaseModel):
+    """타임세일 응답
+
+    PriceScout 점수 기반 가성비 상품 목록
+    """
+    products: List[TimeDealProduct] = Field(default_factory=list, description="가성비 상품 목록")
+    model_version: str = Field(default="v1", description="사용된 모델 버전")
+    total_count: int = Field(default=0, description="상품 개수")
+
+
+# ==================== 가격 히스토리 Pydantic 모델 ====================
+
+
+class PriceHistoryPoint(BaseModel):
+    """가격 히스토리 데이터 포인트"""
+    recorded_at: str = Field(..., description="기록 시각 (ISO 8601)")
+    price: int = Field(..., description="가격")
+    previous_price: Optional[int] = Field(None, description="이전 가격")
+    price_change: Optional[int] = Field(None, description="가격 변동량")
+    price_change_rate: Optional[float] = Field(None, description="가격 변동률 (%)")
+
+
+class PriceStatistics(BaseModel):
+    """가격 통계"""
+    current_price: int = Field(..., description="현재 가격")
+    min_price: int = Field(..., description="최저가")
+    max_price: int = Field(..., description="최고가")
+    avg_price: float = Field(..., description="평균가")
+    price_change_from_avg: float = Field(..., description="평균가 대비 변동률 (%)")
+    is_lowest_ever: bool = Field(default=False, description="역대 최저가 여부")
+    total_records: int = Field(default=0, description="기록 수")
+
+
+class PriceHistoryResponse(BaseModel):
+    """가격 히스토리 응답"""
+    product_id: int = Field(..., description="상품 ID")
+    product_name: str = Field(..., description="상품명")
+    history: List[PriceHistoryPoint] = Field(default_factory=list, description="가격 이력")
+    statistics: Optional[PriceStatistics] = Field(None, description="가격 통계")
+
+
 # ==================== API 엔드포인트 ====================
 
 @app.get("/")
@@ -441,6 +641,174 @@ async def health_check():
         "models": "loaded" if model_loaded else "not_loaded",
         "loaded_models": model_loader.loaded_models,
     }
+
+
+@app.get("/api/time-deal-products", response_model=TimeDealResponse)
+async def get_time_deal_products(
+    limit: int = Query(default=10, ge=1, le=50, description="조회할 상품 수 (기본 10, 최대 50)"),
+    category_id: Optional[int] = Query(default=None, description="카테고리 ID (선택적)"),
+):
+    """타임세일 가성비 상품 API
+
+    self_price_analyzer_v1.pkl 모델과 PriceScout 점수 기반으로
+    가성비 상품을 추천합니다.
+
+    - **인증 불필요**: 회원/비회원 모두 사용 가능
+    - **정렬 기준**: PriceScout 점수 내림차순
+    - **필터링**: 가격 하락 상품만, ABNORMAL 상품 제외
+    - **폴백**: 가격 하락 상품 부족 시 할인 상품(original_price > price)으로 대체
+
+    가격 상태 분류:
+    - SUPER_SALE (< -10%): 특가 할인
+    - DISCOUNT (-10% ~ -2%): 일반 할인
+    - STABLE (-2% ~ +2%): 안정적
+    - INCREASE (+2% ~ +20%): 소폭 상승
+
+    Args:
+        limit: 조회할 상품 수 (기본 10, 최대 50)
+        category_id: 카테고리 ID (선택적 필터)
+
+    Returns:
+        가성비 상품 목록 (PriceScout 점수 내림차순)
+    """
+    try:
+        service = await get_price_scout_service()
+        products = await service.get_value_products(
+            limit=limit,
+            category_id=category_id,
+        )
+
+        return TimeDealResponse(
+            products=[TimeDealProduct(**p) for p in products],
+            model_version=service.model_version,
+            total_count=len(products),
+        )
+
+    except Exception as e:
+        logger.error(f"타임세일 상품 조회 실패: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"타임세일 상품 조회 중 오류가 발생했습니다: {str(e)}",
+        )
+
+
+@app.get("/api/price-history/{product_id}", response_model=PriceHistoryResponse)
+async def get_price_history(
+    product_id: int,
+    days: int = Query(default=30, ge=7, le=365, description="조회 기간 (일)"),
+):
+    """상품 가격 히스토리 API
+
+    상품의 가격 변동 이력을 조회합니다.
+    폴센트(Pollcent) 스타일의 가격 추적 그래프용 데이터를 제공합니다.
+
+    - **인증 불필요**: 회원/비회원 모두 사용 가능
+    - **기간 설정**: 7일 ~ 365일 (기본 30일)
+
+    Args:
+        product_id: 상품 ID
+        days: 조회 기간 (기본 30일)
+
+    Returns:
+        가격 이력 및 통계 정보
+    """
+    try:
+        # 상품 정보 조회
+        product_query = """
+            SELECT id, name, price FROM products WHERE id = $1 AND status = 'active'
+        """
+        product_record = await db.fetch_one(product_query, product_id)
+
+        if not product_record:
+            raise HTTPException(
+                status_code=404,
+                detail=f"상품을 찾을 수 없습니다: {product_id}",
+            )
+
+        current_price = product_record["price"]
+        product_name = product_record["name"]
+
+        # 가격 히스토리 조회
+        history_query = """
+            SELECT
+                recorded_at,
+                price,
+                previous_price,
+                price_change,
+                price_change_rate
+            FROM product_price_histories
+            WHERE product_id = $1
+              AND recorded_at >= NOW() - INTERVAL '{days} days'
+            ORDER BY recorded_at ASC
+        """.replace("{days}", str(days))
+
+        history_records = await db.fetch_all(history_query, product_id)
+
+        # 통계 계산
+        statistics_query = """
+            SELECT
+                MIN(price) as min_price,
+                MAX(price) as max_price,
+                AVG(price) as avg_price,
+                COUNT(*) as total_records
+            FROM product_price_histories
+            WHERE product_id = $1
+        """
+        stats_record = await db.fetch_one(statistics_query, product_id)
+
+        # 응답 구성
+        history_points = []
+        for record in history_records:
+            history_points.append(PriceHistoryPoint(
+                recorded_at=record["recorded_at"].isoformat(),
+                price=record["price"],
+                previous_price=record["previous_price"],
+                price_change=record["price_change"],
+                price_change_rate=float(record["price_change_rate"]) if record["price_change_rate"] else None,
+            ))
+
+        # 통계 구성
+        statistics = None
+        if stats_record and stats_record["total_records"] > 0:
+            min_price = stats_record["min_price"]
+            max_price = stats_record["max_price"]
+            avg_price = float(stats_record["avg_price"])
+            total_records = stats_record["total_records"]
+
+            # 평균가 대비 변동률 계산
+            if avg_price > 0:
+                price_change_from_avg = ((current_price - avg_price) / avg_price) * 100
+            else:
+                price_change_from_avg = 0.0
+
+            # 역대 최저가 여부
+            is_lowest_ever = current_price <= min_price
+
+            statistics = PriceStatistics(
+                current_price=current_price,
+                min_price=min_price,
+                max_price=max_price,
+                avg_price=round(avg_price, 0),
+                price_change_from_avg=round(price_change_from_avg, 2),
+                is_lowest_ever=is_lowest_ever,
+                total_records=total_records,
+            )
+
+        return PriceHistoryResponse(
+            product_id=product_id,
+            product_name=product_name,
+            history=history_points,
+            statistics=statistics,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"가격 히스토리 조회 실패: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"가격 히스토리 조회 중 오류가 발생했습니다: {str(e)}",
+        )
 
 
 @app.post("/api/cart-recommendations", response_model=CartRecommendationResponse)
