@@ -529,6 +529,77 @@ async def run_price_scout_validation() -> None:
 
             print(out_down[cols_down].to_string(index=False))
 
+        # 9. 샘플 10개 상품 상태 단계 및 상태별 아이템 목록
+        print("\n[9] 샘플 10개 상품 상태 단계 및 상태별 아이템 목록")
+        print("-" * 70)
+
+        # final_score 기준 상위 10개를 샘플로 사용
+        df_sample_source = df_target.sort_values(
+            ["final_score", "price_change_rate"], ascending=[False, True]
+        )
+        df_sample = df_sample_source.head(10).copy()
+
+        if df_sample.empty:
+            print("샘플로 사용할 상품이 없습니다.")
+        else:
+            # 상품 상태 단계 매핑
+            #   SUPER_SALE -> 1, DISCOUNT -> 2, STABLE -> 3, INCREASE -> 4, ABNORMAL -> 5
+            status_order = {
+                "SUPER_SALE": 1,
+                "DISCOUNT": 2,
+                "STABLE": 3,
+                "INCREASE": 4,
+                "ABNORMAL": 5,
+            }
+
+            df_sample["status_level"] = df_sample["price_status"].map(
+                lambda s: status_order.get(s, 99)
+            )
+
+            print("\n[9-1] 샘플 10개 상세 정보 (상품 상태 단계 포함)")
+
+            sample_view = df_sample.copy()
+            sample_view["price_change_rate"] = sample_view["price_change_rate"].astype(
+                float
+            ).map(lambda x: f"{x:+.2f}%")
+            sample_view["final_score"] = sample_view["final_score"].map(
+                lambda x: f"{x:.3f}"
+            )
+            sample_view["status_level"] = sample_view["status_level"].astype(int)
+
+            cols_sample = [
+                "product_id",
+                "name",
+                "price",
+                "previous_price",
+                "price_change_rate",
+                "price_status",
+                "status_level",
+                "final_score",
+            ]
+            cols_sample = [c for c in cols_sample if c in sample_view.columns]
+
+            print(sample_view[cols_sample].to_string(index=False))
+
+            print("\n[9-2] 상품 상태별 샘플 아이템 목록")
+
+            for status, group in sample_view.groupby("price_status"):
+                level = status_order.get(status, 99)
+                print(f"\n- 상태: {status} (단계 {level})")
+                print("-" * 70)
+
+                group_view = group[
+                    [
+                        "product_id",
+                        "name",
+                        "price",
+                        "previous_price",
+                        "price_change_rate",
+                        "final_score",
+                    ]
+                ].copy()
+                print(group_view.to_string(index=False))
+
         print("\n검증에 사용된 테이블:")
         print("- product_price_histories (가격 로그)")
         print("- products (상품 기본 정보)")
