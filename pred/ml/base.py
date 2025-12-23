@@ -40,6 +40,7 @@ class RecommendationContext:
 
     # 사용자 분류
     user_type: str = "cold"  # 'cold', 'lukewarm', 'warm'
+    interaction_count: int = 0  # 사용자 상호작용 횟수 (동적 가중치용)
 
     # 추가 메타데이터
     metadata: Dict[str, Any] = field(default_factory=dict)
