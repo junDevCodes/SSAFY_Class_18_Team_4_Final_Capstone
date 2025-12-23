@@ -3,25 +3,6 @@
     <div class="relative aspect-[3/4] bg-gray-50 rounded-lg overflow-hidden mb-5">
       <img :src="getProductImage(product)" :alt="product.name" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105">
 
-      <div class="absolute top-3 left-3 flex flex-wrap gap-2 z-10">
-        <span v-if="label" class="inline-flex items-center px-3 py-1 text-[11px] font-bold uppercase tracking-wide rounded-full bg-brand-600 text-white shadow-sm">
-          {{ label }}
-        </span>
-        <span v-if="meta" class="inline-flex items-center px-3 py-1 text-[11px] font-semibold rounded-full bg-orange-500 text-white shadow-sm">
-          {{ meta }}
-        </span>
-        <span
-          v-for="(badge, idx) in badges"
-          :key="`${badge}-${idx}`"
-          class="inline-flex items-center px-3 py-1 text-[11px] font-semibold rounded-full bg-white/85 text-gray-800 shadow"
-        >
-          {{ badge }}
-        </span>
-      </div>
-      <div v-if="bestLabel" class="absolute top-3 right-3 inline-flex items-center px-3 py-1 text-[11px] font-bold uppercase tracking-wide rounded-full bg-gray-800 text-white shadow-sm z-10">
-        {{ bestLabel }}
-      </div>
-
       <!-- Bottom-right actions: heart (smaller) + cart (+) -->
       <div class="absolute bottom-4 right-4 flex items-center gap-2 opacity-0 translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 z-10">
         <button
@@ -38,10 +19,6 @@
         >
           <Plus :size="24" />
         </button>
-      </div>
-
-      <div v-if="product.quality_score >= 80" class="absolute top-3 right-3 bg-gray-900/90 text-white text-[10px] font-bold px-3 py-1.5 uppercase tracking-wider rounded-full">
-        Best
       </div>
     </div>
 
@@ -61,19 +38,6 @@
       <div v-else class="flex items-center justify-end gap-1 text-xs text-gray-500">
         <Heart :size="12" class="text-red-500" />
         <span>{{ localWishlistCount }}</span>
-      </div>
-
-      <div class="flex flex-wrap gap-2 mt-3" v-if="badges.length || meta || label">
-        <span v-if="meta" class="inline-flex items-center px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 text-[11px] font-semibold">
-          {{ meta }}
-        </span>
-        <span
-          v-for="(badge, idx) in badges"
-          :key="`bottom-${badge}-${idx}`"
-          class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] font-semibold"
-        >
-          {{ badge }}
-        </span>
       </div>
 
       <div v-if="seller?.name" class="flex items-center gap-3 mt-3 text-sm text-gray-700">

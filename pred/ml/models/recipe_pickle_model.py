@@ -22,6 +22,21 @@ from core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# v2 모델 클래스 지연 로드 (import 오류 방지)
+_RecipeGapFillingModelV2 = None
+
+def _get_v2_model_class():
+    """v2 모델 클래스 지연 로드"""
+    global _RecipeGapFillingModelV2
+    if _RecipeGapFillingModelV2 is None:
+        try:
+            from ml.models.masked_set_transformer import RecipeGapFillingModelV2
+            _RecipeGapFillingModelV2 = RecipeGapFillingModelV2
+        except ImportError as e:
+            logger.warning(f"v2 모델 클래스 로드 실패: {e}")
+            _RecipeGapFillingModelV2 = None
+    return _RecipeGapFillingModelV2
+
 
 class RecipePickleModel(HybridModel):
     """Pickle 기반 레시피 GapFilling 모델
@@ -239,20 +254,28 @@ class RecipePickleModel(HybridModel):
         # 완제품 표시
         '완제품', '즉석', '레토르트', '밀키트', '간편식', '즉석밥', '즉석식품',
         'HMR', '도시락', '한끼', '컵밥', '덮밥소스', '짜장소스', '카레소스',
-        # 냉동 완제품
-        '냉동피자', '냉동만두', '냉동볶음밥', '냉동떡볶이', '냉동파스타',
+        # 냉동 완제품 - '냉동만두'만 필터링 (냉동 생고기는 재료임)
+        '냉동피자', '냉동볶음밥', '냉동떡볶이', '냉동파스타',
         # 조리완료 제품 (요리명이 상품명에 포함)
         '조리완료', '데워먹는', '전자레인지', '바로먹는', '간편조리',
         '볶음밥', '비빔밥', '덮밥', '김밥', '주먹밥',  # 밥 요리 완제품
-        '만두', '교자', '딤섬',  # 만두류 완제품
-        '피자', '파스타', '스파게티', '리조또',  # 양식 완제품
+        '교자', '딤섬',  # 만두류 완제품 ('만두' 제외 - 냉동만두는 조리용 재료)
+        '피자', '리조또',  # 양식 완제품 ('파스타', '스파게티' 제외 - 면 재료)
         '떡볶이', '순대볶음', '라볶이',  # 분식 완제품
         '탕수육', '깐풍기', '유린기', '짜장', '짬뽕',  # 중식 완제품
-        '카레', '스튜', '수프',  # 소스류 완제품
-        '치킨', '핫도그', '너겟', '까스',  # 튀김류 완제품
+        '스튜', '수프',  # 소스류 완제품 ('카레' 제외 - 카레가루/카레블록은 재료)
+        '치킨', '핫도그', '너겟',  # 튀김류 완제품 ('까스' 제외 - 냉동 돈까스는 조리용)
         '샌드위치', '햄버거', '토스트',  # 빵류 완제품
         # 믹스/소스류 (요리 재료가 아닌 완성형)
         '볶음밥믹스', '찌개양념', '찌개소스', '국물소스',
+    }
+
+    # 완제품이지만 조리용 재료로 인정하는 예외 (이 키워드 + 다른 재료 키워드가 있으면 재료로 인식)
+    READY_MADE_EXCEPTIONS = {
+        '돈카츠', '돈까스', '등심까스', '안심까스', '치킨까스',  # 냉동 까스류 (튀김용)
+        '만두', '냉동만두', '군만두', '물만두',  # 만두류 (조리용)
+        '파스타', '스파게티면', '펜네', '링귀네',  # 파스타면 재료
+        '카레', '카레가루', '카레블록',  # 카레 재료
     }
 
     # 재료로 인식하지 않을 단어들 (수식어, 브랜드, 포장 정보 등)
@@ -268,12 +291,26 @@ class RecipePickleModel(HybridModel):
         '프리미엄', '특선', '명품', '엄선', '신선', '싱싱', '고급', '특급',
         '할인', '특가', '세일', '이벤트', '추천', '인기', '베스트',
         '햇', '햇님마을', '봄란', 'KF365', 'CJ', '풀무원', '오뚜기', '농심',
+        '비비고', '청정원', '해표', '백설', '샘표', '대상', '동원', '사조',
+        '하림', '마니커', '목우촌', '한성', '진주햄', '롯데푸드', '매일유업',
+        '서울우유', '남양유업', '빙그레', '동서식품', '네슬레', '델몬트',
         # 보관방법
         '냉동', '냉장', '상온', '해동', '급속',
         # 기타 수식어
         '깨가', '쏟아지는', '자연', '건강', '영양', '맛있는', '진한',
-        '순', '100%', '生', '참', '진짜',
+        '순', '100%', '生', '참', '진짜', '왕', '대', '특', '신', '햇',
+        '엄마손', '할머니', '홈메이드', '수제', '전통방식', '옛날',
     }
+
+    # 상품명에서 제거할 브랜드명 패턴 (정규식으로 제거)
+    BRAND_PATTERNS = [
+        r'\[.*?\]',  # [브랜드명] 형태
+        r'CJ\s*', r'풀무원\s*', r'오뚜기\s*', r'농심\s*',
+        r'비비고\s*', r'청정원\s*', r'해표\s*', r'백설\s*',
+        r'샘표\s*', r'대상\s*', r'동원\s*', r'사조\s*',
+        r'하림\s*', r'마니커\s*', r'목우촌\s*', r'서울우유\s*',
+        r'KF365\s*', r'피코크\s*', r'노브랜드\s*',
+    ]
 
     # =======================================================================
     # [2단계] 정확한 매칭을 위한 최소 길이 제한
@@ -370,6 +407,14 @@ class RecipePickleModel(HybridModel):
         '소시지': '소시지',
         '비엔나': '소시지',
         '프랑크': '소시지',
+        # 냉동 조리용 식품 (재료로 인식)
+        '돈카츠': '돈까스',
+        '돈까스': '돈까스',
+        '등심까스': '돈까스',
+        '안심까스': '돈까스',
+        '치킨까스': '돈까스',
+        '미니돈카츠': '돈까스',
+        '미니돈까스': '돈까스',
 
         # === 해산물 ===
         '연어': '연어',
@@ -674,6 +719,8 @@ class RecipePickleModel(HybridModel):
         super().__init__(db, cache)
         self._pickle_model = None
         self._use_pickle = False
+        self._use_v2_model = False  # v2 Masked Set Transformer 모델 사용 여부
+        self._v2_model = None       # v2 모델 인스턴스 (RecipeGapFillingModel)
         # 역매핑 초기화: 재료명 → 검색 키워드 목록
         self._ingredient_to_search_keywords = self._build_ingredient_search_map()
 
@@ -755,6 +802,8 @@ class RecipePickleModel(HybridModel):
 
     @property
     def model_version(self) -> str:
+        if self._use_v2_model:
+            return "2.1.0"  # Masked Set Transformer 버전
         if self._pickle_model:
             return self._pickle_model.get('version', '2.0.0')
         return "2.0.0"
@@ -823,13 +872,56 @@ class RecipePickleModel(HybridModel):
         return False
 
     async def initialize(self) -> None:
-        """Pickle 모델 로드 및 초기화"""
-        # recipe_gapfilling_v1.pkl 또는 유사한 이름의 모델 로드
+        """Pickle 모델 로드 및 초기화
+
+        v2 모델 (Masked Set Transformer) 우선 로드 시도, 없으면 v1 폴백
+        """
+        # v2 모델 우선 시도 (Masked Set Transformer)
+        v2_pickle_data = model_loader.get_model("recipe_gapfilling_v2")
+
+        if v2_pickle_data is not None:
+            # v2 모델은 딕셔너리로 저장됨 - RecipeGapFillingModelV2로 변환
+            if isinstance(v2_pickle_data, dict) and 'model_state_dict' in v2_pickle_data:
+                try:
+                    # v2 모델 클래스 로드
+                    V2ModelClass = _get_v2_model_class()
+                    if V2ModelClass is not None:
+                        self._v2_model = V2ModelClass.from_pickle_dict(
+                            v2_pickle_data,
+                            device='cpu'  # 프로덕션에서는 CPU 사용
+                        )
+                        self._use_v2_model = True
+                        self._use_pickle = True
+                        logger.info(
+                            "레시피 v2 모델 (Masked Set Transformer) 로드 완료",
+                            extra={
+                                "model_type": "MaskedSetTransformer",
+                                "vocab_size": len(v2_pickle_data.get('tokenizer_vocab', {})),
+                                "version": v2_pickle_data.get('version', 'unknown'),
+                            }
+                        )
+                        self._initialized = True
+                        return
+                except Exception as e:
+                    logger.error(f"v2 모델 초기화 실패: {e}")
+            # 이미 인스턴스화된 경우 (하위 호환성)
+            elif hasattr(v2_pickle_data, 'recommend'):
+                self._v2_model = v2_pickle_data
+                self._use_v2_model = True
+                self._use_pickle = True
+                logger.info(
+                    "레시피 v2 모델 (인스턴스) 로드 완료",
+                    extra={"model_type": "MaskedSetTransformer"}
+                )
+                self._initialized = True
+                return
+
+        # v1 폴백: 기존 딕셔너리 기반 모델
         self._pickle_model = model_loader.get_model("recipe_gapfilling")
 
         if not self._pickle_model:
             # 파일명 변형 시도
-            for name in ["recipe_gapfilling_v1", "recipe_gapfilling_v2", "gapfilling"]:
+            for name in ["recipe_gapfilling_v1", "gapfilling"]:
                 self._pickle_model = model_loader.get_model(name)
                 if self._pickle_model:
                     break
@@ -837,7 +929,7 @@ class RecipePickleModel(HybridModel):
         if self._pickle_model:
             self._use_pickle = True
             logger.info(
-                "레시피 Pickle 모델 로드 완료",
+                "레시피 Pickle 모델 (v1) 로드 완료",
                 extra={
                     "version": self._pickle_model.get("version"),
                     "num_recipes": len(self._pickle_model.get("recipe_ingredient_sets", {})),
@@ -857,11 +949,20 @@ class RecipePickleModel(HybridModel):
 
         Returns:
             완제품이면 True, 재료(식재료)면 False
+
+        Note:
+            '돈카츠', '만두' 등 조리용 냉동식품은 재료로 인정 (READY_MADE_EXCEPTIONS)
         """
         if not product_name:
             return False
 
         name_lower = product_name.lower().replace(' ', '')
+
+        # 예외 처리: 조리용 재료로 인정하는 키워드가 있으면 완제품 아님
+        for exception in self.READY_MADE_EXCEPTIONS:
+            if exception.lower() in name_lower:
+                logger.debug(f"완제품 예외 적용: '{product_name}' (예외 키워드: {exception})")
+                return False
 
         for keyword in self.READY_MADE_KEYWORDS:
             if keyword.lower() in name_lower:
@@ -900,16 +1001,26 @@ class RecipePickleModel(HybridModel):
         if self._is_ready_made_product(name):
             return ("", None)
 
-        # 1. 대괄호/괄호 내용 제거
-        cleaned = re.sub(r'\[[^\]]*\]', '', name)
+        # 1. 대괄호/괄호 내용 제거 + 브랜드 패턴 제거
+        cleaned = name
+        for pattern in self.BRAND_PATTERNS:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+
         cleaned = re.sub(r'\([^)]*\)', '', cleaned)
 
         # 2. 숫자+단위 제거 (예: 500g, 1kg, 15구, 3입, 2종)
         cleaned = re.sub(r'\d+[gGkKmMlL개입구종봉팩]+', '', cleaned)
         cleaned = re.sub(r'\d+\s*[개입구종봉팩]', '', cleaned)
+        # 가격/용량 표시 제거 (예: 100ml, 1.5L, 500원)
+        cleaned = re.sub(r'\d+\.?\d*\s*[mMlLkKgG원]', '', cleaned)
 
         # 3. 퍼센트 제거
         cleaned = re.sub(r'\d+%', '', cleaned)
+
+        # 4. 제외 단어 제거 (공백으로 분리 후)
+        words = cleaned.split()
+        cleaned_words = [w for w in words if w not in self.EXCLUDE_WORDS]
+        cleaned = ' '.join(cleaned_words)
 
         name_no_space = cleaned.replace(' ', '')
         detected_dish: Optional[str] = None
@@ -1044,6 +1155,35 @@ class RecipePickleModel(HybridModel):
                 detected_dishes.append(dish)
 
         return (list(set(ingredients)), list(set(detected_dishes)))  # 중복 제거
+
+    def _recommend_with_v2_model(
+        self,
+        cart_ingredients: List[str],
+        top_k: int = 10,
+    ) -> List[str]:
+        """v2 Masked Set Transformer 모델로 재료 추천
+
+        Args:
+            cart_ingredients: 장바구니 재료명 목록
+            top_k: 추천 개수
+
+        Returns:
+            추천 재료명 목록 (Stop Words 필터링, IDF 가중치 적용됨)
+        """
+        if not self._v2_model or not cart_ingredients:
+            return []
+
+        try:
+            # v2 모델의 recommend 메서드 호출
+            recommendations = self._v2_model.recommend(
+                given_ingredients=cart_ingredients,
+                top_k=top_k,
+                exclude_given=True,
+            )
+            return recommendations
+        except Exception as e:
+            logger.error(f"v2 모델 추천 실패: {e}")
+            return []
 
     def _recommend_with_pickle(
         self,
@@ -1211,6 +1351,7 @@ class RecipePickleModel(HybridModel):
         self,
         product_name: str,
         target_ingredient: str,
+        strict_mode: bool = False,
     ) -> bool:
         """상품이 해당 재료의 실제 상품인지 검증
 
@@ -1225,6 +1366,7 @@ class RecipePickleModel(HybridModel):
         Args:
             product_name: 상품명
             target_ingredient: 검색한 재료명
+            strict_mode: 엄격 모드 (False면 유연하게 매칭)
 
         Returns:
             유효한 상품이면 True
@@ -1236,29 +1378,46 @@ class RecipePickleModel(HybridModel):
         if self._is_ready_made_product(product_name):
             return False
 
+        # 브랜드 제거된 상품명
+        cleaned_name = product_name
+        for pattern in self.BRAND_PATTERNS:
+            cleaned_name = re.sub(pattern, '', cleaned_name, flags=re.IGNORECASE)
+        cleaned_name = cleaned_name.strip()
+
+        name_lower = cleaned_name.lower().replace(' ', '')
+        target_lower = target_ingredient.lower()
+
+        # 복합어 체크 (꿀고구마, 꿀사과 등은 제외) - 타겟이 접두사로만 사용된 경우
+        compound_suffixes = ['고구마', '사과', '감자', '호박', '밤', '배', '떡', '빵', '케이크']
+        for suffix in compound_suffixes:
+            if f'{target_lower}{suffix}' in name_lower and target_lower != suffix:
+                return False
+
+        # 유연 모드: 타겟 재료가 상품명에 포함되어 있으면 허용
+        if not strict_mode:
+            if target_lower in name_lower:
+                return True
+            # 동의어 검색: 역매핑에서 키워드 확인
+            if target_ingredient in self._ingredient_to_search_keywords:
+                for keyword in self._ingredient_to_search_keywords[target_ingredient]:
+                    if keyword.lower() in name_lower:
+                        return True
+
         # 상품명에서 재료 추출
         extracted, _ = self._extract_ingredient_from_product_name(product_name)
 
         if not extracted:
-            # 재료 추출 실패 시 키워드 직접 매칭
-            name_lower = product_name.lower().replace(' ', '')
-            target_lower = target_ingredient.lower()
-
-            # 타겟 재료가 상품명에 포함되어 있으면 허용
-            # 단, 복합어 체크 (꿀고구마, 꿀사과 등은 제외)
-            compound_suffixes = ['고구마', '사과', '감자', '호박', '밤', '배', '떡']
-            for suffix in compound_suffixes:
-                if f'{target_lower}{suffix}' in name_lower:
-                    return False
-
             return target_lower in name_lower
 
         # 추출된 재료가 타겟 재료와 같거나 동의어인지 확인
         extracted_lower = extracted.lower()
-        target_lower = target_ingredient.lower()
 
         # 직접 일치
         if extracted_lower == target_lower:
+            return True
+
+        # 부분 일치 허용 (예: 닭가슴살 == 닭고기)
+        if target_lower in extracted_lower or extracted_lower in target_lower:
             return True
 
         # 역매핑에서 동의어 관계 확인
@@ -1280,11 +1439,16 @@ class RecipePickleModel(HybridModel):
         ingredient: str,
         limit: int = 3,
     ) -> List[Dict[str, Any]]:
-        """재료명으로 상품 검색 (역매핑 기반 키워드 확장 + 검증)
+        """재료명으로 상품 검색 (검색처럼 유연하게 + 판매량 기반 정렬)
 
         PRODUCT_TO_INGREDIENT_MAP의 역매핑을 활용하여 재료명에 해당하는
         모든 가능한 상품 키워드로 검색하고, 검색 결과를 검증하여
         실제로 해당 재료인 상품만 반환합니다.
+
+        개선점:
+        - 더 유연한 검색 (재료명 포함 시 허용)
+        - 판매량(order_event_count) 기준 정렬 우선
+        - 검증 완화로 더 많은 상품 매칭
 
         예: '계란' 검색 시 → ['계란', '달걀', '유정란', '왕란', '특란', ...]
             '참깨' 검색 시 → ['참깨', '볶음참깨', '통참깨', '깨', ...]
@@ -1294,7 +1458,7 @@ class RecipePickleModel(HybridModel):
             limit: 검색 결과 개수
 
         Returns:
-            매칭된 상품 목록 (검증 통과한 것만)
+            매칭된 상품 목록 (판매량 순 정렬)
         """
         if not ingredient:
             return []
@@ -1326,10 +1490,11 @@ class RecipePickleModel(HybridModel):
         logger.debug(f"상품 검색: '{ingredient}' → 키워드 {len(search_terms)}개: {search_terms[:5]}...")
 
         # ILIKE 검색 (PostgreSQL) - 더 많이 가져와서 필터링
-        fetch_limit = limit * 5  # 검증 후 필터링을 위해 더 많이 가져옴
+        fetch_limit = limit * 10  # 더 많이 가져와서 검증 후 필터링
         like_conditions = " OR ".join([f"p.name ILIKE ${i+1}" for i in range(len(search_terms))])
         params = [f"%{term}%" for term in search_terms]
 
+        # 판매량(order_event_count) 기준 정렬 강화
         query = f"""
             SELECT p.id, p.name, p.slug, p.price, p.original_price,
                    p.category_id, p.status,
@@ -1341,26 +1506,29 @@ class RecipePickleModel(HybridModel):
                        LIMIT 1
                    ) as main_image,
                    COALESCE(ps.order_event_count, 0) as order_count,
-                   COALESCE(ps.average_rating, 0) as rating
+                   COALESCE(ps.average_rating, 0) as rating,
+                   COALESCE(ps.review_count, 0) as review_count
             FROM products p
             LEFT JOIN product_stats ps ON p.id = ps.product_id
             WHERE p.status = 'active'
               AND ({like_conditions})
-            ORDER BY ps.order_event_count DESC NULLS LAST,
-                     ps.average_rating DESC NULLS LAST
+            ORDER BY
+                COALESCE(ps.order_event_count, 0) DESC,
+                COALESCE(ps.review_count, 0) DESC,
+                COALESCE(ps.average_rating, 0) DESC
             LIMIT ${len(params) + 1}
         """
         params.append(fetch_limit)
 
         records = await self.db.fetch_all(query, *params)
 
-        # 검증 후 필터링
+        # 검증 후 필터링 (유연 모드)
         validated_products = []
         for r in records:
             product_name = r['name']
 
-            # 상품이 실제로 해당 재료인지 검증
-            if not self._is_valid_ingredient_product(product_name, ingredient):
+            # 상품이 실제로 해당 재료인지 검증 (유연 모드)
+            if not self._is_valid_ingredient_product(product_name, ingredient, strict_mode=False):
                 logger.debug(f"상품 검증 실패: '{product_name}' (재료: {ingredient})")
                 continue
 
@@ -1372,12 +1540,64 @@ class RecipePickleModel(HybridModel):
                 'original_price': r['original_price'],
                 'main_image': r['main_image'],
                 'order_count': r['order_count'],
+                'review_count': r['review_count'] if r['review_count'] else 0,
                 'rating': float(r['rating']) if r['rating'] else 0,
                 'ingredient': ingredient,  # 원본 재료명 기록
             })
 
             if len(validated_products) >= limit:
                 break
+
+        # 결과가 없으면 더 유연한 검색 시도 (재료명만으로)
+        if not validated_products and len(search_terms) > 1:
+            logger.debug(f"유연 검색 재시도: '{ingredient}'")
+            simple_query = """
+                SELECT p.id, p.name, p.slug, p.price, p.original_price,
+                       p.category_id, p.status,
+                       (
+                           SELECT pi.image_url
+                           FROM product_images pi
+                           WHERE pi.product_id = p.id
+                           ORDER BY pi.display_order ASC
+                           LIMIT 1
+                       ) as main_image,
+                       COALESCE(ps.order_event_count, 0) as order_count,
+                       COALESCE(ps.average_rating, 0) as rating,
+                       COALESCE(ps.review_count, 0) as review_count
+                FROM products p
+                LEFT JOIN product_stats ps ON p.id = ps.product_id
+                WHERE p.status = 'active'
+                  AND p.name ILIKE $1
+                ORDER BY
+                    COALESCE(ps.order_event_count, 0) DESC,
+                    COALESCE(ps.review_count, 0) DESC
+                LIMIT $2
+            """
+            simple_records = await self.db.fetch_all(
+                simple_query, f"%{ingredient}%", limit * 3
+            )
+
+            for r in simple_records:
+                product_name = r['name']
+                # 완제품만 필터링
+                if self._is_ready_made_product(product_name):
+                    continue
+
+                validated_products.append({
+                    'product_id': r['id'],
+                    'name': product_name,
+                    'slug': r['slug'],
+                    'price': r['price'],
+                    'original_price': r['original_price'],
+                    'main_image': r['main_image'],
+                    'order_count': r['order_count'],
+                    'review_count': r['review_count'] if r['review_count'] else 0,
+                    'rating': float(r['rating']) if r['rating'] else 0,
+                    'ingredient': ingredient,
+                })
+
+                if len(validated_products) >= limit:
+                    break
 
         return validated_products
 
@@ -1424,17 +1644,58 @@ class RecipePickleModel(HybridModel):
                 'message': '재료를 인식할 수 없습니다.',
             }
 
-        # 3. Pickle 모델로 레시피 추천 (요리명 정보 전달)
-        if self._use_pickle:
+        # 3. v2 모델 또는 v1 Pickle 모델로 추천
+        v2_recommendations = []
+        recipes = []
+
+        if self._use_v2_model and self._v2_model:
+            # v2 모델: Masked Set Transformer로 재료 추천
+            # Stop Words 필터링, IDF 가중치 적용됨
+            v2_recommendations = self._recommend_with_v2_model(
+                cart_ingredients,
+                top_k=10,
+            )
+            logger.info(
+                f"v2 모델 추천 결과: {len(v2_recommendations)}개 재료",
+                extra={"recommendations": v2_recommendations[:5]},
+            )
+
+        if self._use_pickle and self._pickle_model:
+            # v1 모델: 기존 레시피 기반 추천 (요리명 정보 전달)
             recipes = self._recommend_with_pickle(
                 cart_ingredients,
                 detected_dishes=detected_dishes,
                 limit=limit,
             )
-        else:
-            recipes = []
 
-        if not recipes:
+        # v2 모델만 사용하는 경우 (레시피 없이 재료 추천만)
+        if self._use_v2_model and v2_recommendations and not recipes:
+            # v2 모델 추천 재료로 상품 검색
+            gap_products = {}
+            recommended_products = []
+
+            for gap_ingredient in v2_recommendations[:10]:
+                products = await self._search_products_for_ingredient(gap_ingredient, limit=2)
+                if products:
+                    gap_products[gap_ingredient] = products
+                    # 각 재료당 1개 상품만 추천 목록에 추가
+                    for p in products[:1]:
+                        p['ingredient'] = gap_ingredient
+                        recommended_products.append(p)
+
+            return {
+                'recipes': [],  # 레시피 없음
+                'gap_products': gap_products,
+                'cart_ingredients': cart_ingredients,
+                'detected_dishes': detected_dishes,
+                'total_gap_count': len(v2_recommendations),
+                'ml_recommendations': v2_recommendations,
+                'recommended_products': recommended_products,  # 추천 상품 목록 (플랫)
+                'model_version': 'v2',
+                'message': None,
+            }
+
+        if not recipes and not v2_recommendations:
             return {
                 'recipes': [],
                 'gap_products': {},
@@ -1444,7 +1705,11 @@ class RecipePickleModel(HybridModel):
             }
 
         # 4. 부족한 재료(Gap)에 해당하는 상품 검색
+        # v2 모델 추천 결과를 gap으로 사용 (있으면)
         all_gaps = set()
+        if v2_recommendations:
+            # v2 모델 추천 결과 우선 사용
+            all_gaps.update(v2_recommendations)
         for recipe in recipes:
             all_gaps.update(recipe.get('gap_ingredients', []))
 
@@ -1495,8 +1760,11 @@ class RecipePickleModel(HybridModel):
             'recipes': recipes,
             'gap_products': gap_products,
             'cart_ingredients': cart_ingredients,
-            'detected_dishes': detected_dishes,  # 신규: 검출된 요리명 목록
+            'detected_dishes': detected_dishes,
             'total_gap_count': len(all_gaps),
+            # v2 모델 추천 결과 (Masked Set Transformer)
+            'ml_recommendations': v2_recommendations,
+            'model_version': 'v2' if self._use_v2_model else 'v1',
         }
 
     async def _recommend(
@@ -1555,3 +1823,255 @@ class RecipePickleModel(HybridModel):
         recipe_ratio = with_recipe / len(products) if products else 0
 
         return min(1.0, base + recipe_ratio * 0.3)
+
+    # =======================================================================
+    # 장바구니 추천 API용 메서드 (parsed_ingredients 활용)
+    # =======================================================================
+
+    async def _get_ingredients_from_cart_with_parsed(
+        self,
+        cart_product_ids: List[int],
+    ) -> Tuple[List[str], List[str]]:
+        """장바구니 상품에서 재료명 추출 (parsed_ingredients 우선 사용)
+
+        parsed_ingredients.main_ingredient 필드가 있으면 우선 사용하고,
+        없으면 기존 상품명 파싱 로직으로 폴백합니다.
+
+        Args:
+            cart_product_ids: 장바구니 상품 ID 목록
+
+        Returns:
+            (재료명 목록, 검출된 요리명 목록) 튜플
+        """
+        if not cart_product_ids:
+            return ([], [])
+
+        # parsed_ingredients 포함하여 조회
+        query = """
+            SELECT id, name, parsed_ingredients
+            FROM products
+            WHERE id = ANY($1) AND status = 'active'
+        """
+        records = await self.db.fetch_all(query, cart_product_ids)
+
+        ingredients = []
+        detected_dishes = []
+
+        for r in records:
+            parsed = r['parsed_ingredients']
+
+            # parsed_ingredients.main_ingredient 우선 사용
+            if parsed and isinstance(parsed, dict):
+                main_ing = parsed.get('main_ingredient')
+                if main_ing:
+                    ingredients.append(main_ing)
+                    logger.debug(f"parsed_ingredients 사용: {r['name']} → {main_ing}")
+                    continue
+
+            # 폴백: 기존 상품명 파싱
+            ingredient, dish = self._extract_ingredient_from_product_name(r['name'])
+            if ingredient:
+                ingredients.append(ingredient)
+                logger.debug(f"상품명 파싱 사용: {r['name']} → {ingredient}")
+            if dish:
+                detected_dishes.append(dish)
+
+        return (list(set(ingredients)), list(set(detected_dishes)))
+
+    async def _search_products_for_ingredient_with_parsed(
+        self,
+        ingredient: str,
+        exclude_ids: Optional[List[int]] = None,
+        limit: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """재료명으로 상품 검색 (parsed_ingredients 활용 + 판매량 정렬)
+
+        parsed_ingredients->>'main_ingredient' 필드를 우선 검색하고,
+        결과가 부족하면 상품명 ILIKE 검색으로 보완합니다.
+
+        Args:
+            ingredient: 재료명
+            exclude_ids: 제외할 상품 ID 목록 (장바구니에 이미 있는 상품)
+            limit: 검색 결과 개수
+
+        Returns:
+            매칭된 상품 목록 (판매량 순 정렬)
+        """
+        if not ingredient:
+            return []
+
+        exclude_ids = exclude_ids or []
+        results = []
+
+        # 1단계: parsed_ingredients->>'main_ingredient' 정확 매칭
+        query_parsed = """
+            SELECT p.id, p.name, p.slug, p.price, p.original_price,
+                   (
+                       SELECT pi.image_url
+                       FROM product_images pi
+                       WHERE pi.product_id = p.id
+                       ORDER BY pi.display_order ASC
+                       LIMIT 1
+                   ) as main_image,
+                   COALESCE(ps.order_event_count, 0) as order_count
+            FROM products p
+            LEFT JOIN product_stats ps ON p.id = ps.product_id
+            WHERE p.status = 'active'
+              AND p.parsed_ingredients->>'main_ingredient' = $1
+              AND p.id != ALL($2)
+            ORDER BY COALESCE(ps.order_event_count, 0) DESC
+            LIMIT $3
+        """
+        records_parsed = await self.db.fetch_all(
+            query_parsed, ingredient, exclude_ids, limit
+        )
+
+        for r in records_parsed:
+            results.append({
+                'product_id': r['id'],
+                'name': r['name'],
+                'slug': r['slug'],
+                'price': r['price'],
+                'original_price': r['original_price'],
+                'main_image': r['main_image'],
+                'order_count': r['order_count'],
+                'ingredient': ingredient,
+            })
+
+        # 결과가 충분하면 반환
+        if len(results) >= limit:
+            return results[:limit]
+
+        # 2단계: 기존 검색 로직으로 보완
+        remaining = limit - len(results)
+        existing_ids = [r['product_id'] for r in results] + exclude_ids
+
+        additional = await self._search_products_for_ingredient(
+            ingredient, limit=remaining + 5
+        )
+
+        for p in additional:
+            if p['product_id'] not in existing_ids:
+                results.append(p)
+                if len(results) >= limit:
+                    break
+
+        return results[:limit]
+
+    async def get_simple_cart_recommendations(
+        self,
+        cart_product_ids: List[int],
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """장바구니 기반 간단 추천 API (상품만 반환)
+
+        레시피 정보 없이 추천 상품만 반환하는 간소화된 API입니다.
+        parsed_ingredients.main_ingredient 필드를 우선 사용합니다.
+
+        Args:
+            cart_product_ids: 장바구니 상품 ID 목록
+            limit: 추천 상품 개수 (최대)
+
+        Returns:
+            {
+                'products': [상품 목록 - 최대 limit개],
+                'cart_ingredients': [인식된 재료],
+                'model_version': 'v2',
+            }
+        """
+        if not cart_product_ids:
+            return {
+                'products': [],
+                'cart_ingredients': [],
+                'model_version': 'v2',
+            }
+
+        # 1. 장바구니 상품에서 재료 추출 (parsed_ingredients 우선)
+        cart_ingredients, detected_dishes = await self._get_ingredients_from_cart_with_parsed(
+            cart_product_ids
+        )
+
+        if not cart_ingredients:
+            logger.warning(f"재료 인식 실패: product_ids={cart_product_ids}")
+            return {
+                'products': [],
+                'cart_ingredients': [],
+                'model_version': 'v2',
+            }
+
+        logger.info(
+            f"장바구니 재료 인식: {len(cart_ingredients)}개",
+            extra={"ingredients": cart_ingredients[:5], "dishes": detected_dishes},
+        )
+
+        # 2. ML 모델로 추천 재료 생성
+        recommended_ingredients = []
+
+        if self._use_v2_model and self._v2_model:
+            # v2 모델: Masked Set Transformer로 재료 추천
+            recommended_ingredients = self._recommend_with_v2_model(
+                cart_ingredients,
+                top_k=min(limit, 15),  # 추천 재료 개수
+            )
+            logger.info(
+                f"v2 모델 추천: {len(recommended_ingredients)}개 재료",
+                extra={"recommendations": recommended_ingredients[:5]},
+            )
+        elif self._use_pickle and self._pickle_model:
+            # v1 모델: 레시피 기반 Gap 재료 추출
+            recipes = self._recommend_with_pickle(
+                cart_ingredients,
+                detected_dishes=detected_dishes,
+                limit=5,
+            )
+            # 모든 레시피의 gap 재료 수집
+            all_gaps = set()
+            for recipe in recipes:
+                all_gaps.update(recipe.get('gap_ingredients', [])[:5])
+            recommended_ingredients = list(all_gaps)[:15]
+
+        if not recommended_ingredients:
+            logger.warning("추천 재료 없음")
+            return {
+                'products': [],
+                'cart_ingredients': cart_ingredients,
+                'model_version': 'v2' if self._use_v2_model else 'v1',
+            }
+
+        # 3. 추천 재료별 상품 검색 (parsed_ingredients 활용)
+        products = []
+        seen_product_ids = set(cart_product_ids)  # 장바구니 상품 제외
+
+        for ingredient in recommended_ingredients:
+            if len(products) >= limit:
+                break
+
+            # 재료당 검색할 상품 수 계산
+            remaining = limit - len(products)
+            per_ingredient = max(1, min(3, remaining // max(1, len(recommended_ingredients) - recommended_ingredients.index(ingredient))))
+
+            found_products = await self._search_products_for_ingredient_with_parsed(
+                ingredient,
+                exclude_ids=list(seen_product_ids),
+                limit=per_ingredient,
+            )
+
+            for p in found_products:
+                if p['product_id'] not in seen_product_ids:
+                    seen_product_ids.add(p['product_id'])
+                    p['ingredient'] = ingredient  # 어떤 재료로 추천되었는지 기록
+                    products.append(p)
+
+                    if len(products) >= limit:
+                        break
+
+        logger.info(
+            f"최종 추천 상품: {len(products)}개",
+            extra={"product_ids": [p['product_id'] for p in products[:5]]},
+        )
+
+        return {
+            'products': products,
+            'cart_ingredients': cart_ingredients,
+            'model_version': 'v2' if self._use_v2_model else 'v1',
+        }

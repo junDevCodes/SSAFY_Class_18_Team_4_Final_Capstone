@@ -3,7 +3,7 @@
     <div class="flex items-start justify-between px-4 pt-4">
       <div class="space-y-1">
         <p class="text-[11px] font-semibold text-brand-600 tracking-tight uppercase">상품 추천</p>
-        <p class="text-sm text-gray-600">고객 취향을 바탕으로 골라봤어요</p>
+        <p class="text-sm text-gray-600">{{ headerText }}</p>
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -55,16 +55,14 @@
             @click="goProduct(product)"
             @keydown.enter.prevent="goProduct(product)"
           >
-            <!-- 레시피 추천 배지 -->
+            <!-- 재료 태그 (ML 추천일 때만) -->
             <div
-              v-if="isRecipeProduct(product) && product.recipe_name"
-              class="absolute top-0 left-0 right-0 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-[9px] font-bold px-2 py-0.5 z-10 truncate"
+              v-if="getIngredient(product) && isMLRecommendation"
+              class="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.5 bg-brand-500/90 text-white text-[10px] font-medium rounded"
             >
-              <ChefHat :size="10" class="inline mr-0.5" />
-              {{ product.recipe_name }}
+              {{ getIngredient(product) }}
             </div>
-
-            <div class="aspect-square overflow-hidden bg-white" :class="isRecipeProduct(product) ? 'mt-5' : ''">
+            <div class="aspect-square overflow-hidden bg-white">
               <img
                 :src="getProductImageUrl(product)"
                 :alt="product.name"
@@ -110,11 +108,10 @@
 </template>
 
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight, Plus, ChefHat } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { recommendationApi, type CartRecommendationProduct } from '@/services/api/recommendations'
-import { productsAPI } from '@/services/api'
+import { productsAPI, recommendationsAPI, type CartRecommendedProduct } from '@/services/api'
 import { useCartStore } from '@/stores/cart'
 import { useAuthStore } from '@/stores/auth'
 import { useUIStore } from '@/stores/ui'
@@ -140,34 +137,30 @@ const uiStore = useUIStore()
 const loading = ref(false)
 const addingIds = ref<number[]>([])
 const error = ref<string | null>(null)
-const recommendations = ref<RecommendationItem[]>([])
+// ML 추천 또는 폴백 상품 (합집합 타입)
+const recommendations = ref<(CartRecommendedProduct | Product)[]>([])
+const cartIngredients = ref<string[]>([])
+const isMLRecommendation = ref(false)
 const currentSlide = ref(0)
 const groupSize = 3
 
-// 상품 ID 추출 헬퍼
-const getProductId = (product: RecommendationItem): number => {
-  return 'product_id' in product ? product.product_id : product.id
-}
+// 디바운스 타이머
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-// 레시피 추천 상품 여부
-const isRecipeProduct = (product: RecommendationItem): product is CartRecommendationProduct => {
-  return 'source' in product && product.source === 'recipe'
-}
-
-// 이미지 URL 추출 헬퍼
-const getProductImageUrl = (product: RecommendationItem): string => {
-  if ('image_url' in product && product.image_url) {
-    return product.image_url
+// 헤더 텍스트 동적 생성
+const headerText = computed(() => {
+  if (!isMLRecommendation.value || cartIngredients.value.length === 0) {
+    return '고객 취향을 바탕으로 골라봤어요'
   }
-  if ('main_image' in product && product.main_image) {
-    return product.main_image
-  }
-  return '/images/default-product.svg'
-}
+  // 최대 3개 재료만 표시
+  const displayIngredients = cartIngredients.value.slice(0, 3)
+  const ingredientText = displayIngredients.join(', ')
+  return `${ingredientText}와(과) 잘 어울려요`
+})
 
 const chunks = computed(() => {
   const source = recommendations.value
-  const grouped: RecommendationItem[][] = []
+  const grouped: (CartRecommendedProduct | Product)[][] = []
   for (let i = 0; i < source.length; i += groupSize) {
     grouped.push(source.slice(i, i + groupSize))
   }
@@ -181,50 +174,95 @@ const visibleItems = computed(() => {
 const hasPrev = computed(() => currentSlide.value > 0)
 const hasNext = computed(() => currentSlide.value < chunks.value.length - 1)
 
+// 상품 ID 추출 (ML 추천 / 기존 Product 호환)
+const getProductId = (product: CartRecommendedProduct | Product): number => {
+  if ('product_id' in product) {
+    return product.product_id
+  }
+  return product.id
+}
+
+// 재료 정보 추출 (ML 추천 상품에만 존재)
+const getIngredient = (product: CartRecommendedProduct | Product): string | null => {
+  if ('ingredient' in product) {
+    return product.ingredient
+  }
+  return null
+}
+
+// 상품 이미지 URL 추출 (ML 추천 / 기존 Product 호환)
+const getProductImageUrl = (product: CartRecommendedProduct | Product): string => {
+  if ('main_image' in product && product.main_image) {
+    return product.main_image
+  }
+  // Product 타입인 경우 기존 함수 사용
+  return getProductImage(product as Product)
+}
+
+// 장바구니 상품 ID 목록 가져오기
+const getCartProductIds = (): number[] => {
+  return cartStore.items
+    .map(item => item.product?.id)
+    .filter((id): id is number => id != null)
+}
+
 const fetchRecommendations = async () => {
   loading.value = true
   error.value = null
+  isMLRecommendation.value = false
+  cartIngredients.value = []
+
   try {
-    // 장바구니 상품 ID 목록
-    const cartProductIds = cartStore.items.map(item => item.product.id)
-    const userId = authStore.user?.id
+    const cartProductIds = getCartProductIds()
 
-    // 통합 추천 API 호출
-    const result = await recommendationApi.getCartUnifiedRecommendations(
-      cartProductIds,
-      userId,
-      props.limit ?? 9
-    )
+    // 장바구니 상품이 2개 이상일 때만 ML 추천 호출
+    if (cartProductIds.length >= 2) {
+      try {
+        const { data } = await recommendationsAPI.getCartRecommendations(
+          cartProductIds,
+          props.limit ?? 9
+        )
 
-    if (result.success && result.recommendations.length > 0) {
-      recommendations.value = result.recommendations
-    } else {
-      // Fallback: 기존 인기 상품 API
-      await fetchFallbackRecommendations()
+        if (data.products && data.products.length > 0) {
+          recommendations.value = data.products
+          cartIngredients.value = data.cart_ingredients || []
+          isMLRecommendation.value = true
+          currentSlide.value = 0
+          return
+        }
+      } catch (mlErr) {
+        console.warn('ML 추천 실패, 베스트 상품으로 폴백:', mlErr)
+      }
     }
 
-    currentSlide.value = 0
-  } catch (err) {
-    console.error('추천 상품 불러오기 실패:', err)
-    // Fallback: 기존 API 사용
-    await fetchFallbackRecommendations()
-  } finally {
-    loading.value = false
-  }
-}
-
-const fetchFallbackRecommendations = async () => {
-  try {
+    // 폴백: 베스트 상품
     const { data } = await productsAPI.getBestProducts(props.limit ?? 9)
     recommendations.value = data.results || []
+    currentSlide.value = 0
+
     if (recommendations.value.length === 0) {
       const fallback = await productsAPI.getFeaturedProducts(props.limit ?? 9)
       recommendations.value = fallback.data.results || []
     }
   } catch {
     error.value = '추천을 불러오지 못했어요.'
+  } finally {
+    loading.value = false
   }
 }
+
+// 장바구니 변경 감지 (디바운스 500ms)
+watch(
+  () => cartStore.items.length,
+  () => {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer)
+    }
+    debounceTimer = setTimeout(() => {
+      fetchRecommendations()
+    }, 500)
+  }
+)
 
 const goNext = () => {
   if (hasNext.value) {
@@ -238,13 +276,14 @@ const goPrev = () => {
   }
 }
 
-const goProduct = (product: RecommendationItem) => {
-  const productId = getProductId(product)
-  const slug = 'slug' in product && product.slug ? product.slug : String(productId)
-  router.push({ name: 'product-detail', params: { slug } })
+const goProduct = (product: CartRecommendedProduct | Product) => {
+  const slug = product.slug
+  if (slug) {
+    router.push({ name: 'product-detail', params: { slug } })
+  }
 }
 
-const addItem = async (product: RecommendationItem) => {
+const addItem = async (product: CartRecommendedProduct | Product) => {
   const productId = getProductId(product)
   if (!productId || product.price == null) {
     uiStore.showToast('상품 정보가 부족해 담지 못했어요.')
@@ -255,16 +294,17 @@ const addItem = async (product: RecommendationItem) => {
   addingIds.value = [...addingIds.value, productId]
 
   try {
-    // Product 형태로 변환하여 장바구니에 추가
-    const productForCart = {
+    // ML 추천 상품을 Product 형태로 변환
+    const cartProduct: Product = {
       id: productId,
       name: product.name,
+      slug: product.slug,
       price: product.price,
-      original_price: 'original_price' in product ? product.original_price : undefined,
-      main_image: getProductImageUrl(product),
-      slug: 'slug' in product && product.slug ? product.slug : String(productId),
-    }
-    await cartStore.addToCart(productForCart as Product, 1)
+      original_price: product.original_price ?? null,
+      main_image: 'main_image' in product ? product.main_image : null,
+    } as Product
+
+    await cartStore.addToCart(cartProduct, 1)
     const message = cartStore.isGuest
       ? '담겼어요. 로그인하면 서버 장바구니와 동기화됩니다.'
       : '장바구니에 담았어요!'

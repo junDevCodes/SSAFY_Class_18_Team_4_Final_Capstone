@@ -1,64 +1,70 @@
 """
-SelF 추천 시스템 API
+SelF Pred API - ML 기반 추천 서버
 
-FastAPI 기반 추천 서비스 메인 엔트리포인트
+장바구니 상품 기반 레시피 추천 및 상품 추천 API를 제공합니다.
 """
 
 from contextlib import asynccontextmanager
-from datetime import datetime
+from typing import List, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
-from api import (
-    recommendation_router,
-    init_dependencies,
-    close_dependencies,
-)
-from api.routes import price_router, recipe_router, health_router
-from api.schemas import HealthResponse
 from core.config import settings
-from core.logging import setup_logging, get_logger
+from core.database import db
+from core.logging import get_logger
+from ml.model_loader import model_loader
 
-# 로깅 설정
-setup_logging()
 logger = get_logger(__name__)
+
+# 전역 모델 인스턴스
+_recipe_model = None
+
+
+async def get_recipe_model():
+    """RecipePickleModel 싱글톤 인스턴스 반환"""
+    global _recipe_model
+    if _recipe_model is None:
+        from ml.models.recipe_pickle_model import RecipePickleModel
+        _recipe_model = RecipePickleModel(db=db)
+        await _recipe_model.initialize()
+        logger.info("RecipePickleModel 초기화 완료")
+    return _recipe_model
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """애플리케이션 생명주기 관리"""
-    # 시작 시
-    logger.info(
-        "추천 서비스 시작",
-        service=settings.service_name,
-        version=settings.service_version,
-        debug=settings.debug,
-    )
+    """애플리케이션 라이프사이클 관리
 
+    Startup: DB 연결, 모델 로드
+    Shutdown: DB 연결 종료
+    """
+    # Startup
+    logger.info("서버 시작 - DB 연결 및 모델 로드 중...")
     try:
-        await init_dependencies()
-        logger.info("의존성 초기화 완료")
+        await db.connect()
+        await model_loader.load_all_models()
+        # 레시피 모델 미리 초기화
+        await get_recipe_model()
+        logger.info("서버 시작 완료")
     except Exception as e:
-        logger.error("의존성 초기화 실패", error=str(e))
-        # 초기화 실패해도 서비스는 시작 (헬스체크 등 기본 기능 제공)
+        logger.error(f"서버 시작 실패: {e}")
+        raise
 
     yield
 
-    # 종료 시
-    logger.info("추천 서비스 종료 중...")
-    await close_dependencies()
-    logger.info("추천 서비스 종료 완료")
+    # Shutdown
+    logger.info("서버 종료 - DB 연결 해제 중...")
+    await db.disconnect()
+    logger.info("서버 종료 완료")
 
 
-# FastAPI 애플리케이션 생성
 app = FastAPI(
-    title=settings.service_name,
-    version=settings.service_version,
-    description="SelF 이커머스 플랫폼 추천 시스템 API",
+    title="SelF Pred API",
+    version="1.0.0",
+    description="장바구니 기반 레시피 추천 및 상품 추천 API",
     lifespan=lifespan,
-    docs_url="/docs" if settings.debug else None,
-    redoc_url="/redoc" if settings.debug else None,
 )
 
 # CORS 설정
@@ -70,75 +76,131 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 라우터 등록
-app.include_router(recommendation_router, prefix="/api/v1")
-app.include_router(price_router, prefix="/api/v1")
-app.include_router(recipe_router, prefix="/api/v1")
-app.include_router(health_router, prefix="/api/v1")
+
+# ==================== Pydantic 모델 ====================
+
+class CartRecommendationRequest(BaseModel):
+    """장바구니 추천 요청"""
+    product_ids: List[int] = Field(..., description="장바구니 상품 ID 목록")
+    limit: int = Field(default=20, ge=1, le=50, description="추천 상품 개수 (최대 50)")
 
 
-# ============================================================================
-# 기본 엔드포인트
-# ============================================================================
+class RecommendedProduct(BaseModel):
+    """추천 상품 정보"""
+    product_id: int = Field(..., description="상품 ID")
+    name: str = Field(..., description="상품명")
+    slug: str = Field(..., description="상품 slug")
+    price: int = Field(..., description="가격")
+    original_price: Optional[int] = Field(None, description="원가")
+    main_image: Optional[str] = Field(None, description="대표 이미지 URL")
+    order_count: int = Field(default=0, description="주문 수")
+    ingredient: str = Field(default="", description="이 상품이 커버하는 재료")
+
+
+class CartRecommendationResponse(BaseModel):
+    """장바구니 추천 응답"""
+    products: List[RecommendedProduct] = Field(default_factory=list, description="추천 상품 목록")
+    cart_ingredients: List[str] = Field(default_factory=list, description="장바구니에서 인식된 재료")
+    model_version: str = Field(default="v2", description="사용된 모델 버전")
+    total_count: int = Field(default=0, description="추천 상품 개수")
+
+
+# ==================== API 엔드포인트 ====================
 
 @app.get("/")
 async def read_root():
     """루트 경로 응답"""
     return {
-        "service": settings.service_name,
-        "version": settings.service_version,
+        "message": "SelF Pred API",
         "status": "running",
-        "docs": "/docs" if settings.debug else None,
+        "version": "1.0.0",
     }
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health")
 async def health_check():
-    """헬스 체크 엔드포인트
+    """헬스 체크 엔드포인트"""
+    # DB 연결 상태 확인
+    db_healthy = await db.health_check()
+    model_loaded = model_loader.is_loaded
 
-    서비스, 데이터베이스, 캐시 상태 확인
+    status = "healthy" if db_healthy and model_loaded else "degraded"
+
+    return {
+        "status": status,
+        "db": "connected" if db_healthy else "disconnected",
+        "models": "loaded" if model_loaded else "not_loaded",
+        "loaded_models": model_loader.loaded_models,
+    }
+
+
+@app.post("/api/cart-recommendations", response_model=CartRecommendationResponse)
+async def cart_recommendations(request: CartRecommendationRequest):
+    """장바구니 기반 상품 추천 API
+
+    장바구니에 담긴 상품들의 재료를 분석하여
+    레시피 Gap Filling 모델로 추천 상품을 반환합니다.
+
+    - **인증 불필요**: 회원/비회원 모두 사용 가능
+    - **parsed_ingredients 활용**: 상품의 main_ingredient 필드 우선 사용
+
+    Args:
+        request: 장바구니 상품 ID 목록 및 추천 개수
+
+    Returns:
+        추천 상품 목록, 인식된 재료, 모델 버전
     """
-    from api.dependencies import _db, _cache
+    # 빈 장바구니 처리
+    if not request.product_ids:
+        return CartRecommendationResponse(
+            products=[],
+            cart_ingredients=[],
+            model_version="v2",
+            total_count=0,
+        )
 
-    db_status = "connected" if _db and _db._pool else "disconnected"
-    cache_status = "connected" if _cache and _cache._client else "disconnected"
+    try:
+        model = await get_recipe_model()
+        result = await model.get_simple_cart_recommendations(
+            cart_product_ids=request.product_ids,
+            limit=request.limit,
+        )
 
-    return HealthResponse(
-        status="healthy" if db_status == "connected" else "degraded",
-        version=settings.service_version,
-        database=db_status,
-        cache=cache_status,
-        timestamp=datetime.now(),
-    )
+        # 응답 변환
+        products = [
+            RecommendedProduct(
+                product_id=p.get("product_id"),
+                name=p.get("name", ""),
+                slug=p.get("slug", ""),
+                price=p.get("price", 0),
+                original_price=p.get("original_price"),
+                main_image=p.get("main_image"),
+                order_count=p.get("order_count", 0),
+                ingredient=p.get("ingredient", ""),
+            )
+            for p in result.get("products", [])
+        ]
 
+        return CartRecommendationResponse(
+            products=products,
+            cart_ingredients=result.get("cart_ingredients", []),
+            model_version=result.get("model_version", "v2"),
+            total_count=len(products),
+        )
 
-@app.get("/ready")
-async def readiness_check():
-    """준비 상태 체크 (Kubernetes readiness probe용)"""
-    from api.dependencies import _db, _cache, _orchestrator
+    except Exception as e:
+        logger.error(f"장바구니 추천 실패: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"추천 처리 중 오류가 발생했습니다: {str(e)}",
+        )
 
-    is_ready = all([
-        _db and _db._pool,
-        _orchestrator is not None,
-    ])
-
-    if is_ready:
-        return {"status": "ready"}
-    else:
-        return {"status": "not_ready"}, 503
-
-
-# ============================================================================
-# 레거시 엔드포인트 (하위 호환성)
-# ============================================================================
 
 @app.post("/api/recommend")
-async def recommend_products_legacy():
-    """추천 API (레거시) - /api/v1/recommendations 사용 권장"""
-    return {
-        "status": "deprecated",
-        "message": "이 엔드포인트는 deprecated됩니다. /api/v1/recommendations를 사용하세요.",
-    }
+async def recommend_products():
+    """추천 로직 자리 - 추후 구현"""
+    # TODO: 개인화 추천 로직 추가
+    return {"status": "pending"}
 
 
 @app.post("/api/predict-price")

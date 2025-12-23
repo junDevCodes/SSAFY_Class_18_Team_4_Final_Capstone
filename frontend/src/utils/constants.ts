@@ -8,13 +8,7 @@ export const API_BASE_URL =
 
 // 카테고리 목록 (상단 탭 등에서 사용)
 export const CATEGORIES = [
-  "추천",
-  "베스트",
-  "신상품",
-  "비건",
-  "정육",
-  "수산",
-  "베이커리",
+  "카테고리",
 ] as const;
 
 // 홈플러스 카테고리 아이콘 S3 기본 경로

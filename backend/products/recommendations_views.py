@@ -1,20 +1,95 @@
 """
 추천 관련 API Views (REC-005)
 
-최근 본 상품, 개인화 추천 등 추천 관련 API를 제공합니다.
+최근 본 상품, 개인화 추천, 장바구니 기반 추천 등 추천 관련 API를 제공합니다.
 """
 import logging
 
-from django.db.models import F, FloatField, ExpressionWrapper
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import UserProductStats, Product
 from .serializers import ProductListSerializerV2
-from . import pred_client
+from .pred_client import request_cart_recommendations
 
 logger = logging.getLogger(__name__)
+
+
+class CartRecommendationsView(APIView):
+    """장바구니 기반 상품 추천 API
+
+    POST /api/recommendations/cart/
+
+    장바구니에 담긴 상품들의 재료를 분석하여
+    ML 모델(레시피 Gap Filling)로 추천 상품을 반환합니다.
+
+    - **비회원 허용**: 인증 없이 사용 가능
+    - **parsed_ingredients 활용**: 상품의 main_ingredient 필드 우선 사용
+
+    Request Body:
+        {
+            "product_ids": [1, 2, 3],  # 장바구니 상품 ID 목록
+            "limit": 20                # 추천 상품 개수 (기본 20, 최대 50)
+        }
+
+    Returns:
+        200: {
+            "products": [...],          # 추천 상품 목록
+            "cart_ingredients": [...],  # 인식된 재료
+            "model_version": "v2",      # 모델 버전
+            "total_count": 15           # 추천 상품 개수
+        }
+        503: { "error": "추천 서비스 오류" }
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        product_ids = request.data.get('product_ids', [])
+        limit = request.data.get('limit', 20)
+
+        # 유효성 검사
+        if not isinstance(product_ids, list):
+            return Response(
+                {'error': 'product_ids는 배열이어야 합니다.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 정수만 필터링
+        product_ids = [
+            int(pid) for pid in product_ids
+            if isinstance(pid, (int, str)) and str(pid).isdigit()
+        ]
+
+        # limit 범위 제한
+        try:
+            limit = int(limit)
+            limit = max(1, min(limit, 50))
+        except (ValueError, TypeError):
+            limit = 20
+
+        # 빈 장바구니 처리
+        if not product_ids:
+            return Response({
+                'products': [],
+                'cart_ingredients': [],
+                'model_version': 'v2',
+                'total_count': 0,
+            })
+
+        try:
+            result = request_cart_recommendations(
+                product_ids=product_ids,
+                limit=limit,
+            )
+            return Response(result)
+
+        except Exception as e:
+            logger.error(f"장바구니 추천 API 호출 실패: {e}", exc_info=True)
+            return Response(
+                {'error': f'추천 서비스에 연결할 수 없습니다: {str(e)}'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
 
 class RecentViewedProductsView(generics.GenericAPIView):
