@@ -66,6 +66,24 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label for="category">카테고리 *</label>
+          <select
+            id="category"
+            v-model.number="formData.category_id"
+            required
+          >
+            <option value="" disabled>카테고리를 선택하세요</option>
+            <option
+              v-for="category in categories"
+              :key="category.id"
+              :value="category.id"
+            >
+              {{ category.name }}
+            </option>
+          </select>
+        </div>
+
         <div class="form-row single">
           <div class="form-group">
             <label for="unit">단위</label>
@@ -188,7 +206,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { sellerProductsAPI } from '@/services/api'
+import { productsAPI, sellerProductsAPI } from '@/services/api'
+import type { Category } from '@/types/product'
 
 type UploadItem = { file: File; preview: string }
 type ExistingImage = { id?: number; url: string; filename: string }
@@ -200,12 +219,14 @@ const loading = ref(true)
 const submitting = ref(false)
 const error = ref<string | null>(null)
 const product = ref<any>(null)
+const categories = ref<Category[]>([])
 
 const formData = reactive({
   name: '',
   price: 0,
   original_price: 0,
   stock_quantity: 0,
+  category_id: null as number | null,
   unit: '',
   short_description: '',
   full_description: ''
@@ -291,6 +312,16 @@ onBeforeUnmount(() => {
   revokePreviews(detailImages.value)
 })
 
+const loadCategories = async () => {
+  try {
+    const res = await productsAPI.getCategories()
+    const results = res.data?.results ?? res.data ?? []
+    categories.value = Array.isArray(results) ? results : []
+  } catch (err) {
+    console.error('???? ???? ??:', err)
+  }
+}
+
 const loadProduct = async () => {
   loading.value = true
   error.value = null
@@ -305,6 +336,7 @@ const loadProduct = async () => {
     formData.price = Number(data.price) || 0
     formData.original_price = Number(data.original_price) || 0
     formData.stock_quantity = Number(data.stock_quantity ?? data.inventory?.stock_quantity ?? 0) || 0
+    formData.category_id = data.category_id || data.category?.id || null
     formData.unit = data.unit || ''
     formData.short_description = data.short_description || data.detail?.short_description || ''
     formData.full_description =
@@ -369,6 +401,10 @@ const validateForm = () => {
     error.value = '재고는 0 이상이어야 합니다.'
     return false
   }
+  if (!formData.category_id) {
+    error.value = '????? ??????.'
+    return false
+  }
   if (!existingMainImages.value.length && !mainImages.value.length) {
     error.value = '메인 상품 이미지를 최소 1개 이상 유지해주세요.'
     return false
@@ -389,6 +425,7 @@ const handleSubmit = async () => {
       price: formData.price,
       original_price: formData.original_price || undefined,
       stock_quantity: formData.stock_quantity || 0,
+      category_id: formData.category_id || undefined,
       unit: formData.unit || undefined,
       short_description: formData.short_description || '',
       full_description: formData.full_description || '',
@@ -425,6 +462,7 @@ const handleSubmit = async () => {
 }
 
 onMounted(() => {
+  loadCategories()
   loadProduct()
 })
 </script>
@@ -521,6 +559,7 @@ onMounted(() => {
 }
 
 .form-group input,
+.form-group select,
 .form-group textarea {
   width: 100%;
   padding: 0.875rem;
@@ -531,6 +570,7 @@ onMounted(() => {
 }
 
 .form-group input:focus,
+.form-group select:focus,
 .form-group textarea:focus {
   outline: none;
   border-color: #00a86b;

@@ -56,6 +56,24 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label for="category">카테고리 *</label>
+          <select
+            id="category"
+            v-model.number="formData.category_id"
+            required
+          >
+            <option value="" disabled>카테고리를 선택하세요</option>
+            <option
+              v-for="category in categories"
+              :key="category.id"
+              :value="category.id"
+            >
+              {{ category.name }}
+            </option>
+          </select>
+        </div>
+
         <div class="form-row single">
           <div class="form-group">
             <label for="unit">단위</label>
@@ -159,21 +177,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { sellerProductsAPI } from '@/services/api'
+import { productsAPI, sellerProductsAPI } from '@/services/api'
+import type { Category } from '@/types/product'
 
 type UploadItem = { file: File; preview: string }
 
 const router = useRouter()
 const submitting = ref(false)
 const error = ref<string | null>(null)
+const categories = ref<Category[]>([])
 
 const formData = reactive({
   name: '',
   price: 0,
   original_price: 0,
   stock_quantity: 0,
+  category_id: null as number | null,
   unit: '',
   short_description: '',
   full_description: ''
@@ -279,11 +300,25 @@ const validateForm = () => {
     error.value = '재고는 0 이상이어야 합니다.'
     return false
   }
+  if (!formData.category_id) {
+    error.value = '????? ??????.'
+    return false
+  }
   if (!mainImages.value.length) {
     error.value = '메인 상품 이미지를 최소 1개 이상 업로드하세요.'
     return false
   }
   return true
+}
+
+const loadCategories = async () => {
+  try {
+    const res = await productsAPI.getCategories()
+    const results = res.data?.results ?? res.data ?? []
+    categories.value = Array.isArray(results) ? results : []
+  } catch (err) {
+    console.error('???? ???? ??:', err)
+  }
 }
 
 const handleSubmit = async () => {
@@ -299,6 +334,7 @@ const handleSubmit = async () => {
       price: formData.price,
       original_price: formData.original_price || undefined,
       stock_quantity: formData.stock_quantity || 0,
+      category_id: formData.category_id || undefined,
       unit: formData.unit || undefined,
       short_description: formData.short_description || '',
       full_description: formData.full_description || '',
@@ -354,6 +390,10 @@ const handleSubmit = async () => {
     submitting.value = false
   }
 }
+
+onMounted(() => {
+  loadCategories()
+})
 </script>
 
 <style scoped>
@@ -416,6 +456,7 @@ const handleSubmit = async () => {
 }
 
 .form-group input,
+.form-group select,
 .form-group textarea {
   width: 100%;
   padding: 0.875rem;
@@ -426,6 +467,7 @@ const handleSubmit = async () => {
 }
 
 .form-group input:focus,
+.form-group select:focus,
 .form-group textarea:focus {
   outline: none;
   border-color: #00a86b;
