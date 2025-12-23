@@ -51,14 +51,13 @@ const selfProducts = ref<Product[]>([])
 const limitedProducts = computed<Product[]>(() => selfProducts.value.slice(0, 8))
 
 const goToAllProducts = () => {
-  router.push({ name: 'products' })
+  router.push({ name: 'products', query: { product_type: 'main' } })
 }
 
 onMounted(async () => {
   try {
     const { data } = await productsAPI.getProducts({
-      product_type: 'seller',
-      include_inactive: true,
+      product_type: 'main',
       page_size: 12
     })
     const visibleStatuses = new Set(['active', 'inactive', 'out_of_stock'])
