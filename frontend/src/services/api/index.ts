@@ -357,12 +357,14 @@ export const sellerProductsAPI = {
   createProduct: (data: {
     name: string
     price: number
+    slug?: string
+    original_price?: number
     category_id?: number
-    description?: string
+    full_description?: string
     short_description?: string
-    main_image_url?: string
     stock_quantity?: number
     unit?: string
+    description?: string
   }) => apiClient.post('/api/seller-products/', data),
 
   // 상품 수정
@@ -387,6 +389,30 @@ export const sellerProductsAPI = {
     alt_text?: string
     display_order?: number
   }>) => apiClient.post(`/api/seller-products/${product_id}/images/`, { images }),
+
+  // 상품 메인 이미지 업로드 (S3)
+  uploadProductImages: (product_id: number, files: File[]) => {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('images', file))
+
+    return apiClient.post(
+      `/api/seller-products/${product_id}/images/upload/`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  },
+
+  // 상품 상세 설명 이미지 업로드 (S3)
+  uploadProductDetailImages: (product_id: number, files: File[]) => {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('images', file))
+
+    return apiClient.post(
+      `/api/seller-products/${product_id}/detail-images/upload/`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  },
 
   // 상품 이미지 삭제
   deleteProductImage: (product_id: number, image_id: number) =>
