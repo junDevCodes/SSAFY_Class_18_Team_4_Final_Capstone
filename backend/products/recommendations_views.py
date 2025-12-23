@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 
 from .models import UserProductStats
 from .serializers import ProductListSerializerV2
-from .pred_client import request_cart_recommendations
+from .pred_client import request_cart_recommendations, request_personalized_recommendations
 
 logger = logging.getLogger(__name__)
 
@@ -140,3 +140,96 @@ class RecentViewedProductsView(generics.GenericAPIView):
         return Response({
             'products': serializer.data
         })
+
+
+class PersonalizedRecommendationsView(APIView):
+    """개인화 추천 API
+
+    GET /api/recommendations/personalized/
+
+    로그인 사용자를 위한 개인화 추천을 제공합니다.
+    메인 페이지 MD's Pick 섹션에서 사용됩니다.
+
+    - **인증 필수**: 로그인 사용자만 사용 가능
+    - **장바구니 제외**: 현재 장바구니에 있는 상품은 추천에서 제외
+    - **가중치 적용**: order > cart + 시간 감쇠
+    - **항상 8개 반환**: 부족하면 인기 상품으로 채움
+
+    Query Parameters:
+        limit (int, optional): 추천 상품 개수 (기본: 8, 최대: 50)
+        page_type (str, optional): 페이지 타입 (기본: home)
+            - home: 메인 페이지
+            - category: 카테고리 페이지
+            - product_detail: 상품 상세 페이지
+        category_id (int, optional): 카테고리 ID
+
+    Returns:
+        200: {
+            "products": [...],          # 추천 상품 목록
+            "user_type": "warm",        # 사용자 유형 (cold/lukewarm/warm)
+            "model_version": "v2",      # 모델 버전
+            "total_count": 8,           # 추천 상품 개수
+            "metadata": {...}           # 추가 메타데이터
+        }
+        401: { "detail": "자격 인증데이터가 제공되지 않았습니다." }
+        503: { "error": "추천 서비스 오류" }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        # 쿼리 파라미터 추출
+        try:
+            limit = int(request.query_params.get('limit', 8))
+            limit = max(1, min(limit, 50))
+        except (ValueError, TypeError):
+            limit = 8
+
+        page_type = request.query_params.get('page_type', 'home')
+        if page_type not in ['home', 'category', 'product_detail']:
+            page_type = 'home'
+
+        category_id = request.query_params.get('category_id')
+        if category_id:
+            try:
+                category_id = int(category_id)
+            except (ValueError, TypeError):
+                category_id = None
+        else:
+            category_id = None
+
+        # 사용자 장바구니 상품 ID 조회 (제외용)
+        cart_product_ids = self._get_user_cart_product_ids(request.user)
+
+        try:
+            result = request_personalized_recommendations(
+                user_id=request.user.id,
+                limit=limit,
+                page_type=page_type,
+                category_id=category_id,
+                cart_product_ids=cart_product_ids,
+            )
+            return Response(result)
+
+        except Exception as e:
+            logger.error(f"개인화 추천 API 호출 실패: {e}", exc_info=True)
+            return Response(
+                {'error': f'추천 서비스에 연결할 수 없습니다: {str(e)}'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+    def _get_user_cart_product_ids(self, user) -> list:
+        """사용자 장바구니 상품 ID 목록 조회
+
+        Args:
+            user: 현재 로그인한 사용자
+
+        Returns:
+            장바구니 상품 ID 목록
+        """
+        try:
+            from orders.models import Cart
+            cart_items = Cart.objects.filter(user=user).values_list('product_id', flat=True)
+            return list(cart_items)
+        except Exception as e:
+            logger.warning(f"장바구니 조회 실패: {e}")
+            return []
