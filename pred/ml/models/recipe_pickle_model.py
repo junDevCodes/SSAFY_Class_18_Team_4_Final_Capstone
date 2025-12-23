@@ -1665,8 +1665,17 @@ class RecipePickleModel(HybridModel):
             recipes = self._recommend_with_pickle(
                 cart_ingredients,
                 detected_dishes=detected_dishes,
-                limit=limit,
+                limit=limit * 2,  # AIRScout 재정렬용 여유분 확보
             )
+
+            # ===== AIRScout semantic 유사도로 레시피 재정렬 =====
+            if recipes:
+                query_text = " ".join(product_names[:5])  # 장바구니 상품명 조합
+                recipes = await self.enhance_recipes_with_airscout(
+                    query_text=query_text,
+                    recipe_candidates=recipes,
+                    top_k=limit,
+                )
 
         # v2 모델만 사용하는 경우 (레시피 없이 재료 추천만)
         if self._use_v2_model and v2_recommendations and not recipes:
@@ -2075,3 +2084,74 @@ class RecipePickleModel(HybridModel):
             'cart_ingredients': cart_ingredients,
             'model_version': 'v2' if self._use_v2_model else 'v1',
         }
+
+    async def enhance_recipes_with_airscout(
+        self,
+        query_text: str,
+        recipe_candidates: List[Dict[str, Any]],
+        top_k: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """AIRScout semantic 유사도로 레시피 검색 결과 재정렬
+
+        Args:
+            query_text: 검색 쿼리 (장바구니 상품명 조합)
+            recipe_candidates: 기존 검색으로 찾은 레시피 후보
+            top_k: 반환할 최대 개수
+
+        Returns:
+            semantic 점수로 재정렬된 레시피 목록
+        """
+        if not recipe_candidates:
+            return []
+
+        try:
+            from ml.models.airscout_model import AIRScoutModel, ENABLE_AIRSCOUT_BOOST
+
+            if not ENABLE_AIRSCOUT_BOOST:
+                return recipe_candidates[:top_k]
+
+            airscout = await AIRScoutModel.get_instance(db=self.db)
+
+            # 레시피명 + 설명 텍스트 추출
+            recipe_texts = [
+                f"{r.get('name', '')} {r.get('description', '')}"
+                for r in recipe_candidates
+            ]
+
+            # semantic 유사도 계산
+            semantic_scores = await airscout.compute_recipe_semantic_scores(
+                query_text=query_text,
+                recipe_texts=recipe_texts,
+            )
+
+            # 기존 점수와 혼합 (semantic 30% + 기존 70%)
+            for i, recipe in enumerate(recipe_candidates):
+                existing_score = recipe.get("match_score", 0.5)
+                if i < len(semantic_scores):
+                    recipe["semantic_score"] = float(semantic_scores[i])
+                    recipe["final_score"] = 0.7 * existing_score + 0.3 * semantic_scores[i]
+                else:
+                    recipe["semantic_score"] = 0.0
+                    recipe["final_score"] = existing_score
+
+            # 최종 점수로 재정렬
+            sorted_recipes = sorted(
+                recipe_candidates,
+                key=lambda r: r.get("final_score", 0),
+                reverse=True
+            )
+
+            logger.debug(
+                f"AIRScout 레시피 재정렬 완료",
+                extra={
+                    "query": query_text[:50],
+                    "recipe_count": len(recipe_candidates),
+                    "top_semantic": round(float(semantic_scores.max()), 3) if len(semantic_scores) > 0 else 0,
+                }
+            )
+
+            return sorted_recipes[:top_k]
+
+        except Exception as e:
+            logger.warning(f"AIRScout 레시피 재정렬 실패 (기존 결과 사용): {e}")
+            return recipe_candidates[:top_k]

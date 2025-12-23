@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     model_timeout_recipe: int = Field(
         default=200, description="레시피 모델 타임아웃 (ms)"
     )
+    model_timeout_airscout: int = Field(
+        default=200, description="AIRScout 보조 모델 타임아웃 (ms)"
+    )
     api_timeout: int = Field(default=500, description="API 전체 타임아웃 (ms)")
 
     # 배치 처리 설정
@@ -134,6 +137,7 @@ class Settings(BaseSettings):
             "self": self.model_timeout_personalized / 1000,
             "price": self.model_timeout_price / 1000,
             "recipe": self.model_timeout_recipe / 1000,
+            "airscout": self.model_timeout_airscout / 1000,
         }
 
 
