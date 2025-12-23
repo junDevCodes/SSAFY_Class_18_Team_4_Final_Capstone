@@ -51,13 +51,17 @@ const selfProducts = ref<Product[]>([])
 const limitedProducts = computed<Product[]>(() => selfProducts.value.slice(0, 8))
 
 const goToAllProducts = () => {
-  router.push({ name: 'products' })
+  router.push({ name: 'products', query: { product_type: 'main' } })
 }
 
 onMounted(async () => {
   try {
-    const { data } = await productsAPI.getProducts({ product_type: 'main', page_size: 8 })
-    selfProducts.value = data.results
+    const { data } = await productsAPI.getProducts({
+      product_type: 'main',
+      page_size: 12
+    })
+    const visibleStatuses = new Set(['active', 'inactive', 'out_of_stock'])
+    selfProducts.value = (data.results || []).filter((item: any) => visibleStatuses.has(item.status))
   } catch (err) {
     console.error('Failed to load Self Mall products:', err)
     selfProducts.value = []

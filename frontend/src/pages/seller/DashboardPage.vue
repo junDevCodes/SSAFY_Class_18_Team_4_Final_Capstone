@@ -31,7 +31,7 @@
             </div>
             <div class="stat-info">
               <h3 class="stat-label">전체 상품</h3>
-              <p class="stat-value">{{ dashboard.total_products || 0 }}</p>
+              <p class="stat-value">{{ stats.total_products || 0 }}</p>
             </div>
           </div>
 
@@ -43,7 +43,7 @@
             </div>
             <div class="stat-info">
               <h3 class="stat-label">전체 주문</h3>
-              <p class="stat-value">{{ dashboard.total_orders || 0 }}</p>
+              <p class="stat-value">{{ stats.total_orders || 0 }}</p>
             </div>
           </div>
 
@@ -55,7 +55,7 @@
             </div>
             <div class="stat-info">
               <h3 class="stat-label">총 매출</h3>
-              <p class="stat-value">{{ formatPrice(dashboard.total_revenue || 0) }}</p>
+              <p class="stat-value">{{ formatPrice(stats.total_revenue || 0) }}</p>
             </div>
           </div>
 
@@ -67,7 +67,7 @@
             </div>
             <div class="stat-info">
               <h3 class="stat-label">평균 평점</h3>
-              <p class="stat-value">{{ dashboard.average_rating?.toFixed(1) || '0.0' }}</p>
+              <p class="stat-value">{{ formatRating(stats.average_rating) }}</p>
             </div>
           </div>
         </div>
@@ -106,7 +106,7 @@
               <p>채널/상품별 전환 추이를 바로 확인하세요</p>
             </router-link>
 
-            <a href="#orders" class="action-card">
+            <router-link to="/seller/orders" class="action-card">
               <div class="action-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -114,9 +114,9 @@
               </div>
               <h3>주문 관리</h3>
               <p>주문 내역을 확인하세요</p>
-            </a>
+            </router-link>
 
-            <a href="#settings" class="action-card">
+            <router-link to="/seller/settings" class="action-card">
               <div class="action-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -125,7 +125,7 @@
               </div>
               <h3>설정</h3>
               <p>판매자 정보를 수정하세요</p>
-            </a>
+            </router-link>
           </div>
         </section>
 
@@ -185,7 +185,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { sellersAPI, sellerProductsAPI } from '@/services/api'
 import { formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 
@@ -193,6 +193,11 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const dashboard = ref<any>({})
 const recentProducts = ref<any[]>([])
+const stats = computed(() => dashboard.value?.statistics || {})
+
+const formatRating = (value?: number | string | null) => {
+  return Number(value ?? 0).toFixed(1)
+}
 
 // Load dashboard data
 const loadDashboard = async () => {
@@ -215,7 +220,11 @@ const loadDashboard = async () => {
 
     // Load dashboard stats
     const dashboardResponse = await sellersAPI.getDashboard()
-    dashboard.value = dashboardResponse.data
+    const dashboardData = dashboardResponse.data || {}
+    dashboard.value = {
+      ...dashboardData,
+      statistics: dashboardData.statistics || {}
+    }
 
     // Load recent products
     const productsResponse = await sellerProductsAPI.getMyProducts({

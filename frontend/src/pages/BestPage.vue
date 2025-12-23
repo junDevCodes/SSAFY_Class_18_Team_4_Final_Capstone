@@ -82,6 +82,7 @@ const selectedSort = ref<SortOption>('판매순')
 const currentPage = ref(1)
 const bestProducts = ref<Product[]>([])
 const isLoading = ref(true)
+const apiPageSize = 120
 
 const fetchBestProducts = async () => {
   isLoading.value = true
@@ -89,9 +90,16 @@ const fetchBestProducts = async () => {
     const { data } = await productsAPI.getProducts({
       is_best: true,
       product_type: 'seller',
-      page_size: 40
+      page_size: apiPageSize,
+      ordering: '-stats__order_event_count'
     })
-    bestProducts.value = data.results
+    bestProducts.value =
+      data.results?.filter(
+        (product) =>
+          (product.order_event_count ?? 0) >= 1 ||
+          (product.review_count ?? 0) >= 1 ||
+          (product.average_rating ?? 0) >= 1
+      ) ?? []
   } catch (error) {
     console.error('Failed to load seller best products:', error)
     bestProducts.value = []
@@ -110,7 +118,14 @@ const sortedBest = computed(() => {
       (a, b) => (b.average_rating ?? 0) - (a.average_rating ?? 0) || (b.review_count ?? 0) - (a.review_count ?? 0)
     )
   }
-  return sorted.sort((a, b) => (b.view_count ?? 0) - (a.view_count ?? 0))
+  return sorted.sort((a, b) => {
+    const aSales = a.order_event_count ?? 0
+    const bSales = b.order_event_count ?? 0
+    if (aSales !== bSales) {
+      return bSales - aSales
+    }
+    return (b.view_count ?? 0) - (a.view_count ?? 0)
+  })
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(sortedBest.value.length / pageSize)))

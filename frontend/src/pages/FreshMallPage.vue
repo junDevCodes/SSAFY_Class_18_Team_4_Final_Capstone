@@ -27,16 +27,43 @@
           <h2 class="text-xl font-bold text-gray-900">셀러 스토리</h2>
           <button class="text-sm font-semibold text-brand-700 hover:text-brand-800" @click="goToAllSellerProducts">모두 보기</button>
         </div>
-        <div class="story-row">
+        <div v-if="sellerStoriesLoading" class="story-state">브랜드 제휴 스토리를 불러오는 중입니다.</div>
+        <div v-else-if="sellerStoriesError" class="story-state error">{{ sellerStoriesError }}</div>
+        <div v-else-if="!sellerStories.length" class="story-state">등록된 브랜드 제휴 스토리가 없습니다.</div>
+        <div v-else class="story-row">
           <article
             v-for="story in sellerStories"
             :key="story.id"
             class="story-card"
           >
-            <img :src="story.cover" :alt="story.name" class="w-full h-28 object-cover rounded-lg mb-3">
-            <p class="text-sm font-semibold text-gray-900">{{ story.name }}</p>
-            <p class="text-xs text-gray-600 line-clamp-2">{{ story.desc }}</p>
-            <button class="mt-3 text-xs font-semibold text-brand-700 hover:text-brand-800">스토어 보기</button>
+            <div class="story-cover">
+              <img
+                :src="story.banner || DEFAULT_STORY_BANNER"
+                :alt="story.name"
+                @error="handleStoryBannerError"
+              >
+              <div class="story-logo">
+                <img
+                  :src="story.logo || DEFAULT_STORY_LOGO"
+                  :alt="`${story.name} 로고`"
+                  @error="handleStoryLogoError"
+                >
+              </div>
+            </div>
+            <div class="story-body">
+              <p class="story-name">{{ story.name }}</p>
+              <p class="story-desc line-clamp-2">{{ story.desc }}</p>
+              <div class="story-actions">
+                <button
+                  class="story-link"
+                  type="button"
+                  :disabled="!story.slug"
+                  @click="goToBrandStory(story.slug)"
+                >
+                  스토어 보기
+                </button>
+              </div>
+            </div>
           </article>
         </div>
       </section>
@@ -63,21 +90,30 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Product } from '@/types/product'
 import ProductCard from '@/components/ui/ProductCard.vue'
-import { productsAPI } from '@/services/api'
+import { productsAPI, sellersAPI } from '@/services/api'
 
 const router = useRouter()
 
 type FreshProduct = Product
+type SellerStory = {
+  id: string
+  name: string
+  desc: string
+  logo: string
+  banner: string
+  slug: string
+}
 
 const sortOptions = ['신규 셀러', '판매순', '리뷰순']
 const sortOption = ref('신규 셀러')
 
-const sellerStories = ref([
-  { id: 's1', name: '완주 로컬 농가', desc: '새벽에 수확한 채소를 바로 포장합니다.', cover: 'https://images.unsplash.com/photo-1582719478248-54e9f2b2d1c5' },
-  { id: 's2', name: '통영 수산 셀러', desc: '산지 직송 해산물을 빠르게 배송.', cover: 'https://images.unsplash.com/photo-1526379879527-8559ecfcaec0' },
-  { id: 's3', name: '정육 셀렉션', desc: '초신선 숙성 한우를 소량으로 준비.', cover: 'https://images.unsplash.com/photo-1604908177453-7462950a6a0d' },
-  { id: 's4', name: '비건 수제식품', desc: '첨가물 없이 수제로 만드는 비건 간식.', cover: 'https://images.unsplash.com/photo-1499636136210-6f4ee915583e' }
-])
+const DEFAULT_STORY_BANNER =
+  'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&q=80'
+const DEFAULT_STORY_LOGO = '/images/default-brand.svg'
+
+const sellerStories = ref<SellerStory[]>([])
+const sellerStoriesLoading = ref(false)
+const sellerStoriesError = ref<string | null>(null)
 
 const freshProducts = ref<FreshProduct[]>([])
 const loading = ref(false)
@@ -121,8 +157,52 @@ const sortedProducts = computed(() => {
 
 const visibleProducts = computed(() => sortedProducts.value.slice(0, 8))
 
+const goToBrandStory = (slug: string) => {
+  if (!slug) return
+  router.push(`/brands/${slug}`)
+}
+
 const goToAllSellerProducts = () => {
   router.push({ name: 'products', query: { product_type: 'seller' } })
+}
+
+const handleStoryLogoError = (event: Event) => {
+  const target = event.target as HTMLImageElement
+  target.src = DEFAULT_STORY_LOGO
+}
+
+const handleStoryBannerError = (event: Event) => {
+  const target = event.target as HTMLImageElement
+  target.src = DEFAULT_STORY_BANNER
+}
+
+const loadSellerStories = async () => {
+  sellerStoriesLoading.value = true
+  sellerStoriesError.value = null
+  try {
+    const { data } = await sellersAPI.getSellers()
+    const list = (data.results || data || []) as any[]
+
+    sellerStories.value = list
+      .filter(
+        (seller: any) =>
+          !!seller?.brand_name && !!seller?.brand_description && !!(seller?.brand_slug || seller?.slug)
+      )
+      .map((seller: any, index: number) => ({
+        id: String(seller.id ?? seller.brand_slug ?? index),
+        name: seller.brand_name,
+        desc: seller.brand_description,
+        logo: seller.brand_logo_url || DEFAULT_STORY_LOGO,
+        banner: seller.brand_banner_url || seller.brand_logo_url || DEFAULT_STORY_BANNER,
+        slug: seller.brand_slug || seller.slug || '',
+      }))
+  } catch (error) {
+    console.error('Failed to load seller stories:', error)
+    sellerStoriesError.value = '셀러 스토리를 불러오지 못했습니다.'
+    sellerStories.value = []
+  } finally {
+    sellerStoriesLoading.value = false
+  }
 }
 
 const fetchFreshProducts = async () => {
@@ -144,7 +224,10 @@ const fetchFreshProducts = async () => {
   }
 }
 
-onMounted(fetchFreshProducts)
+onMounted(() => {
+  fetchFreshProducts()
+  loadSellerStories()
+})
 </script>
 
 <style scoped>
@@ -153,14 +236,116 @@ onMounted(fetchFreshProducts)
 }
 .story-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
 }
 .story-card {
   background: white;
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 12px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  overflow: hidden;
+}
+.story-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08);
+  border-color: #c7ead8;
+}
+.story-cover {
+  position: relative;
+  height: 148px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+}
+.story-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.story-cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(17, 24, 39, 0.15) 0%, rgba(17, 24, 39, 0.45) 100%);
+  pointer-events: none;
+}
+.story-logo {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: white;
+  border: 3px solid #fff;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.story-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.story-body {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.story-name {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #111827;
+}
+.story-desc {
+  font-size: 0.9rem;
+  color: #4b5563;
+  min-height: 44px;
+}
+.story-actions {
+  margin-top: 4px;
+}
+.story-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid #c7ead8;
+  background: #e6f4ec;
+  color: #0f5132;
+  font-weight: 700;
+  font-size: 0.85rem;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.story-link:hover {
+  background: #d7f0e3;
+  transform: translateY(-1px);
+}
+.story-link:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+.story-state {
+  padding: 1rem 1.25rem;
+  background: #f8fafc;
+  border: 1px dashed #d1d5db;
+  border-radius: 12px;
+  color: #4b5563;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.story-state.error {
+  background: #fff5f5;
+  border-color: #fecdd3;
+  color: #b91c1c;
 }
 </style>

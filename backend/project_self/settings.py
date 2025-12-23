@@ -350,29 +350,36 @@ EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', 5))
 
 # ========================= AWS S3 설정 =========================
 # 판매자 상품 이미지 업로드용 S3 설정
-AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', '')
-AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '')
-AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_S3_BUCKET', 'self-json-backup')
-AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION', 'ap-northeast-2')
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+# 크롤러 변수명(S3_*)과 백엔드 변수명(AWS_S3_*) 모두 지원 (버킷/리전만 환경변수로 제어)
+AWS_STORAGE_BUCKET_NAME = os.getenv('S3_BUCKET') or os.getenv('AWS_S3_BUCKET', 'self-json-backup')
+AWS_S3_REGION_NAME = os.getenv('S3_REGION') or os.getenv('AWS_S3_REGION', 'ap-northeast-2')
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 
-# S3 업로드 경로 설정
-# Base: s3://self-json-backup/seller_profile/
-# 상품 이미지
-AWS_S3_THUMBNAIL_PREFIX = os.getenv('AWS_S3_THUMBNAIL_PREFIX', 'seller_profile/seller_product_thumbnail/')
-AWS_S3_PRODUCT_DETAIL_PREFIX = os.getenv('AWS_S3_PRODUCT_DETAIL_PREFIX', 'seller_profile/seller_product_detail/')
+# S3 업로드 경로 설정 (prefix 는 하드코딩으로 고정해 혼선을 방지)
+AWS_S3_BASE_DIR = 'seller_profile/'
 
-# 판매자 프로필/브랜드 이미지
-AWS_S3_SELLER_PROFILE_PREFIX = os.getenv('AWS_S3_SELLER_PROFILE_PREFIX', 'seller_profile/seller_profile/')
-AWS_S3_BRAND_LOGO_PREFIX = os.getenv('AWS_S3_BRAND_LOGO_PREFIX', 'seller_profile/brand_logo/')
-AWS_S3_BRAND_BANNER_PREFIX = os.getenv('AWS_S3_BRAND_BANNER_PREFIX', 'seller_profile/brand_banner/')
+# 상품 이미지 prefix (판매자 상품용 경로를 고정)
+AWS_S3_THUMBNAIL_PREFIX = f'{AWS_S3_BASE_DIR}seller_product_thumbnail/'
+AWS_S3_PRODUCT_DETAIL_PREFIX = f'{AWS_S3_BASE_DIR}seller_product_detail/'
+
+# 판매자 프로필/브랜드 이미지 prefix
+AWS_S3_SELLER_PROFILE_PREFIX = f'{AWS_S3_BASE_DIR}seller_profile/'
+AWS_S3_BRAND_LOGO_PREFIX = f'{AWS_S3_BASE_DIR}brand_logo/'
+AWS_S3_BRAND_BANNER_PREFIX = f'{AWS_S3_BASE_DIR}brand_banner/'
 
 # S3 파일 설정
 AWS_S3_FILE_OVERWRITE = False  # 동일 파일명 덮어쓰기 방지
-AWS_DEFAULT_ACL = 'public-read'  # 공개 읽기 권한
+AWS_S3_USE_PUBLIC_URL = (os.getenv('S3_USE_PUBLIC_URL') or os.getenv('AWS_S3_USE_PUBLIC_URL', 'true')).lower() in ('1', 'true', 'yes')
+# ACL 설정을 건너뛰고 버킷 정책으로 관리하려면 False (권장)
+AWS_S3_SET_ACL = os.getenv('AWS_S3_SET_ACL', 'false').lower() in ('1', 'true', 'yes')
+AWS_DEFAULT_ACL = 'public-read' if AWS_S3_SET_ACL else None
 AWS_S3_OBJECT_PARAMETERS = {
     'CacheControl': 'max-age=86400',  # 24시간 캐시
 }
+AWS_S3_PRESIGN_EXPIRES = int(os.getenv('S3_PRESIGN_EXPIRES') or os.getenv('AWS_S3_PRESIGN_EXPIRES', '3600'))
 
 # ========================= GMS (SSAFY GPT Proxy) 설정 =========================
 # 상품명에서 재료 추출을 위한 LLM API 설정
