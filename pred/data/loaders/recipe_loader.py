@@ -4,10 +4,12 @@
 만개의레시피 크롤링 데이터를 DB에 적재
 """
 
+import csv
 import json
+import os
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from core.database import Database
 from core.logging import get_logger
@@ -92,6 +94,10 @@ class RecipeDataLoader:
         Returns:
             (레시피 수, 재료 관계 수)
         """
+        csv_path = self._find_recipe_csv()
+        if csv_path:
+            return await self._load_recipes_from_csv(csv_path)
+
         file_path = self.data_dir / "recipes.json"
         if not file_path.exists():
             logger.warning("recipes.json 파일 없음")
@@ -123,6 +129,194 @@ class RecipeDataLoader:
         logger.info("레시피 로드 완료", recipes=recipe_count, relations=relation_count)
         return recipe_count, relation_count
 
+    def _find_recipe_csv(self) -> Optional[Path]:
+        """data/recipes ?´ë” ???ˆì‹œ CSV ?Œì¼ ???°ì„± ?•ì¸"""
+        candidates = []
+        recipes_dir = self.data_dir / "recipes"
+        candidates.extend([
+            recipes_dir / "recipe_meta.csv",
+            recipes_dir / "recipes.csv",
+            self.data_dir / "recipe_meta.csv",
+            self.data_dir / "recipes.csv",
+        ])
+
+        for path in candidates:
+            if path.exists():
+                return path
+
+        if recipes_dir.exists():
+            csv_files = sorted(recipes_dir.glob("*.csv"))
+            if csv_files:
+                return csv_files[0]
+
+        return None
+
+    async def _load_recipes_from_csv(self, file_path: Path) -> Tuple[int, int]:
+        """CSV?¼ë¡??ˆì‹œ???°ì´??ë¡œë“œ"""
+        rows = self._read_csv_rows(file_path)
+        if not rows:
+            logger.warning("CSV ?ˆì‹œ??ë°?´í„° ?†ìŒ", file=str(file_path))
+            return 0, 0
+
+        recipe_count = 0
+        relation_count = 0
+
+        for row in rows:
+            recipe_data = self._map_recipe_row(row)
+            if not recipe_data:
+                continue
+
+            recipe_id = await self._insert_recipe(recipe_data)
+            if recipe_id:
+                recipe_count += 1
+
+                ingredients = self._extract_ingredients_from_row(row)
+                for idx, ing in enumerate(ingredients):
+                    relation_id = await self._insert_recipe_ingredient(
+                        recipe_id=recipe_id,
+                        ingredient_data=ing,
+                        display_order=idx,
+                    )
+                    if relation_id:
+                        relation_count += 1
+
+        logger.info("?ˆì‹œ??ë¡œë“œ ?„ë£Œ (CSV)", recipes=recipe_count, relations=relation_count)
+        return recipe_count, relation_count
+
+    def _read_csv_rows(self, file_path: Path) -> List[Dict[str, str]]:
+        """CSV?°ì´??ë¡œë“œ (ì¸ì½”ë”© ?¬ìš©??"""
+        encodings: List[str] = []
+
+        override = os.environ.get("RECIPE_CSV_ENCODING")
+        if override:
+            encodings.append(override)
+
+        try:
+            with open(file_path, "rb") as f:
+                head = f.read(4096)
+            if head.startswith(b"\xff\xfe") or head.startswith(b"\xfe\xff") or b"\x00" in head[:200]:
+                encodings.append("utf-16")
+            if head.startswith(b"\xef\xbb\xbf"):
+                encodings.append("utf-8-sig")
+        except OSError:
+            pass
+
+        encodings.extend(["utf-8-sig", "utf-8", "cp949", "euc-kr", "utf-16", "latin-1"])
+        for enc in encodings:
+            if not enc:
+                continue
+            try:
+                with open(file_path, "r", encoding=enc, newline="") as f:
+                    return list(csv.DictReader(f))
+            except UnicodeDecodeError:
+                continue
+
+        with open(file_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+            return list(csv.DictReader(f))
+
+        with open(file_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+            return list(csv.DictReader(f))
+
+    def _map_recipe_row(self, row: Dict[str, str]) -> Optional[Dict[str, Any]]:
+        """recipe_meta.csv -> pred_recipes ??í¼ì„±"""
+        source_id = (row.get("RCP_SNO") or row.get("source_id") or row.get("id") or "").strip()
+        # 레시피명: CKG_NM(요리명)을 우선 사용, 없으면 RCP_TTL(레시피 제목) 사용
+        name = (row.get("CKG_NM") or row.get("RCP_TTL") or row.get("name") or "").strip()
+        if not name:
+            return None
+
+        description = (row.get("CKG_IPDC") or row.get("description") or "").strip()
+        category_main = (row.get("CKG_KND_ACTO_NM") or row.get("category_main") or "").strip()
+        category_sub = (row.get("CKG_MTH_ACTO_NM") or row.get("category_sub") or "").strip()
+        if not category_sub:
+            category_sub = (row.get("CKG_STA_ACTO_NM") or "").strip()
+
+        return {
+            "source_site": row.get("source_site", "10000recipe"),
+            "source_id": source_id,
+            "source_url": row.get("source_url") or "",
+            "name": name,
+            "description": description,
+            "thumbnail_url": row.get("thumbnail_url") or "",
+            "cooking_time_min": self._parse_minutes(row.get("CKG_TIME_NM") or row.get("cooking_time_min")),
+            "servings": self._parse_int(row.get("CKG_INBUN_NM") or row.get("servings")),
+            "difficulty": self._normalize_difficulty(row.get("CKG_DODF_NM") or row.get("difficulty")),
+            "view_count": self._parse_int(row.get("INQ_CNT")),
+            "like_count": self._parse_int(row.get("SRAP_CNT") or row.get("RCMM_CNT")),
+            "rating": self._parse_float(row.get("rating")),
+            "rating_count": self._parse_int(row.get("RCMM_CNT") or row.get("rating_count")),
+            "category_main": category_main,
+            "category_sub": category_sub,
+        }
+
+    def _extract_ingredients_from_row(self, row: Dict[str, str]) -> List[str]:
+        """CKG_MTRL_CN??ì—???¬ë£Œ ???—??"""
+        raw = row.get("CKG_MTRL_CN") or row.get("ingredients") or ""
+        if not raw:
+            return []
+
+        cleaned = re.sub(r"\[[^\]]+\]", " ", raw)
+        parts = re.split(r"[|\n\r,·]", cleaned)
+        ingredients: List[str] = []
+        for part in parts:
+            name = self._strip_ingredient_quantity(part)
+            if name:
+                ingredients.append(name)
+        return ingredients
+
+    def _strip_ingredient_quantity(self, text: str) -> str:
+        """?˜ëŸ‰?œë‹¨ìœ„ ???¬ë£Œëª??œë³€??"""
+        text = re.sub(r"\(.*?\)", " ", str(text))
+        text = re.sub(r"\d+\s*[-~]\s*\d+", " ", text)
+        text = re.sub(r"\d+/?\d*", " ", text)
+        text = re.sub(
+            r"(g|kg|ml|l|컵|큰술|작은술|스푼|티스푼|t|T|tbsp|tsp|개|쪽|줌|움큼|모|봉|팩|장|줄기|인분)",
+            " ",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(r"(약간|적당량|조금|적당히)$", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _parse_int(self, value: Optional[str]) -> int:
+        if value is None:
+            return 0
+        digits = re.findall(r"\d+", str(value))
+        return int(digits[0]) if digits else 0
+
+    def _parse_float(self, value: Optional[str]) -> float:
+        if value is None:
+            return 0.0
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
+
+    def _parse_minutes(self, value: Optional[str]) -> Optional[int]:
+        if not value:
+            return None
+        text = str(value)
+        digits = re.findall(r"\d+", text)
+        if not digits:
+            return None
+        minutes = int(digits[0])
+        if "시간" in text:
+            minutes *= 60
+        return minutes
+
+    def _normalize_difficulty(self, value: Optional[str]) -> str:
+        if not value:
+            return ""
+        text = str(value).strip().lower()
+        if text in {"easy", "medium", "hard"}:
+            return text
+        mapping = {
+            "초급": "easy",
+            "중급": "medium",
+            "고급": "hard",
+        }
+        return mapping.get(text, "")
+
     async def _insert_recipe(self, data: Dict) -> Optional[int]:
         """레시피 삽입"""
         try:
@@ -139,13 +333,22 @@ class RecipeDataLoader:
                     name, name_normalized, description,
                     thumbnail_url, cooking_time_min, servings, difficulty,
                     view_count, like_count, rating, rating_count,
-                    category_main, category_sub
+                    category_main, category_sub, is_active,
+                    created_at, updated_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                VALUES (
+                    $1, $2, $3,
+                    $4, $5, $6,
+                    $7, $8, $9, $10,
+                    $11, $12, $13, $14,
+                    $15, $16, $17,
+                    NOW(), NOW()
+                )
                 ON CONFLICT (source_site, source_id)
                 DO UPDATE SET
                     name = EXCLUDED.name,
                     name_normalized = EXCLUDED.name_normalized,
+                    is_active = EXCLUDED.is_active,
                     updated_at = NOW()
                 RETURNING id
                 """,
@@ -165,6 +368,7 @@ class RecipeDataLoader:
                 data.get("rating_count", 0),
                 data.get("category_main"),
                 data.get("category_sub"),
+                True,
             )
 
             return result["id"] if result else None
