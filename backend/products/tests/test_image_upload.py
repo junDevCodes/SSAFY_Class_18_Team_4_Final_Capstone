@@ -37,23 +37,55 @@ def create_test_image(name='test.jpg', size=(100, 100), format='JPEG'):
 class S3ImageUploaderTest(TestCase):
     """S3ImageUploader 단위 테스트"""
 
-    def test_고유한_파일명_생성(self):
+    @patch('products.services.s3_upload.boto3.client')
+    @patch('products.services.s3_upload.settings')
+    def test_고유한_파일명_생성(self, mock_settings, mock_boto_client):
         """파일명이 product_id와 UUID를 포함하여 생성되어야 한다"""
+        # AWS 설정 mock (버킷명만 필수)
+        mock_settings.AWS_STORAGE_BUCKET_NAME = 'test-bucket'
+        mock_settings.AWS_S3_REGION_NAME = 'ap-northeast-2'
+        mock_settings.AWS_S3_CUSTOM_DOMAIN = 'test.s3.amazonaws.com'
+        mock_settings.AWS_S3_THUMBNAIL_PREFIX = 'test/thumbnail/'
+        mock_settings.AWS_S3_PRODUCT_DETAIL_PREFIX = 'test/detail/'
+        # 자격증명은 선택사항 (EC2 IAM Role 사용 가능)
+        mock_settings.AWS_ACCESS_KEY_ID = None
+        mock_settings.AWS_SECRET_ACCESS_KEY = None
+
         uploader = S3ImageUploader()
         filename = uploader._generate_unique_filename('test.jpg', 123)
 
         self.assertIn('123_', filename)
         self.assertTrue(filename.endswith('.jpg'))
 
-    def test_확장자_없는_파일도_처리(self):
+    @patch('products.services.s3_upload.boto3.client')
+    @patch('products.services.s3_upload.settings')
+    def test_확장자_없는_파일도_처리(self, mock_settings, mock_boto_client):
         """확장자 없는 파일은 jpg로 기본 처리해야 한다"""
+        mock_settings.AWS_STORAGE_BUCKET_NAME = 'test-bucket'
+        mock_settings.AWS_S3_REGION_NAME = 'ap-northeast-2'
+        mock_settings.AWS_S3_CUSTOM_DOMAIN = 'test.s3.amazonaws.com'
+        mock_settings.AWS_S3_THUMBNAIL_PREFIX = 'test/thumbnail/'
+        mock_settings.AWS_S3_PRODUCT_DETAIL_PREFIX = 'test/detail/'
+        mock_settings.AWS_ACCESS_KEY_ID = None
+        mock_settings.AWS_SECRET_ACCESS_KEY = None
+
         uploader = S3ImageUploader()
         filename = uploader._generate_unique_filename('noextension', 456)
 
         self.assertTrue(filename.endswith('.jpg'))
 
-    def test_다양한_확장자_지원(self):
+    @patch('products.services.s3_upload.boto3.client')
+    @patch('products.services.s3_upload.settings')
+    def test_다양한_확장자_지원(self, mock_settings, mock_boto_client):
         """PNG, GIF, WebP 확장자도 올바르게 처리해야 한다"""
+        mock_settings.AWS_STORAGE_BUCKET_NAME = 'test-bucket'
+        mock_settings.AWS_S3_REGION_NAME = 'ap-northeast-2'
+        mock_settings.AWS_S3_CUSTOM_DOMAIN = 'test.s3.amazonaws.com'
+        mock_settings.AWS_S3_THUMBNAIL_PREFIX = 'test/thumbnail/'
+        mock_settings.AWS_S3_PRODUCT_DETAIL_PREFIX = 'test/detail/'
+        mock_settings.AWS_ACCESS_KEY_ID = None
+        mock_settings.AWS_SECRET_ACCESS_KEY = None
+
         uploader = S3ImageUploader()
 
         png_filename = uploader._generate_unique_filename('image.PNG', 1)
@@ -105,10 +137,12 @@ class ProductImageUploadAPITest(TestCase):
 
         self.client.force_authenticate(user=self.user)
 
-    @patch.object(S3ImageUploader, '_upload_to_s3')
-    def test_이미지_업로드_성공(self, mock_upload):
+    @patch('products.views.S3ImageUploader')
+    def test_이미지_업로드_성공(self, mock_uploader_class):
         """이미지 파일을 업로드하면 S3에 저장되고 ProductImage가 생성되어야 한다"""
-        mock_upload.return_value = 'https://test.s3.amazonaws.com/test.jpg'
+        mock_uploader = MagicMock()
+        mock_uploader.upload_thumbnail.return_value = 'https://test.s3.amazonaws.com/test.jpg'
+        mock_uploader_class.return_value = mock_uploader
 
         image = create_test_image()
         url = reverse('product-image-upload', kwargs={'product_id': self.product.id})
@@ -165,8 +199,8 @@ class ProductImageUploadAPITest(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch.object(S3ImageUploader, '_upload_to_s3')
-    def test_이미지_순서_자동_할당(self, mock_upload):
+    @patch('products.views.S3ImageUploader')
+    def test_이미지_순서_자동_할당(self, mock_uploader_class):
         """업로드된 이미지에 display_order가 순서대로 할당되어야 한다"""
         # 기존 이미지 생성
         ProductImage.objects.create(
@@ -175,7 +209,9 @@ class ProductImageUploadAPITest(TestCase):
             display_order=0
         )
 
-        mock_upload.return_value = 'https://test.s3.amazonaws.com/new.jpg'
+        mock_uploader = MagicMock()
+        mock_uploader.upload_thumbnail.return_value = 'https://test.s3.amazonaws.com/new.jpg'
+        mock_uploader_class.return_value = mock_uploader
 
         image = create_test_image()
         url = reverse('product-image-upload', kwargs={'product_id': self.product.id})
@@ -230,10 +266,12 @@ class ProductDetailImageUploadAPITest(TestCase):
 
         self.client.force_authenticate(user=self.user)
 
-    @patch.object(S3ImageUploader, '_upload_to_s3')
-    def test_상세_이미지_업로드_성공(self, mock_upload):
+    @patch('products.views.S3ImageUploader')
+    def test_상세_이미지_업로드_성공(self, mock_uploader_class):
         """상세 이미지 업로드 시 full_image_description 배열에 추가되어야 한다"""
-        mock_upload.return_value = 'https://test.s3.amazonaws.com/detail.jpg'
+        mock_uploader = MagicMock()
+        mock_uploader.upload_detail_image.return_value = 'https://test.s3.amazonaws.com/detail.jpg'
+        mock_uploader_class.return_value = mock_uploader
 
         image = create_test_image()
         url = reverse('product-detail-image-upload', kwargs={'product_id': self.product.id})
@@ -246,14 +284,16 @@ class ProductDetailImageUploadAPITest(TestCase):
         self.product.detail.refresh_from_db()
         self.assertEqual(len(self.product.detail.full_image_description), 1)
 
-    @patch.object(S3ImageUploader, '_upload_to_s3')
-    def test_기존_이미지에_추가(self, mock_upload):
+    @patch('products.views.S3ImageUploader')
+    def test_기존_이미지에_추가(self, mock_uploader_class):
         """기존 이미지가 있으면 배열 끝에 추가되어야 한다"""
         # 기존 이미지 설정
         self.product.detail.full_image_description = ['https://existing.com/1.jpg']
         self.product.detail.save()
 
-        mock_upload.return_value = 'https://test.s3.amazonaws.com/new.jpg'
+        mock_uploader = MagicMock()
+        mock_uploader.upload_detail_image.return_value = 'https://test.s3.amazonaws.com/new.jpg'
+        mock_uploader_class.return_value = mock_uploader
 
         image = create_test_image()
         url = reverse('product-detail-image-upload', kwargs={'product_id': self.product.id})
@@ -266,14 +306,16 @@ class ProductDetailImageUploadAPITest(TestCase):
         self.assertEqual(len(self.product.detail.full_image_description), 2)
         self.assertEqual(self.product.detail.full_image_description[0], 'https://existing.com/1.jpg')
 
-    @patch.object(S3ImageUploader, '_upload_to_s3')
-    def test_여러_이미지_동시_업로드(self, mock_upload):
+    @patch('products.views.S3ImageUploader')
+    def test_여러_이미지_동시_업로드(self, mock_uploader_class):
         """여러 이미지를 동시에 업로드할 수 있어야 한다"""
-        mock_upload.side_effect = [
+        mock_uploader = MagicMock()
+        mock_uploader.upload_detail_image.side_effect = [
             'https://test.s3.amazonaws.com/detail1.jpg',
             'https://test.s3.amazonaws.com/detail2.jpg',
             'https://test.s3.amazonaws.com/detail3.jpg',
         ]
+        mock_uploader_class.return_value = mock_uploader
 
         images = [create_test_image(f'test{i}.jpg') for i in range(3)]
         url = reverse('product-detail-image-upload', kwargs={'product_id': self.product.id})
@@ -390,10 +432,12 @@ class ProductImageDeleteAPITest(TestCase):
 
         self.client.force_authenticate(user=self.user)
 
-    @patch.object(S3ImageUploader, 'delete_image')
-    def test_이미지_삭제_성공(self, mock_delete):
+    @patch('products.views.S3ImageUploader')
+    def test_이미지_삭제_성공(self, mock_uploader_class):
         """이미지 삭제 시 DB와 S3 모두에서 삭제되어야 한다"""
-        mock_delete.return_value = True
+        mock_uploader = MagicMock()
+        mock_uploader.delete_image.return_value = True
+        mock_uploader_class.return_value = mock_uploader
 
         url = reverse('product-image-delete', kwargs={
             'product_id': self.product.id,
@@ -404,7 +448,7 @@ class ProductImageDeleteAPITest(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(ProductImage.objects.filter(id=self.image.id).exists())
-        mock_delete.assert_called_once()
+        mock_uploader.delete_image.assert_called_once()
 
     def test_타인의_이미지_삭제_거부(self):
         """다른 판매자의 이미지는 삭제할 수 없어야 한다"""

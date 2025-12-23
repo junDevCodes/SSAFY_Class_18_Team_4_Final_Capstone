@@ -8,6 +8,7 @@ from .views import (
     SellerViewSet,
     SellerApprovalView,
     SellerDashboardView,
+    SellerImageUploadView,
 )
 
 # Router 설정
@@ -23,6 +24,9 @@ urlpatterns = [
 
     # 판매자 대시보드
     path('dashboard/', SellerDashboardView.as_view(), name='seller-dashboard'),
+
+    # 판매자 이미지 업로드 (프로필/로고/배너)
+    path('me/images/upload/', SellerImageUploadView.as_view(), name='seller-image-upload'),
 
     # ViewSet URLs
     path('', include(router.urls)),

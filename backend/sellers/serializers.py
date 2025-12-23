@@ -67,6 +67,8 @@ class SellerSerializer(serializers.ModelSerializer):
             'brand_name',
             'brand_slug',
             'brand_logo_url',
+            'brand_banner_url',
+            'profile_image_url',
             'brand_description',
             'status',
             'schedules',
@@ -188,5 +190,45 @@ class SellerPublicSerializer(serializers.ModelSerializer):
             'brand_slug',
             'brand_description',
             'brand_logo_url',
+            'brand_banner_url',
+            'profile_image_url',
             'status',
         ]
+
+
+class SellerImageUploadSerializer(serializers.Serializer):
+    """판매자 이미지 업로드 Serializer
+
+    이미지 유형:
+        - profile: 판매자 프로필 이미지
+        - logo: 브랜드 로고
+        - banner: 브랜드 배너
+    """
+    image = serializers.ImageField(
+        required=True,
+        help_text="업로드할 이미지 파일 (JPEG, PNG, GIF, WebP)"
+    )
+    image_type = serializers.ChoiceField(
+        choices=['profile', 'logo', 'banner'],
+        required=True,
+        help_text="이미지 유형: profile(프로필), logo(브랜드 로고), banner(브랜드 배너)"
+    )
+
+    def validate_image(self, value):
+        """이미지 유효성 검사"""
+        # 파일 형식 검사
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        if value.content_type not in allowed_types:
+            raise serializers.ValidationError(
+                f"지원하지 않는 이미지 형식입니다: {value.content_type}. "
+                f"JPEG, PNG, GIF, WebP만 지원합니다."
+            )
+
+        # 파일 크기 검사 (최대 5MB)
+        max_size = 5 * 1024 * 1024
+        if value.size > max_size:
+            raise serializers.ValidationError(
+                f"이미지 크기가 너무 큽니다. 최대 5MB까지 업로드 가능합니다."
+            )
+
+        return value
