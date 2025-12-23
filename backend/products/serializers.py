@@ -713,7 +713,32 @@ class SellerProductCreateSerializer(serializers.ModelSerializer):
     """판매자 상품 생성 Serializer
 
     상품 생성 시 ProductDetail, ProductInventory, ProductStats를 자동으로 생성합니다.
+
+    요청 필드:
+        - name (필수): 상품명
+        - price (필수): 판매가
+        - original_price (선택): 원가
+        - category_id (선택): 카테고리 ID
+        - unit (선택): 단위 (예: "1kg", "500g")
+        - unit_quantity (선택): 단위 수량
+        - shipping_required (선택): 배송 필요 여부 (기본: True)
+        - shipping_fee (선택): 배송비
+        - free_shipping_threshold (선택): 무료배송 기준금액
+        - estimated_delivery_days (선택): 예상 배송일
+        - stock_quantity (선택): 초기 재고 수량 (기본: 0)
+        - short_description (선택): 짧은 설명
+        - full_description (선택): 상세 설명
+        - description (선택): full_description의 별칭
+
+    응답 필드:
+        - id: 생성된 상품 ID (이미지 업로드 등 후속 API 호출에 사용)
+        - name, slug, price, original_price, unit, unit_quantity
+        - shipping_required, shipping_fee, free_shipping_threshold, estimated_delivery_days
+        - status: 상품 상태 (기본: 'draft')
+        - product_type: 상품 유형 (기본: 'seller')
+        - created_at, updated_at
     """
+    # 요청 전용 필드
     category_id = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.all(),
         source='category',
@@ -744,16 +769,29 @@ class SellerProductCreateSerializer(serializers.ModelSerializer):
         allow_blank=True,
         help_text="상세 설명"
     )
+    # 프론트엔드 호환용 별칭 (description -> full_description)
+    description = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="상세 설명 (full_description의 별칭)"
+    )
 
     class Meta:
         model = Product
         fields = [
+            # 응답 필드 (read_only)
+            'id', 'status', 'product_type', 'created_at', 'updated_at',
+            # 요청/응답 공통 필드
             'name', 'slug', 'price', 'original_price',
-            'category_id', 'unit', 'unit_quantity',
+            'unit', 'unit_quantity',
             'shipping_required', 'shipping_fee',
             'free_shipping_threshold', 'estimated_delivery_days',
-            'stock_quantity', 'short_description', 'full_description'
+            # 요청 전용 필드 (write_only)
+            'category_id', 'stock_quantity',
+            'short_description', 'full_description', 'description'
         ]
+        read_only_fields = ['id', 'status', 'product_type', 'created_at', 'updated_at']
 
     def validate_slug(self, value):
         """slug 중복 체크"""
@@ -761,12 +799,43 @@ class SellerProductCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("이미 사용 중인 슬러그입니다.")
         return value
 
+    def validate(self, attrs):
+        """description을 full_description으로 매핑"""
+        # description 필드가 있고 full_description이 없으면 매핑
+        description = attrs.pop('description', None)
+        if description and not attrs.get('full_description'):
+            attrs['full_description'] = description
+        return attrs
+
+    def _generate_unique_slug(self, name):
+        """상품명 기반 고유 slug 생성"""
+        from django.utils.text import slugify
+        import uuid
+
+        # 한글은 slugify로 처리 안되므로 그대로 사용하거나 UUID 추가
+        base_slug = slugify(name, allow_unicode=True)
+        if not base_slug:
+            base_slug = 'product'
+
+        # 고유성 보장을 위해 UUID 추가
+        unique_slug = f"{base_slug}-{uuid.uuid4().hex[:8]}"
+
+        # 만약 그래도 중복이면 재시도
+        while Product.objects.filter(slug=unique_slug).exists():
+            unique_slug = f"{base_slug}-{uuid.uuid4().hex[:8]}"
+
+        return unique_slug
+
     def create(self, validated_data):
         """상품 생성 + 관련 테이블 자동 생성"""
         # 추가 필드 추출
         stock_quantity = validated_data.pop('stock_quantity', 0)
         short_description = validated_data.pop('short_description', '')
         full_description = validated_data.pop('full_description', '')
+
+        # slug가 없으면 자동 생성
+        if not validated_data.get('slug'):
+            validated_data['slug'] = self._generate_unique_slug(validated_data['name'])
 
         # 상품 생성
         product = Product.objects.create(**validated_data)
