@@ -13,7 +13,6 @@
 """
 
 import asyncio
-from datetime import datetime, timedelta
 from typing import Any, Dict, List
 from pathlib import Path
 import sys
@@ -44,20 +43,32 @@ async def run_price_scout_validation() -> None:
     await db.connect()
 
     try:
-        repo = PriceHistoryRepository(db)
-
-        # 1. 최근 7일간 가격 변동 데이터 조회
-        print("\n[1] 최근 7일 가격 변동 데이터 조회")
+        # 1. 가격 변동이 있는 전체 이력 조회 (recorded_at 기준 내림차순)
+        print("\n[1] 가격 변동 이력 전체 조회 (recorded_at DESC)")
         print("-" * 70)
 
-        hours = 24 * 7
-        since: datetime = datetime.now() - timedelta(hours=hours)
+        # product_price_histories + products 조인 결과를 그대로 사용
+        # - previous_price / price_change_rate 가 존재하는 행만 사용
+        # - recorded_at 기준 내림차순으로 정렬
+        price_history_query = """
+            SELECT 
+                pph.product_id,
+                p.name,
+                pph.price,
+                pph.previous_price,
+                pph.price_change,
+                pph.price_change_rate,
+                pph.recorded_at
+            FROM product_price_histories pph
+            JOIN products p ON pph.product_id = p.id
+            WHERE pph.previous_price IS NOT NULL
+              AND pph.price_change_rate IS NOT NULL
+              AND p.status = 'active'
+            ORDER BY pph.recorded_at DESC
+        """
 
-        # product_price_histories + products 조인 결과 사용
-        recent_changes: List[Dict[str, Any]] = await repo.get_recent_price_changes(
-            hours=hours,
-            limit=500,
-        )
+        records = await db.fetch_all(price_history_query)
+        recent_changes: List[Dict[str, Any]] = [dict(r) for r in records]
 
         if not recent_changes:
             print("최근 7일 동안 가격 변동이 기록된 상품이 없습니다.")

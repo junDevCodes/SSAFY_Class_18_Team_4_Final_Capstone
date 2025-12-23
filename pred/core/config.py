@@ -38,9 +38,9 @@ class Settings(BaseSettings):
     # PostgreSQL 설정
     db_host: str = Field(default="localhost", description="DB 호스트")
     db_port: int = Field(default=5432, description="DB 포트")
-    db_name: str = Field(default="self_db", description="DB 이름")
-    db_user: str = Field(default="self_user", description="DB 사용자")
-    db_password: str = Field(default="", description="DB 비밀번호")
+    db_name: str = Field(default="selfdb", description="DB 이름")
+    db_user: str = Field(default="selfuser", description="DB 사용자")
+    db_password: str = Field(default="selfpass", description="DB 비밀번호")
     db_min_connections: int = Field(default=5, description="최소 DB 연결 수")
     db_max_connections: int = Field(default=20, description="최대 DB 연결 수")
 
