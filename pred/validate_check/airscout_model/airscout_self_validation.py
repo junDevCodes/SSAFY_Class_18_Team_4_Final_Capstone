@@ -31,6 +31,36 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib import font_manager, rcParams  # noqa: E402
+
+
+def _setup_korean_font() -> None:
+    """
+    PNG 그래프에서 한글이 깨지지 않도록 폰트 설정.
+
+    - Windows: 맑은 고딕(Malgun Gothic)
+    - Mac: AppleGothic
+    - 리눅스: 나눔고딕 등
+    """
+    candidates = [
+        "Malgun Gothic",
+        "MalgunGothic",
+        "AppleGothic",
+        "NanumGothic",
+        "Nanum Gothic",
+    ]
+
+    available = {f.name for f in font_manager.fontManager.ttflist}
+    for name in candidates:
+        if name in available:
+            rcParams["font.family"] = name
+            break
+
+    # 마이너스 기호 깨짐 방지
+    rcParams["axes.unicode_minus"] = False
+
+
+_setup_korean_font()
 
 # 프로젝트 루트를 Python 경로에 추가 (pred/ 아래 모듈들 import 용)
 project_root = Path(__file__).resolve().parents[2]  # .../pred
@@ -327,6 +357,8 @@ async def validate_recipe_gapfilling_search(
         "오리고기 요리",
         "간단한 저녁 반찬",
         "다이어트 샐러드",
+        "삼각김밥",
+        "토마토스파게티",
     ]
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -341,69 +373,74 @@ async def validate_recipe_gapfilling_search(
 
     for idx, q in enumerate(test_queries, start=1):
         print(f"\n[질의] \"{q}\"")
-        # SQL 기반 1차 검색으로 후보 레시피 50개 정도 가져오기
-        # NOTE: 일부 DB에서는 cooking_time_minutes, difficulty 컬럼이 없을 수 있어
-        # self-validation 에서는 최소 컬럼(id, name, description)만 사용한다.        # Tokenized LIKE search to reduce zero-hit cases
-        tokens = [t for t in re.split(r"\s+", q) if len(t) >= 2]
-        if not tokens:
-            tokens = [q]
-
-        conditions = []
-        params = []
-        for token in tokens:
-            params.append(f"%{token}%")
-            idx_param = len(params)
-            conditions.append(
-                f"(r.name ILIKE ${idx_param} OR r.description ILIKE ${idx_param})"
-            )
-
-        where_sql = " OR ".join(conditions)
-        query = f"""
-            SELECT r.id, r.name, COALESCE(r.description, '') AS description
-            FROM pred_recipes r
-            WHERE {where_sql}
-            LIMIT 50
-        """
-        records = await db.fetch_all(query, *params)
-        if not records:
-            print("  - 검색 결과 없음")
-            continue
-
-        df = pd.DataFrame([dict(r) for r in records])
-        texts2 = (df["name"].astype(str) + " " + df.get("description", "")).tolist()
-        texts1 = [q] * len(texts2)
-
-        scores = _score_pairs(airscout_model, texts1, texts2)
-        df["semantic_score"] = scores
-
-        df_sorted = df.sort_values("semantic_score", ascending=False).head(10)
-
-        print("  상위 5개 레시피:")
-        for _, row in df_sorted.head(5).iterrows():
-            print(
-                f"   - id={row['id']}, name={row['name']}, "
-                f"score={row['semantic_score']:.3f}"
-            )
-
-        results.append({"query": q, "top_df": df_sorted})
-
-        # 질의별 점수 분포 시각화 (상위 10개 막대 그래프)
         try:
-            png_path = output_dir / f"airscout_recipe_search_{idx}.png"
-            plt.figure(figsize=(12, 6))
-            plt.bar(
-                df_sorted["name"].astype(str),
-                df_sorted["semantic_score"].astype(float),
-            )
-            plt.xticks(rotation=45, ha="right")
-            plt.ylabel("Semantic score")
-            plt.title(f"AIRScout recipe search top-10 for query: {q}")
-            plt.tight_layout()
-            plt.savefig(png_path, dpi=300, bbox_inches="tight")
-            plt.close()
-            print(f"  시각화 저장: {png_path}")
+            # SQL 기반 1차 검색으로 후보 레시피 50개 정도 가져오기
+            # NOTE: 일부 DB에서는 cooking_time_minutes, difficulty 컬럼이 없을 수 있어
+            # self-validation 에서는 최소 컬럼(id, name, description)만 사용한다.
+            # Tokenized LIKE search to reduce zero-hit cases
+            tokens = [t for t in re.split(r"\s+", q) if len(t) >= 2]
+            if not tokens:
+                tokens = [q]
+
+            conditions = []
+            params = []
+            for token in tokens:
+                params.append(f"%{token}%")
+                idx_param = len(params)
+                conditions.append(
+                    f"(r.name ILIKE ${idx_param} OR r.description ILIKE ${idx_param})"
+                )
+
+            where_sql = " OR ".join(conditions)
+            query = f"""
+                SELECT r.id, r.name, COALESCE(r.description, '') AS description
+                FROM pred_recipes r
+                WHERE {where_sql}
+                LIMIT 50
+            """
+            records = await db.fetch_all(query, *params)
+            if not records:
+                print("  - 검색 결과 없음")
+                continue
+
+            df = pd.DataFrame([dict(r) for r in records])
+            texts2 = (df["name"].astype(str) + " " + df.get("description", "")).tolist()
+            texts1 = [q] * len(texts2)
+
+            scores = _score_pairs(airscout_model, texts1, texts2)
+            df["semantic_score"] = scores
+
+            df_sorted = df.sort_values("semantic_score", ascending=False).head(10)
+
+            print("  상위 5개 레시피:")
+            for _, row in df_sorted.head(5).iterrows():
+                print(
+                    f"   - id={row['id']}, name={row['name']}, "
+                    f"score={row['semantic_score']:.3f}"
+                )
+
+            results.append({"query": q, "top_df": df_sorted})
+
+            # 질의별 점수 분포 시각화 (상위 10개 막대 그래프)
+            try:
+                png_path = output_dir / f"airscout_recipe_search_{idx}.png"
+                plt.figure(figsize=(12, 6))
+                plt.bar(
+                    df_sorted["name"].astype(str),
+                    df_sorted["semantic_score"].astype(float),
+                )
+                plt.xticks(rotation=45, ha="right")
+                plt.ylabel("Semantic score")
+                plt.title(f"AIRScout recipe search top-10 for query: {q}")
+                plt.tight_layout()
+                plt.savefig(png_path, dpi=300, bbox_inches="tight")
+                plt.close()
+                print(f"  시각화 저장: {png_path}")
+            except Exception as e:
+                print(f"  [경고] 시각화 생성 실패: {e}")
         except Exception as e:
-            print(f"  [경고] 시각화 생성 실패: {e}")
+            # 한 질의에서 오류가 나더라도 나머지 test_queries 는 계속 실행되도록 보장
+            print(f"  [경고] 질의 실행 실패, 넘어감: {e}")
 
     return {
         "success": True,
