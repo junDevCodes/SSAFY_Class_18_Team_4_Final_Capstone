@@ -198,7 +198,8 @@ class SellerDashboardView(generics.RetrieveAPIView):
 
         # 추가 통계 정보 계산 (ERD V2.1: ProductStats 테이블에서 집계)
         from products.models import Product, ProductStats
-        from django.db.models import Sum, Avg, Count
+        from orders.models import OrderItem, OrderItemStatus, OrderStatus
+        from django.db.models import Sum, Avg, F, IntegerField
 
         products = Product.objects.filter(seller=seller)
 
@@ -206,10 +207,47 @@ class SellerDashboardView(generics.RetrieveAPIView):
         product_ids = products.values_list('id', flat=True)
         stats_qs = ProductStats.objects.filter(product_id__in=product_ids)
 
+        valid_order_statuses = [
+            OrderStatus.PAID,
+            OrderStatus.PROCESSING,
+            OrderStatus.SHIPPED,
+            OrderStatus.DELIVERED,
+        ]
+        order_items_qs = (
+            OrderItem.objects.filter(
+                seller=seller,
+                order__status__in=valid_order_statuses,
+            )
+            .exclude(status__in=[OrderItemStatus.CANCELLED, OrderItemStatus.REFUNDED])
+        )
+
+        revenue_expr = F('unit_price_snapshot') * F('quantity') - F('discount_amount')
+        total_revenue = (
+            order_items_qs.aggregate(
+                total=Sum(revenue_expr, output_field=IntegerField())
+            )['total']
+            or 0
+        )
+
+        total_review_count = stats_qs.aggregate(total=Sum('review_count'))['total'] or 0
+        if total_review_count:
+            weighted_rating_sum = (
+                stats_qs.annotate(
+                    weighted_rating=F('average_rating') * F('review_count')
+                ).aggregate(total=Sum('weighted_rating'))['total']
+                or 0
+            )
+            average_rating = float(weighted_rating_sum) / float(total_review_count)
+        else:
+            average_rating = 0.0
+
         stats = {
             'total_products': products.count(),
             'active_products': products.filter(status='active').count(),
             'draft_products': products.filter(status='draft').count(),
+            'total_orders': order_items_qs.count(),
+            'total_revenue': total_revenue,
+            'average_rating': round(average_rating, 2),
             'total_views': stats_qs.aggregate(Sum('view_count'))['view_count__sum'] or 0,
             'total_clicks': stats_qs.aggregate(Sum('recommend_clicked_count'))['recommend_clicked_count__sum'] or 0,
             'avg_quality_score': stats_qs.aggregate(Avg('quality_score'))['quality_score__avg'] or 0,

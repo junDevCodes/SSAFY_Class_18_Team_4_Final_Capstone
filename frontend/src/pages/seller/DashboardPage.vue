@@ -31,7 +31,7 @@
             </div>
             <div class="stat-info">
               <h3 class="stat-label">전체 상품</h3>
-              <p class="stat-value">{{ dashboard.total_products || 0 }}</p>
+              <p class="stat-value">{{ stats.total_products || 0 }}</p>
             </div>
           </div>
 
@@ -43,7 +43,7 @@
             </div>
             <div class="stat-info">
               <h3 class="stat-label">전체 주문</h3>
-              <p class="stat-value">{{ dashboard.total_orders || 0 }}</p>
+              <p class="stat-value">{{ stats.total_orders || 0 }}</p>
             </div>
           </div>
 
@@ -55,7 +55,7 @@
             </div>
             <div class="stat-info">
               <h3 class="stat-label">총 매출</h3>
-              <p class="stat-value">{{ formatPrice(dashboard.total_revenue || 0) }}</p>
+              <p class="stat-value">{{ formatPrice(stats.total_revenue || 0) }}</p>
             </div>
           </div>
 
@@ -67,7 +67,7 @@
             </div>
             <div class="stat-info">
               <h3 class="stat-label">평균 평점</h3>
-              <p class="stat-value">{{ dashboard.average_rating?.toFixed(1) || '0.0' }}</p>
+              <p class="stat-value">{{ formatRating(stats.average_rating) }}</p>
             </div>
           </div>
         </div>
@@ -185,7 +185,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { sellersAPI, sellerProductsAPI } from '@/services/api'
 import { formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 
@@ -193,6 +193,11 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const dashboard = ref<any>({})
 const recentProducts = ref<any[]>([])
+const stats = computed(() => dashboard.value?.statistics || {})
+
+const formatRating = (value?: number | string | null) => {
+  return Number(value ?? 0).toFixed(1)
+}
 
 // Load dashboard data
 const loadDashboard = async () => {
@@ -215,7 +220,11 @@ const loadDashboard = async () => {
 
     // Load dashboard stats
     const dashboardResponse = await sellersAPI.getDashboard()
-    dashboard.value = dashboardResponse.data
+    const dashboardData = dashboardResponse.data || {}
+    dashboard.value = {
+      ...dashboardData,
+      statistics: dashboardData.statistics || {}
+    }
 
     // Load recent products
     const productsResponse = await sellerProductsAPI.getMyProducts({
