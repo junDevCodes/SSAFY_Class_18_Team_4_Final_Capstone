@@ -3,13 +3,27 @@
 실제 DB에 저장된 product_price_histories 데이터를 기반으로
 가격 하락률을 활용한 가성비 점수(PriceScout 값)를 계산하고
 랭킹 변화를 확인하기 위한 진단용 도구.
+
+이 스크립트는 보통 `cd pred` 후
+
+    python validate_check/price_model/price_scout_validation.py
+
+형태로 실행되므로, `core`, `data` 패키지를 임포트할 수 있도록
+프로젝트 루트(`pred` 디렉터리)를 sys.path 에 추가합니다.
 """
 
 import asyncio
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
+from pathlib import Path
+import sys
 
 import pandas as pd
+
+# 프로젝트 루트를 Python 경로에 추가
+project_root = Path(__file__).resolve().parents[2]  # .../pred
+if str(project_root) not in map(str, sys.path):
+    sys.path.insert(0, str(project_root))
 
 from core.database import Database
 from data.repositories.price_repo import PriceHistoryRepository

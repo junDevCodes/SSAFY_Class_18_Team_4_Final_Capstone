@@ -31,9 +31,16 @@ import joblib
 import pickle
 
 # 프로젝트 루트를 Python 경로에 추가
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(Path(__file__).parent))
+# 이 스크립트는 보통 `cd pred` 후
+#   python validate_check/price_model/price_model_validation.py
+# 형태로 실행되므로, pred 디렉터리를 sys.path 에 넣어준다.
+project_root = Path(__file__).resolve().parents[2]  # .../pred
+if str(project_root) not in map(str, sys.path):
+    sys.path.insert(0, str(project_root))
+# 현재 파일이 있는 디렉터리도 경로에 추가(상대 import 대비)
+script_dir = Path(__file__).resolve().parent
+if str(script_dir) not in map(str, sys.path):
+    sys.path.insert(0, str(script_dir))
 
 from core.database import Database
 from core.config import settings
@@ -219,8 +226,10 @@ async def validate_price_model() -> Dict[str, Any]:
     # 1. 모델 로드 시도
     print("[1] 모델 로드")
     print("-" * 70)
-    
-    model_path = Path(__file__).parent / "models" / "self_price_analyzer_v1.pkl"
+
+    # pred/models/self_price_analyzer_v1.pkl 을 기본 경로로 사용
+    project_root = Path(__file__).resolve().parents[2]
+    model_path = project_root / "models" / "self_price_analyzer_v1.pkl"
     
     if not model_path.exists():
         print(f"[오류] 모델 파일을 찾을 수 없습니다: {model_path}")
