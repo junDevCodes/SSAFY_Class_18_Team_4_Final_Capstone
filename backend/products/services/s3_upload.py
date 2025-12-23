@@ -75,20 +75,20 @@ class S3ImageUploader:
             )
 
         # boto3는 자동으로 자격증명을 찾습니다 (환경변수 → credentials 파일 → EC2 IAM Role)
-        # 명시적으로 자격증명을 전달하지 않으면 EC2에서 IAM Role 사용 가능
-        s3_client_kwargs = {
-            'region_name': settings.AWS_S3_REGION_NAME
-        }
+        # 크롤러와 동일하게 명시적으로 자격증명을 전달하지 않음
+        # boto3가 자동으로 AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY 환경변수 또는 EC2 IAM Role을 찾음
+        self.s3_client = boto3.client('s3', region_name=settings.AWS_S3_REGION_NAME)
 
-        # 환경변수에 자격증명이 있으면 명시적으로 전달 (로컬 개발용)
-        if getattr(settings, 'AWS_ACCESS_KEY_ID', None) and getattr(settings, 'AWS_SECRET_ACCESS_KEY', None):
-            s3_client_kwargs['aws_access_key_id'] = settings.AWS_ACCESS_KEY_ID
-            s3_client_kwargs['aws_secret_access_key'] = settings.AWS_SECRET_ACCESS_KEY
-            logger.info("S3 자격증명: 환경변수 사용")
-        else:
-            logger.info("S3 자격증명: boto3 자동 탐색 (EC2 IAM Role 등)")
-
-        self.s3_client = boto3.client('s3', **s3_client_kwargs)
+        # 초기화 시 자격증명 확인 (디버깅용)
+        try:
+            session = boto3.Session()
+            credentials = session.get_credentials()
+            if credentials and credentials.access_key:
+                logger.info("S3 자격증명 확인됨: Access Key ID=%s...", credentials.access_key[:10])
+            else:
+                logger.warning("S3 자격증명을 찾을 수 없습니다. EC2 IAM 역할 또는 환경변수를 확인하세요.")
+        except Exception as e:
+            logger.warning("S3 자격증명 확인 중 오류: %s", e)
         self.bucket_name = settings.AWS_STORAGE_BUCKET_NAME
         self.custom_domain = settings.AWS_S3_CUSTOM_DOMAIN
 
