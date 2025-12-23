@@ -274,3 +274,28 @@ class UserPaymentMethodSerializer(serializers.ModelSerializer):
             if not UserPaymentMethod.objects.filter(user=user).exists():
                 attrs['is_default'] = True
         return attrs
+
+
+class AdminUserListSerializer(serializers.ModelSerializer):
+    """관리자용 유저 목록 시리얼라이저"""
+
+    class Meta:
+        model = User
+        fields = ["id", "email", "username", "role", "is_active", "date_joined"]
+        read_only_fields = fields
+
+
+class AdminUserDetailSerializer(serializers.ModelSerializer):
+    """관리자용 유저 상세/수정 시리얼라이저"""
+
+    class Meta:
+        model = User
+        fields = ["id", "email", "username", "role", "is_active", "date_joined"]
+        read_only_fields = ["id", "email", "date_joined"]
+
+    def validate_role(self, value: str) -> str:
+        """역할 값 검증"""
+        valid_roles = {choice[0] for choice in User._meta.get_field("role").choices}
+        if value not in valid_roles:
+            raise serializers.ValidationError("유효하지 않은 역할입니다.")
+        return value

@@ -9,7 +9,7 @@ from datetime import date
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from analytics.models import AdminBizDaily, AdminRecoDaily, UserSegment
+from analytics.models import AdminBizDaily, AdminRecoDaily, AdminCategoryDaily, UserSegment
 from analytics.services import aggregate_biz_daily_for_date
 from authentication.models import User, UserRole
 from orders.models import Order, OrderStatus, Payment, PaymentStatus
@@ -247,6 +247,19 @@ class AdminAnalyticsOverviewAPITests(TestCase):
         # Admin 집계 실행
         aggregate_biz_daily_for_date(self.target_date)
 
+        # 추천 집계 샘플 데이터 (홈 추천 기준)
+        # - 노출 1,000회, 클릭 100회 → CTR 10%
+        # - 추천 기여 주문 10건, 기여 GMV 20,000원
+        AdminRecoDaily.objects.create(
+            date=self.target_date,
+            placement="home",
+            user_segment=UserSegment.ALL,
+            reco_impressions=1_000,
+            reco_clicks=100,
+            reco_attributed_orders=10,
+            reco_attributed_gmv=20_000,
+        )
+
     def _force_created_at(self, order: Order, target_date: date) -> None:
         """auto_now_add 필드를 가진 created_at 값을 강제로 지정"""
         from datetime import datetime
@@ -298,3 +311,244 @@ class AdminAnalyticsOverviewAPITests(TestCase):
         self.assertEqual(trend[0]["revenue"], 60_000)
         self.assertEqual(trend[0]["orders"], 3)
 
+        # 추천 KPI (홈 추천) 검증
+        home_ctr_kpi = [k for k in data["kpis"] if k["label"].startswith("홈 추천 CTR")]
+        self.assertTrue(home_ctr_kpi)
+        self.assertAlmostEqual(home_ctr_kpi[0]["value"], 10.0, places=2)
+
+        home_share_kpi = [
+            k for k in data["kpis"] if k["label"].startswith("홈 추천 기여 GMV 비율")
+        ]
+        self.assertTrue(home_share_kpi)
+        # 총 GMV 60,000 중 추천 기여 20,000 → 33.33%
+        self.assertAlmostEqual(home_share_kpi[0]["value"], 33.33, places=2)
+
+    def test_overview_includes_category_breakdown_when_available(self) -> None:
+        """카테고리 집계가 존재하는 경우 breakdown.product 에 반영되어야 한다"""
+        AdminCategoryDaily.objects.create(
+            date=self.target_date,
+            user_segment=UserSegment.ALL,
+            category_name="과일·채소",
+            sessions=0,
+            orders=2,
+            gmv=15_000,
+        )
+        AdminCategoryDaily.objects.create(
+            date=self.target_date,
+            user_segment=UserSegment.ALL,
+            category_name="축산·계란",
+            sessions=0,
+            orders=1,
+            gmv=10_000,
+        )
+
+        response = self.client.get(
+            "/api/admin/analytics/overview/",
+            {
+                "start_date": self.target_date.isoformat(),
+                "end_date": self.target_date.isoformat(),
+                "granularity": "daily",
+                "segment": "all",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        self.assertIn("breakdown", data)
+        self.assertIn("product", data["breakdown"])
+        products = data["breakdown"]["product"]
+        self.assertGreaterEqual(len(products), 2)
+
+
+class AdminRecommendationTrendAPITests(TestCase):
+    """추천 성과 추이 API 동작 테스트"""
+
+    def setUp(self) -> None:
+        """비즈니스/추천 집계 데이터를 준비"""
+        self.client = APIClient()
+        self.target_date = date(2025, 3, 1)
+
+        # 유저 및 주문/결제 데이터는 기존 집계 테스트와 동일 패턴으로 구성
+        consumer = User.objects.create(
+            email="reco-consumer@example.com",
+            username="reco-consumer",
+            role=UserRole.USER,
+        )
+        seller_user = User.objects.create(
+            email="reco-seller@example.com",
+            username="reco-seller",
+            role=UserRole.SELLER,
+        )
+
+        # consumer 주문 1건 (10,000원)
+        consumer_order = Order.objects.create(
+            user=consumer,
+            status=OrderStatus.PAID,
+        )
+        self._force_created_at(consumer_order, self.target_date)
+        Payment.objects.create(
+            order=consumer_order,
+            amount=10_000,
+            status=PaymentStatus.SUCCESS,
+        )
+
+        # seller 주문 1건 (30,000원)
+        seller_order = Order.objects.create(
+            user=seller_user,
+            status=OrderStatus.PAID,
+        )
+        self._force_created_at(seller_order, self.target_date)
+        Payment.objects.create(
+            order=seller_order,
+            amount=30_000,
+            status=PaymentStatus.SUCCESS,
+        )
+
+        # 집계 실행 (총 GMV 40,000)
+        aggregate_biz_daily_for_date(self.target_date)
+
+        # 추천 집계: 노출 1,000 / 클릭 100 / 주문 10 / 추천 기여 GMV 20,000
+        AdminRecoDaily.objects.create(
+            date=self.target_date,
+            placement="home",
+            user_segment=UserSegment.ALL,
+            reco_impressions=1_000,
+            reco_clicks=100,
+            reco_attributed_orders=10,
+            reco_attributed_gmv=20_000,
+        )
+
+    def _force_created_at(self, order: Order, target_date: date) -> None:
+        """auto_now_add 필드를 가진 created_at 값을 강제로 지정"""
+        from datetime import datetime
+
+        naive_dt = datetime(
+            target_date.year,
+            target_date.month,
+            target_date.day,
+            10,
+            0,
+            0,
+        )
+        Order.objects.filter(pk=order.pk).update(created_at=naive_dt)
+        order.refresh_from_db()
+
+    def test_recommendation_trend_returns_daily_metrics(self) -> None:
+        """홈 추천 기준 CTR/구매 전환율/기여 GMV 비율 일간 추이를 반환해야 한다"""
+        response = self.client.get(
+            "/api/admin/analytics/recommendation/trend/",
+            {
+                "start_date": self.target_date.isoformat(),
+                "end_date": self.target_date.isoformat(),
+                "granularity": "daily",
+                "segment": "all",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        self.assertIn("series", data)
+        self.assertEqual(len(data["series"]), 1)
+
+        point = data["series"][0]
+        self.assertEqual(point["date"], self.target_date.isoformat())
+
+        # 원시 수치 검증
+        self.assertEqual(point["impressions"], 1_000)
+        self.assertEqual(point["clicks"], 100)
+        self.assertEqual(point["attributed_orders"], 10)
+        self.assertEqual(point["attributed_gmv"], 20_000)
+
+        # 파생 지표 검증
+        # CTR: 100 / 1,000 = 10%
+        self.assertAlmostEqual(point["ctr"], 10.0, places=2)
+        # 구매 전환율: 10 / 100 = 10%
+        self.assertAlmostEqual(point["purchase_conversion"], 10.0, places=2)
+        # 추천 기여 GMV 비율: 20,000 / 40,000 = 50%
+        self.assertAlmostEqual(point["gmv_share"], 50.0, places=2)
+
+
+class AdminRecommendationPlacementSummaryAPITests(TestCase):
+    """추천 placement 별 집계 API 동작 테스트"""
+
+    def setUp(self) -> None:
+        """간단한 BizDaily/RecoDaily 데이터를 직접 생성"""
+        self.client = APIClient()
+        self.start_date = date(2025, 3, 1)
+        self.end_date = date(2025, 3, 2)
+
+        # 전체 세그먼트 기준 총 GMV: 2일 * 100,000 = 200,000
+        for day in [self.start_date, self.end_date]:
+            AdminBizDaily.objects.create(
+                date=day,
+                user_segment=UserSegment.ALL,
+                gmv=100_000,
+            )
+
+        # price_model: 2일 동안
+        # - 노출: 1,000 * 2 = 2,000
+        # - 클릭: 100 * 2 = 200
+        # - 추천 기여 주문: 20 * 2 = 40
+        # - 추천 기여 GMV: 20,000 * 2 = 40,000 → GMV 비율 20%
+        for day in [self.start_date, self.end_date]:
+            AdminRecoDaily.objects.create(
+                date=day,
+                placement="price_model",
+                user_segment=UserSegment.ALL,
+                reco_impressions=1_000,
+                reco_clicks=100,
+                reco_attributed_orders=20,
+                reco_attributed_gmv=20_000,
+            )
+
+        # personalized: 2일 동안
+        # - 노출: 500 * 2 = 1,000
+        # - 클릭: 50 * 2 = 100
+        # - 추천 기여 주문: 5 * 2 = 10
+        # - 추천 기여 GMV: 10,000 * 2 = 20,000 → GMV 비율 10%
+        for day in [self.start_date, self.end_date]:
+            AdminRecoDaily.objects.create(
+                date=day,
+                placement="personalized",
+                user_segment=UserSegment.ALL,
+                reco_impressions=500,
+                reco_clicks=50,
+                reco_attributed_orders=5,
+                reco_attributed_gmv=10_000,
+            )
+
+    def test_placement_summary_returns_expected_metrics(self) -> None:
+        """placement 별 CTR/구매 전환율/기여 GMV 비율을 올바르게 반환해야 한다"""
+        response = self.client.get(
+            "/api/admin/analytics/recommendation/placement-summary/",
+            {
+                "start_date": self.start_date.isoformat(),
+                "end_date": self.end_date.isoformat(),
+                "granularity": "daily",
+                "segment": "all",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        self.assertIn("placements", data)
+        placements = data["placements"]
+
+        # price_model 행 검증
+        price_rows = [p for p in placements if p["placement"] == "price_model"]
+        self.assertEqual(len(price_rows), 1)
+        price = price_rows[0]
+        self.assertEqual(price["impressions"], 2_000)
+        self.assertEqual(price["clicks"], 200)
+        self.assertEqual(price["attributed_orders"], 40)
+        self.assertEqual(price["attributed_gmv"], 40_000)
+        # CTR: 200 / 2,000 = 10%
+        self.assertAlmostEqual(price["ctr"], 10.0, places=2)
+        # 구매 전환율: 40 / 200 = 20%
+        self.assertAlmostEqual(price["purchase_conversion"], 20.0, places=2)
+        # 기여 GMV 비율: 40,000 / 200,000 = 20%
+        self.assertAlmostEqual(price["gmv_share"], 20.0, places=2)
+
+        # 통합(all) 행 존재 여부 확인
+        all_rows = [p for p in placements if p["placement"] == "all"]
+        self.assertEqual(len(all_rows), 1)

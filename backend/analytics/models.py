@@ -100,6 +100,77 @@ class AdminBizDaily(models.Model):
         return f"{self.date} / {self.user_segment} / 주문 {self.orders}건, GMV {self.gmv}"
 
 
+class AdminCategoryDaily(models.Model):
+    """
+    일 단위 카테고리별 비즈니스 집계
+
+    - 상위 카테고리 단위로 주문 수/매출을 집계하여
+      Top Line 대시보드에서 카테고리별 성과 분해용으로 사용한다.
+    """
+
+    date = models.DateField(verbose_name="집계 날짜")
+    user_segment = models.CharField(
+        max_length=20,
+        choices=UserSegment.choices,
+        default=UserSegment.ALL,
+        verbose_name="유저 세그먼트",
+    )
+    category_name = models.CharField(
+        max_length=100,
+        verbose_name="카테고리명",
+    )
+
+    sessions = models.BigIntegerField(
+        default=0,
+        verbose_name="세션 수",
+    )
+    orders = models.BigIntegerField(
+        default=0,
+        verbose_name="주문 수",
+    )
+    gmv = models.BigIntegerField(
+        default=0,
+        verbose_name="카테고리 매출(GMV)",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
+
+    class Meta:
+        db_table = "admin_analytics_category_daily"
+        verbose_name = "Admin 카테고리 일간 집계"
+        verbose_name_plural = "Admin 카테고리 일간 집계"
+        unique_together = [["date", "user_segment", "category_name"]]
+        indexes = [
+            models.Index(fields=["date"], name="ix_acd_date"),
+            models.Index(fields=["date", "user_segment"], name="ix_acd_date_seg"),
+            models.Index(
+                fields=["date", "user_segment", "category_name"],
+                name="ix_acd_date_seg_cat",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(sessions__gte=0),
+                name="chk_admin_cat_daily_sessions_non_negative",
+            ),
+            models.CheckConstraint(
+                check=models.Q(orders__gte=0),
+                name="chk_admin_cat_daily_orders_non_negative",
+            ),
+            models.CheckConstraint(
+                check=models.Q(gmv__gte=0),
+                name="chk_admin_cat_daily_gmv_non_negative",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.date} / {self.user_segment} / {self.category_name} "
+            f"/ 주문 {self.orders}건, GMV {self.gmv}"
+        )
+
+
 class AdminRecoDaily(models.Model):
     """
     일 단위 추천 성과 지표

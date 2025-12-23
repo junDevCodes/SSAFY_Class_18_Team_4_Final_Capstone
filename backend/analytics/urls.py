@@ -4,10 +4,24 @@ Admin 분석용 API URL 설정
 
 from django.urls import path
 
-from analytics.views import AdminAnalyticsOverviewView
+from analytics.views import (
+    AdminAnalyticsOverviewView,
+    AdminRecommendationTrendView,
+    AdminRecommendationPlacementSummaryView,
+)
 
 urlpatterns = [
     path("overview/", AdminAnalyticsOverviewView.as_view(), name="admin-analytics-overview"),
+    path(
+        "recommendation/trend/",
+        AdminRecommendationTrendView.as_view(),
+        name="admin-recommendation-trend",
+    ),
+    path(
+        "recommendation/placement-summary/",
+        AdminRecommendationPlacementSummaryView.as_view(),
+        name="admin-recommendation-placement-summary",
+    ),
 ]
 
 

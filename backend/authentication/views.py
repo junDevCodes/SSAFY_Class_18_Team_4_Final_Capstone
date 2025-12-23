@@ -22,6 +22,7 @@ from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.contrib.auth.hashers import make_password
 from django.core.mail import send_mail
 from django.db import transaction
+from django.db.models import Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.utils import timezone
@@ -44,7 +45,7 @@ from rest_framework_simplejwt.views import TokenRefreshView as SimpleJWTTokenRef
 
 from .config import AUTH_CONFIG
 from .models import PendingRegistration, Provider
-from .permissions import IsAuthenticatedOrCreate
+from .permissions import IsAuthenticatedOrCreate, RoleRequired
 from .providers import (
     build_google_authorize_url,
     build_kakao_authorize_url,
@@ -62,6 +63,8 @@ from .serializers import (
     EmailVerificationConfirmSerializer,
     UserAddressSerializer,
     UserPaymentMethodSerializer,
+    AdminUserListSerializer,
+    AdminUserDetailSerializer,
 )
 from .services import (
     finalize_pending_registration,
@@ -794,3 +797,45 @@ class UserPaymentMethodViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(payment_method)
         return Response(serializer.data)
+
+
+# ----- Admin 유저 관리 -----
+
+
+class AdminUserListView(generics.ListAPIView):
+    """관리자용 유저 목록 조회 뷰"""
+
+    permission_classes = [RoleRequired]
+    required_roles = ["admin"]
+    serializer_class = AdminUserListSerializer
+
+    def get_queryset(self):
+        """검색/필터 조건을 적용한 유저 목록 반환"""
+        User = get_user_model()
+        qs = User.objects.all().order_by("-date_joined")
+
+        q = self.request.query_params.get("q", "").strip()
+        if q:
+            qs = qs.filter(Q(email__icontains=q) | Q(username__icontains=q))
+
+        role = self.request.query_params.get("role")
+        if role:
+            qs = qs.filter(role=role)
+
+        is_active = self.request.query_params.get("is_active")
+        if is_active in {"true", "false"}:
+            qs = qs.filter(is_active=(is_active == "true"))
+
+        return qs
+
+
+class AdminUserDetailView(generics.RetrieveUpdateAPIView):
+    """관리자용 유저 상세/수정 뷰"""
+
+    permission_classes = [RoleRequired]
+    required_roles = ["admin"]
+    serializer_class = AdminUserDetailSerializer
+
+    def get_queryset(self):
+        User = get_user_model()
+        return User.objects.all().order_by("-date_joined")
