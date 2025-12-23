@@ -114,6 +114,116 @@ class ProductListSerializer(serializers.ModelSerializer):
         return obj.wishlisted_by.count()
 
 
+class SellerProductListSerializer(serializers.ModelSerializer):
+    """판매자 상품 목록/상세용 Serializer
+
+    Seller 대시보드/상품 관리 화면에서 사용하는 DTO 구조를 제공합니다.
+    """
+
+    short_description = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField()
+    discount_rate = serializers.SerializerMethodField()
+    category_id = serializers.SerializerMethodField()
+    main_image_url = serializers.SerializerMethodField()
+    stock_quantity = serializers.SerializerMethodField()
+    low_stock_threshold = serializers.SerializerMethodField()
+    is_low_stock = serializers.SerializerMethodField()
+    view_count = serializers.SerializerMethodField()
+    order_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            'id',
+            'name',
+            'slug',
+            'short_description',
+            'description',
+            'price',
+            'original_price',
+            'discount_rate',
+            'category_id',
+            'main_image_url',
+            'unit',
+            'unit_quantity',
+            'stock_quantity',
+            'low_stock_threshold',
+            'shipping_fee',
+            'free_shipping_threshold',
+            'status',
+            'is_low_stock',
+            'view_count',
+            'order_count',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_short_description(self, obj):
+        """ProductDetail.short_description 매핑"""
+        if hasattr(obj, 'detail') and obj.detail:
+            return obj.detail.short_description
+        return None
+
+    def get_description(self, obj):
+        """상세 설명(full_description) 매핑"""
+        if hasattr(obj, 'detail') and obj.detail:
+            return obj.detail.full_description
+        return None
+
+    def get_discount_rate(self, obj):
+        """정가 대비 할인율 계산"""
+        original = obj.original_price
+        price = obj.price
+        try:
+            if original and original > 0 and price is not None and price < original:
+                rate = round(float((original - price) / original * 100))
+                return int(rate)
+        except Exception:
+            pass
+        return 0
+
+    def get_category_id(self, obj):
+        """카테고리 ID 반환"""
+        return obj.category_id
+
+    def get_main_image_url(self, obj):
+        """대표 이미지 URL (ProductImage.display_order 기준)"""
+        first_image = obj.images.order_by('display_order').first()
+        if first_image:
+            return first_image.image_url
+        return None
+
+    def get_stock_quantity(self, obj):
+        """재고 수량 (ProductInventory.stock_quantity)"""
+        if hasattr(obj, 'inventory') and obj.inventory:
+            return obj.inventory.stock_quantity
+        return 0
+
+    def get_low_stock_threshold(self, obj):
+        """안전 재고 수준 (ProductInventory.safe_stock_level)"""
+        if hasattr(obj, 'inventory') and obj.inventory:
+            return obj.inventory.safe_stock_level
+        return 0
+
+    def get_is_low_stock(self, obj):
+        """재고 부족 여부"""
+        if hasattr(obj, 'inventory') and obj.inventory:
+            return obj.inventory.is_low_stock
+        return False
+
+    def get_view_count(self, obj):
+        """조회수 (ProductStats.view_count)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return obj.stats.view_count
+        return 0
+
+    def get_order_count(self, obj):
+        """주문 이벤트 수 (ProductStats.order_event_count)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return obj.stats.order_event_count
+        return 0
+
+
 class SellerBriefSerializer(serializers.Serializer):
     """판매자 간단 정보 (ProductDetailSerializer용)"""
 
