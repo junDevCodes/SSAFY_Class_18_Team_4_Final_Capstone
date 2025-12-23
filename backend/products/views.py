@@ -470,7 +470,7 @@ class ProductImageUploadView(APIView):
 - images: 이미지 파일 (여러 개 가능, 최대 10개)
 
 ### S3 저장 경로
-- `homeplus/thumnail/{product_id}_{uuid}.{ext}`
+- `homeplus/thumbnail/{product_id}_{uuid}.{ext}`
 
 ### 이미지 순서
 - 업로드 순서대로 display_order가 자동 할당됩니다.
@@ -499,27 +499,36 @@ class ProductImageUploadView(APIView):
         images = serializer.validated_data['images']
 
         # S3 업로더 초기화
-        uploader = S3ImageUploader()
-
-        # 기존 이미지의 마지막 display_order 조회
-        last_order = product.images.order_by('-display_order').values_list(
-            'display_order', flat=True
-        ).first()
-        if last_order is None:
-            last_order = -1
+        try:
+            uploader = S3ImageUploader()
+        except S3UploadError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         created_images = []
         uploaded_urls = []  # 롤백 시 S3 정리용
         try:
             with transaction.atomic():
+                # row lock을 걸어 다른 트랜잭션이 동시에 수정하지 못하도록 함
+                locked_product = Product.objects.select_for_update().get(id=product.id)
+
+                # 기존 이미지의 마지막 display_order 조회
+                last_order = locked_product.images.order_by('-display_order').values_list(
+                    'display_order', flat=True
+                ).first()
+                if last_order is None:
+                    last_order = -1
+
                 for i, file_obj in enumerate(images):
                     # S3에 업로드
-                    url = uploader.upload_thumbnail(file_obj, product.id, file_obj.name)
+                    url = uploader.upload_thumbnail(file_obj, locked_product.id, file_obj.name)
                     uploaded_urls.append(url)
 
                     # DB에 저장
                     image = ProductImage.objects.create(
-                        product=product,
+                        product=locked_product,
                         image_url=url,
                         display_order=last_order + 1 + i
                     )
@@ -596,7 +605,13 @@ class ProductDetailImageUploadView(APIView):
         images = serializer.validated_data['images']
 
         # S3 업로더 초기화
-        uploader = S3ImageUploader()
+        try:
+            uploader = S3ImageUploader()
+        except S3UploadError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         # ProductDetail 조회 (없으면 생성)
         detail, created = ProductDetailModel.objects.get_or_create(
