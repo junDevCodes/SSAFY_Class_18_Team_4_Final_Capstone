@@ -41,14 +41,15 @@ class S3ImageUploaderTest(TestCase):
     @patch('products.services.s3_upload.settings')
     def test_고유한_파일명_생성(self, mock_settings, mock_boto_client):
         """파일명이 product_id와 UUID를 포함하여 생성되어야 한다"""
-        # AWS 설정 mock
-        mock_settings.AWS_ACCESS_KEY_ID = 'test-key'
-        mock_settings.AWS_SECRET_ACCESS_KEY = 'test-secret'
+        # AWS 설정 mock (버킷명만 필수)
         mock_settings.AWS_STORAGE_BUCKET_NAME = 'test-bucket'
         mock_settings.AWS_S3_REGION_NAME = 'ap-northeast-2'
         mock_settings.AWS_S3_CUSTOM_DOMAIN = 'test.s3.amazonaws.com'
         mock_settings.AWS_S3_THUMBNAIL_PREFIX = 'test/thumbnail/'
         mock_settings.AWS_S3_PRODUCT_DETAIL_PREFIX = 'test/detail/'
+        # 자격증명은 선택사항 (EC2 IAM Role 사용 가능)
+        mock_settings.AWS_ACCESS_KEY_ID = None
+        mock_settings.AWS_SECRET_ACCESS_KEY = None
 
         uploader = S3ImageUploader()
         filename = uploader._generate_unique_filename('test.jpg', 123)
@@ -60,13 +61,13 @@ class S3ImageUploaderTest(TestCase):
     @patch('products.services.s3_upload.settings')
     def test_확장자_없는_파일도_처리(self, mock_settings, mock_boto_client):
         """확장자 없는 파일은 jpg로 기본 처리해야 한다"""
-        mock_settings.AWS_ACCESS_KEY_ID = 'test-key'
-        mock_settings.AWS_SECRET_ACCESS_KEY = 'test-secret'
         mock_settings.AWS_STORAGE_BUCKET_NAME = 'test-bucket'
         mock_settings.AWS_S3_REGION_NAME = 'ap-northeast-2'
         mock_settings.AWS_S3_CUSTOM_DOMAIN = 'test.s3.amazonaws.com'
         mock_settings.AWS_S3_THUMBNAIL_PREFIX = 'test/thumbnail/'
         mock_settings.AWS_S3_PRODUCT_DETAIL_PREFIX = 'test/detail/'
+        mock_settings.AWS_ACCESS_KEY_ID = None
+        mock_settings.AWS_SECRET_ACCESS_KEY = None
 
         uploader = S3ImageUploader()
         filename = uploader._generate_unique_filename('noextension', 456)
@@ -77,13 +78,13 @@ class S3ImageUploaderTest(TestCase):
     @patch('products.services.s3_upload.settings')
     def test_다양한_확장자_지원(self, mock_settings, mock_boto_client):
         """PNG, GIF, WebP 확장자도 올바르게 처리해야 한다"""
-        mock_settings.AWS_ACCESS_KEY_ID = 'test-key'
-        mock_settings.AWS_SECRET_ACCESS_KEY = 'test-secret'
         mock_settings.AWS_STORAGE_BUCKET_NAME = 'test-bucket'
         mock_settings.AWS_S3_REGION_NAME = 'ap-northeast-2'
         mock_settings.AWS_S3_CUSTOM_DOMAIN = 'test.s3.amazonaws.com'
         mock_settings.AWS_S3_THUMBNAIL_PREFIX = 'test/thumbnail/'
         mock_settings.AWS_S3_PRODUCT_DETAIL_PREFIX = 'test/detail/'
+        mock_settings.AWS_ACCESS_KEY_ID = None
+        mock_settings.AWS_SECRET_ACCESS_KEY = None
 
         uploader = S3ImageUploader()
 

@@ -52,23 +52,21 @@ class S3ImageUploader:
         custom_domain: S3 커스텀 도메인
 
     Raises:
-        S3UploadError: AWS 자격증명이 설정되지 않은 경우
+        S3UploadError: S3 버킷명이 설정되지 않은 경우
     """
 
     def __init__(self):
         """S3 클라이언트 초기화
 
-        Raises:
-            S3UploadError: AWS 자격증명이 설정되지 않은 경우
-        """
-        # AWS 자격증명 검증
-        if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
-            logger.error("AWS 자격증명이 설정되지 않았습니다.")
-            raise S3UploadError(
-                "AWS 자격증명이 설정되지 않았습니다. "
-                "AWS_ACCESS_KEY_ID와 AWS_SECRET_ACCESS_KEY 환경변수를 확인해주세요."
-            )
+        boto3는 자동으로 자격증명을 찾습니다:
+        1. 환경변수 (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+        2. ~/.aws/credentials 파일
+        3. EC2 IAM Role (메타데이터 서비스)
 
+        Raises:
+            S3UploadError: S3 버킷명이 설정되지 않은 경우
+        """
+        # S3 버킷명 검증
         if not settings.AWS_STORAGE_BUCKET_NAME:
             logger.error("S3 버킷명이 설정되지 않았습니다.")
             raise S3UploadError(
@@ -76,12 +74,21 @@ class S3ImageUploader:
                 "AWS_S3_BUCKET 환경변수를 확인해주세요."
             )
 
-        self.s3_client = boto3.client(
-            's3',
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_S3_REGION_NAME
-        )
+        # boto3는 자동으로 자격증명을 찾습니다 (환경변수 → credentials 파일 → EC2 IAM Role)
+        # 명시적으로 자격증명을 전달하지 않으면 EC2에서 IAM Role 사용 가능
+        s3_client_kwargs = {
+            'region_name': settings.AWS_S3_REGION_NAME
+        }
+
+        # 환경변수에 자격증명이 있으면 명시적으로 전달 (로컬 개발용)
+        if getattr(settings, 'AWS_ACCESS_KEY_ID', None) and getattr(settings, 'AWS_SECRET_ACCESS_KEY', None):
+            s3_client_kwargs['aws_access_key_id'] = settings.AWS_ACCESS_KEY_ID
+            s3_client_kwargs['aws_secret_access_key'] = settings.AWS_SECRET_ACCESS_KEY
+            logger.info("S3 자격증명: 환경변수 사용")
+        else:
+            logger.info("S3 자격증명: boto3 자동 탐색 (EC2 IAM Role 등)")
+
+        self.s3_client = boto3.client('s3', **s3_client_kwargs)
         self.bucket_name = settings.AWS_STORAGE_BUCKET_NAME
         self.custom_domain = settings.AWS_S3_CUSTOM_DOMAIN
 
