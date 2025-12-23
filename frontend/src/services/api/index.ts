@@ -341,6 +341,19 @@ export const sellersAPI = {
   // 판매자 대시보드
   getDashboard: () =>
     apiClient.get('/api/sellers/dashboard/'),
+
+  // ?ë§¤???´ë?ì§€ ?…ë¡œ??
+  uploadSellerImage: (image: File, imageType: 'profile' | 'logo' | 'banner') => {
+    const formData = new FormData()
+    formData.append('image', image)
+    formData.append('image_type', imageType)
+
+    return apiClient.post(
+      '/api/sellers/me/images/upload/',
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  },
 }
 
 // ==================== Seller Products API ====================

@@ -14,7 +14,7 @@
             <span class="chip" :class="hasChanges ? 'chip-warning' : 'chip-success'">
               {{ hasChanges ? '변경사항 있음' : '최신 상태' }}
             </span>
-            <span class="chip chip-ghost">브랜드 : {{ sellerSlug || '-' }}</span>
+            <span class="chip chip-ghost">BRAND : {{ sellerSlug || '-' }}</span>
           </div>
           <button type="button" class="link-button" @click="router.push('/seller/dashboard')">
             대시보드로 이동
@@ -45,28 +45,28 @@
             <section class="form-section">
               <div class="section-header">
                 <div>
-                  <p class="section-eyebrow">브랜드 정보</p>
-                  <h2 class="section-title">브랜드 프로필</h2>
+                  <p class="section-eyebrow">BRAND 정보</p>
+                  <h2 class="section-title">BRAND 프로필</h2>
                   <p class="section-description">
-                    스토어 상단에 노출되는 핵심 정보예요. 브랜드명과 소개는 필수로 입력해주세요.
+                    스토어 상단에 노출되는 핵심 정보예요. BRAND명과 소개는 필수로 입력해주세요.
                   </p>
                 </div>
               </div>
 
               <div class="field-grid">
                 <div class="form-group">
-                  <label for="brand_name">브랜드명 *</label>
+                  <label for="brand_name">BRAND명 *</label>
                   <input
                     id="brand_name"
                     v-model="formData.brand_name"
                     type="text"
-                    placeholder="브랜드명을 입력하세요"
+                    placeholder="BRAND명을 입력하세요"
                     required
                   />
                 </div>
 
                 <div class="form-group">
-                  <label for="brand_name_en">브랜드명(영문)</label>
+                  <label for="brand_name_en">BRAND명(영문)</label>
                   <input
                     id="brand_name_en"
                     v-model="formData.brand_name_en"
@@ -76,34 +76,66 @@
                 </div>
 
                 <div class="form-group full">
-                  <label for="brand_description">브랜드 소개 *</label>
+                  <label for="brand_description">BRAND 소개 *</label>
                   <textarea
                     id="brand_description"
                     v-model="formData.brand_description"
                     rows="4"
-                    placeholder="브랜드 스토리와 강점을 소개해주세요"
+                    placeholder="BRAND 스토리와 강점을 소개해주세요"
                     required
                   ></textarea>
                 </div>
 
                 <div class="form-group">
-                  <label for="brand_logo_url">브랜드 로고 URL</label>
-                  <input
-                    id="brand_logo_url"
-                    v-model="formData.brand_logo_url"
-                    type="url"
-                    placeholder="https://example.com/logo.png"
-                  />
+                  <div class="label-row">
+                    <label for="brand_logo_url">BRAND 로고</label>
+                    <span class="pill-note">정사각형 권장 · 5MB 이하</span>
+                  </div>
+                  <div class="upload-box">
+                    <input
+                      class="file-input"
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,image/webp"
+                      @change="(event) => handleImageChange(event, 'logo')"
+                    />
+                    <div class="upload-copy">
+                      <strong>로고 이미지 첨부</strong>
+                      <span>드래그 또는 클릭해 업로드</span>
+                    </div>
+                  </div>
+                  <div v-if="logoPreview" class="single-preview">
+                    <img :src="logoPreview" alt="브랜드 로고 미리보기" />
+                    <div class="preview-meta">
+                      <span class="filename">{{ logoFile?.file.name || '로고 이미지' }}</span>
+                      <button type="button" class="btn-remove-image" @click="clearImage('logo')">삭제</button>
+                    </div>
+                  </div>
                 </div>
 
                 <div class="form-group">
-                  <label for="brand_banner_url">브랜드 배너 URL</label>
-                  <input
-                    id="brand_banner_url"
-                    v-model="formData.brand_banner_url"
-                    type="url"
-                    placeholder="https://example.com/banner.png"
-                  />
+                  <div class="label-row">
+                    <label for="brand_banner_url">BRAND 배너</label>
+                    <span class="pill-note">가로형 권장 · 5MB 이하</span>
+                  </div>
+                  <div class="upload-box">
+                    <input
+                      class="file-input"
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,image/webp"
+                      @change="(event) => handleImageChange(event, 'banner')"
+                    />
+                    <div class="upload-copy">
+                      <strong>배너 이미지 첨부</strong>
+                      <span>드래그 또는 클릭해 업로드</span>
+                    </div>
+                  </div>
+                  <div v-if="bannerPreview" class="single-preview">
+                    <img :src="bannerPreview" alt="브랜드 배너 미리보기" />
+                    <div class="preview-meta">
+                      <span class="filename">{{ bannerFile?.file.name || '배너 이미지' }}</span>
+                      <button type="button" class="btn-remove-image" @click="clearImage('banner')">삭제</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
@@ -301,7 +333,7 @@
 
           <aside class="side-panel">
             <div class="panel-card">
-              <h3>브랜드 프리뷰</h3>
+              <h3>BRAND</h3>
               <p class="preview-title">{{ formData.brand_name || '브랜드명' }}</p>
               <p class="preview-sub">{{ formData.brand_description || '브랜드 소개가 여기에 표시됩니다.' }}</p>
               <dl class="preview-list">
@@ -347,7 +379,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { sellersAPI } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
@@ -371,6 +403,8 @@ type FormKey =
   | 'bank_account_number'
   | 'account_holder_name'
   | 'verification_document_url'
+
+type UploadItem = { file: File; preview: string }
 
 const FIELD_KEYS: FormKey[] = [
   'brand_name',
@@ -423,6 +457,11 @@ const formData = reactive<Record<FormKey, string>>({
   verification_document_url: ''
 })
 
+const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+const maxImageSize = 5 * 1024 * 1024
+const logoFile = ref<UploadItem | null>(null)
+const bannerFile = ref<UploadItem | null>(null)
+
 const initialData = ref<Record<FormKey, string>>({ ...formData })
 
 const normalizeValue = (value: unknown) => {
@@ -455,8 +494,99 @@ const buildPayload = () => {
 }
 
 const hasChanges = computed(() => {
-  return FIELD_KEYS.some((key) => normalizeValue(formData[key]) !== (initialData.value[key] ?? ''))
+  const baseChanged = FIELD_KEYS.some(
+    (key) => normalizeValue(formData[key]) !== (initialData.value[key] ?? '')
+  )
+  return baseChanged || !!logoFile.value || !!bannerFile.value
 })
+
+const logoPreview = computed(() => logoFile.value?.preview || formData.brand_logo_url || '')
+const bannerPreview = computed(() => bannerFile.value?.preview || formData.brand_banner_url || '')
+
+const revokePreview = (item: UploadItem | null) => {
+  if (item?.preview) {
+    URL.revokeObjectURL(item.preview)
+  }
+}
+
+const setImageFile = (files: FileList | null, target: 'logo' | 'banner') => {
+  if (!files?.length) return
+  error.value = null
+
+  const file = files[0]
+  if (!allowedImageTypes.includes(file.type)) {
+    error.value = '이미지 파일만 업로드할 수 있습니다. (JPEG/PNG/GIF/WebP)'
+    return
+  }
+
+  if (file.size > maxImageSize) {
+    error.value = '이미지는 5MB 이하만 업로드할 수 있습니다.'
+    return
+  }
+
+  const next: UploadItem = { file, preview: URL.createObjectURL(file) }
+  if (target === 'logo') {
+    revokePreview(logoFile.value)
+    logoFile.value = next
+  } else {
+    revokePreview(bannerFile.value)
+    bannerFile.value = next
+  }
+}
+
+const handleImageChange = (event: Event, target: 'logo' | 'banner') => {
+  const files = (event.target as HTMLInputElement)?.files
+  setImageFile(files, target)
+  if (event.target) {
+    ;(event.target as HTMLInputElement).value = ''
+  }
+}
+
+const clearImage = (target: 'logo' | 'banner') => {
+  if (target === 'logo') {
+    revokePreview(logoFile.value)
+    logoFile.value = null
+  } else {
+    revokePreview(bannerFile.value)
+    bannerFile.value = null
+  }
+}
+
+const uploadBrandImagesIfNeeded = async () => {
+  if (!logoFile.value && !bannerFile.value) return
+
+  const uploadSingle = async (item: UploadItem, type: 'logo' | 'banner') => {
+    const res = await sellersAPI.uploadSellerImage(item.file, type)
+    const url =
+      res.data?.image_url ||
+      (type === 'logo' ? res.data?.brand_logo_url : res.data?.brand_banner_url) ||
+      ''
+
+    if (type === 'logo') {
+      formData.brand_logo_url = url
+      clearImage('logo')
+    } else {
+      formData.brand_banner_url = url
+      clearImage('banner')
+    }
+  }
+
+  try {
+    if (logoFile.value) {
+      await uploadSingle(logoFile.value, 'logo')
+    }
+    if (bannerFile.value) {
+      await uploadSingle(bannerFile.value, 'banner')
+    }
+  } catch (err: any) {
+    const msg =
+      err.response?.data?.error ||
+      err.response?.data?.detail ||
+      err.message ||
+      '이미지 업로드에 실패했습니다.'
+    throw new Error(msg)
+  }
+}
 
 const businessTypeText = computed(() => {
   if (formData.business_type === 'individual') return '개인사업자'
@@ -502,14 +632,18 @@ const handleSubmit = async () => {
   }
 
   const payload = buildPayload()
-  if (Object.keys(payload).length === 0) {
+  const hasImageUploads = !!logoFile.value || !!bannerFile.value
+  if (!hasImageUploads && Object.keys(payload).length === 0) {
     successMessage.value = '변경된 내용이 없습니다.'
     return
   }
 
   saving.value = true
   try {
-    await sellersAPI.updateSeller(sellerSlug.value, payload)
+    if (Object.keys(payload).length) {
+      await sellersAPI.updateSeller(sellerSlug.value, payload)
+    }
+    await uploadBrandImagesIfNeeded()
     successMessage.value = '판매자 정보가 저장되었습니다.'
     initialData.value = FIELD_KEYS.reduce((acc, key) => {
       acc[key] = normalizeValue(formData[key])
@@ -517,11 +651,20 @@ const handleSubmit = async () => {
     }, {} as Record<FormKey, string>)
   } catch (err: any) {
     console.error('판매자 정보 업데이트 실패:', err)
-    error.value = err.response?.data?.detail || '정보 저장에 실패했습니다. 입력값을 확인해주세요.'
+    error.value =
+      err.response?.data?.detail ||
+      err.response?.data?.error ||
+      err.message ||
+      '정보 저장에 실패했습니다. 입력값을 확인해주세요.'
   } finally {
     saving.value = false
   }
 }
+
+onBeforeUnmount(() => {
+  revokePreview(logoFile.value)
+  revokePreview(bannerFile.value)
+})
 
 onMounted(() => {
   fetchProfile()
@@ -764,6 +907,105 @@ onMounted(() => {
 .field-hint {
   font-size: 0.85rem;
   color: #6b7280;
+}
+
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.pill-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.75rem;
+  background: #f3f4f6;
+  color: #4b5563;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.upload-box {
+  position: relative;
+  padding: 1rem;
+  border: 1px dashed #d1d5db;
+  border-radius: 10px;
+  background: #f9fafb;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.upload-box:hover {
+  border-color: #00a86b;
+  background: #f4faf6;
+}
+
+.file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.upload-copy {
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: #4b5563;
+}
+
+.upload-copy strong {
+  color: #1f2937;
+}
+
+.single-preview {
+  margin-top: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.single-preview img {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+}
+
+.preview-meta {
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.filename {
+  font-size: 0.9rem;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-remove-image {
+  padding: 0.35rem 0.75rem;
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-remove-image:hover {
+  background: #b91c1c;
 }
 
 .form-actions {
