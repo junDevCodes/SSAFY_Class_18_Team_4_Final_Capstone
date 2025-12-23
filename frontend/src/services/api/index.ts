@@ -419,6 +419,20 @@ export const sellerProductsAPI = {
     apiClient.delete(`/api/seller-products/${product_id}/images/${image_id}/`),
 }
 
+// ==================== Seller Orders API ====================
+export const sellerOrdersAPI = {
+  // 판매자 상품 기준 주문 항목 목록
+  getOrderItems: (params?: { status?: string; page?: number; page_size?: number }) =>
+    apiClient.get('/api/sellers/orders/', { params }),
+
+  // 상태별 개수 요약
+  getSummary: () => apiClient.get('/api/sellers/orders/summary/'),
+
+  // 주문 항목 상태 변경
+  updateStatus: (id: number, status: string) =>
+    apiClient.patch(`/api/sellers/orders/${id}/status/`, { status }),
+}
+
 // 전체 API를 하나의 객체로 export
 export const api = {
   auth: authAPI,
@@ -431,6 +445,7 @@ export const api = {
   recommendations: recommendationsAPI,
   sellers: sellersAPI,
   sellerProducts: sellerProductsAPI,
+  sellerOrders: sellerOrdersAPI,
   analytics: analyticsAPI,
   adminAnalytics: adminAnalyticsAPI,
 }

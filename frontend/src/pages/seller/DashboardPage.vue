@@ -106,7 +106,7 @@
               <p>채널/상품별 전환 추이를 바로 확인하세요</p>
             </router-link>
 
-            <a href="#orders" class="action-card">
+            <router-link to="/seller/orders" class="action-card">
               <div class="action-icon">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -114,7 +114,7 @@
               </div>
               <h3>주문 관리</h3>
               <p>주문 내역을 확인하세요</p>
-            </a>
+            </router-link>
 
             <a href="#settings" class="action-card">
               <div class="action-icon">
