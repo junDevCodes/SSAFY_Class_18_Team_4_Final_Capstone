@@ -5,6 +5,8 @@ from rest_framework import viewsets, generics, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.utils import timezone
 from django.db import transaction
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -15,8 +17,10 @@ from .serializers import (
     SellerApprovalSerializer,
     SellerPublicSerializer,
     SellerScheduleSerializer,
+    SellerImageUploadSerializer,
 )
 from .permissions import IsSeller, IsOwnerSeller
+from products.services.s3_upload import S3ImageUploader, S3UploadError
 
 
 @extend_schema(
@@ -216,3 +220,105 @@ class SellerDashboardView(generics.RetrieveAPIView):
             **serializer.data,
             'statistics': stats
         })
+
+
+class SellerImageUploadView(APIView):
+    """판매자 이미지 업로드 API
+
+    POST /api/sellers/me/images/upload/
+
+    판매자 프로필 이미지, 브랜드 로고, 브랜드 배너를 S3에 업로드합니다.
+    """
+    parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [IsAuthenticated, IsSeller]
+
+    @extend_schema(
+        tags=['판매자'],
+        summary='판매자 이미지 업로드',
+        description='''판매자 관련 이미지를 S3에 업로드합니다.
+
+### 요청 형식
+- Content-Type: multipart/form-data
+- image: 이미지 파일 (JPEG, PNG, GIF, WebP)
+- image_type: 이미지 유형
+  - `profile`: 판매자 프로필 이미지
+  - `logo`: 브랜드 로고
+  - `banner`: 브랜드 배너
+
+### S3 저장 경로
+- 프로필: `seller_profile/seller_profile/seller_{id}_{uuid}.{ext}`
+- 로고: `seller_profile/brand_logo/seller_{id}_{uuid}.{ext}`
+- 배너: `seller_profile/brand_banner/seller_{id}_{uuid}.{ext}`
+
+### 파일 제한
+- 지원 형식: JPEG, PNG, GIF, WebP
+- 최대 크기: 5MB
+''',
+        request=SellerImageUploadSerializer,
+    )
+    def post(self, request):
+        """이미지 파일 업로드 → S3 → DB 저장"""
+        # 판매자 프로필 확인
+        if not hasattr(request.user, 'seller_profile'):
+            return Response(
+                {'error': '판매자로 등록되지 않았습니다.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        seller = request.user.seller_profile
+
+        serializer = SellerImageUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        image = serializer.validated_data['image']
+        image_type = serializer.validated_data['image_type']
+
+        # S3 업로더 초기화
+        try:
+            uploader = S3ImageUploader()
+        except S3UploadError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # 이미지 타입별 업로드 및 DB 필드 업데이트
+        try:
+            old_url = None
+            if image_type == 'profile':
+                old_url = seller.profile_image_url
+                url = uploader.upload_seller_profile(image, seller.id, image.name)
+                seller.profile_image_url = url
+                field_name = 'profile_image_url'
+            elif image_type == 'logo':
+                old_url = seller.brand_logo_url
+                url = uploader.upload_brand_logo(image, seller.id, image.name)
+                seller.brand_logo_url = url
+                field_name = 'brand_logo_url'
+            elif image_type == 'banner':
+                old_url = seller.brand_banner_url
+                url = uploader.upload_brand_banner(image, seller.id, image.name)
+                seller.brand_banner_url = url
+                field_name = 'brand_banner_url'
+
+            seller.save(update_fields=[field_name, 'updated_at'])
+
+            # 기존 이미지 삭제 (선택적)
+            if old_url:
+                try:
+                    uploader.delete_image(old_url)
+                except Exception:
+                    pass  # 기존 이미지 삭제 실패는 무시
+
+            return Response({
+                'message': f'{image_type} 이미지가 업로드되었습니다.',
+                'image_type': image_type,
+                'image_url': url
+            }, status=status.HTTP_201_CREATED)
+
+        except S3UploadError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

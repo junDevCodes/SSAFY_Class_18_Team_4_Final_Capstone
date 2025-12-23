@@ -54,6 +54,16 @@ class Seller(models.Model):
         blank=True,
         verbose_name="브랜드 로고 URL",
     )
+    brand_banner_url = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="브랜드 배너 URL",
+    )
+    profile_image_url = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="판매자 프로필 이미지 URL",
+    )
     brand_description = models.TextField(
         null=True,
         blank=True,

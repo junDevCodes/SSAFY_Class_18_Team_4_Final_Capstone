@@ -357,9 +357,15 @@ AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION', 'ap-northeast-2')
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 
 # S3 업로드 경로 설정
-# 참고: 기존 'thumnail' 오타 → 'thumbnail' 수정 (기존 데이터 호환을 위해 환경변수로 오버라이드 가능)
-AWS_S3_THUMBNAIL_PREFIX = os.getenv('AWS_S3_THUMBNAIL_PREFIX', 'homeplus/thumbnail/')
-AWS_S3_PRODUCT_DETAIL_PREFIX = os.getenv('AWS_S3_PRODUCT_DETAIL_PREFIX', 'homeplus/product_detail/')
+# Base: s3://self-json-backup/seller_profile/
+# 상품 이미지
+AWS_S3_THUMBNAIL_PREFIX = os.getenv('AWS_S3_THUMBNAIL_PREFIX', 'seller_profile/seller_product_thumbnail/')
+AWS_S3_PRODUCT_DETAIL_PREFIX = os.getenv('AWS_S3_PRODUCT_DETAIL_PREFIX', 'seller_profile/seller_product_detail/')
+
+# 판매자 프로필/브랜드 이미지
+AWS_S3_SELLER_PROFILE_PREFIX = os.getenv('AWS_S3_SELLER_PROFILE_PREFIX', 'seller_profile/seller_profile/')
+AWS_S3_BRAND_LOGO_PREFIX = os.getenv('AWS_S3_BRAND_LOGO_PREFIX', 'seller_profile/brand_logo/')
+AWS_S3_BRAND_BANNER_PREFIX = os.getenv('AWS_S3_BRAND_BANNER_PREFIX', 'seller_profile/brand_banner/')
 
 # S3 파일 설정
 AWS_S3_FILE_OVERWRITE = False  # 동일 파일명 덮어쓰기 방지
