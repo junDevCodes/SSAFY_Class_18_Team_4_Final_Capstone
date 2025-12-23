@@ -147,14 +147,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  ref,
-  computed,
-  onMounted,
-  onBeforeUnmount,
-  watch,
-  nextTick,
-} from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from "vue";
 import * as echarts from "echarts/core";
 import { BarChart, LineChart } from "echarts/charts";
 import {
@@ -189,6 +182,7 @@ const granularityOptions: Granularity[] = [
   "yearly",
 ];
 const granularity = ref<Granularity>("daily");
+const appliedGranularity = ref<Granularity>("daily");
 const dateRange = ref({ start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) });
 const segment = ref("all");
 
@@ -215,7 +209,7 @@ const mockOverview = buildMockOverview();
 const trendData = computed(() =>
   formatTrend(
     overview.value?.trend.source ?? mockOverview.trend.source,
-    granularity.value
+    appliedGranularity.value
   )
 );
 const breakdownData = computed(
@@ -263,6 +257,7 @@ const loadData = async () => {
       segment: segment.value,
     });
     overview.value = data;
+    appliedGranularity.value = granularity.value;
   } catch (err: any) {
     console.warn("adminAnalyticsAPI 실패, mock 데이터 사용", err);
     overview.value = mockOverview;
@@ -279,6 +274,7 @@ const loadData = async () => {
 
 const resetFilters = () => {
   granularity.value = "daily";
+  appliedGranularity.value = "daily";
   dateRange.value = { start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) };
   segment.value = "all";
   loadData();
@@ -415,9 +411,9 @@ const renderTrendChart = () => {
   if (!chart) return;
   const data = trendData.value;
   chart.setOption({
-    grid: { top: 30, left: 40, right: 36, bottom: 32 },
+    grid: { top: 40, left: 56, right: 40, bottom: 72 },
     tooltip: { trigger: "axis" },
-    legend: { data: ["매출", "주문", "전환율"], top: 0 },
+    legend: { data: ["매출", "주문", "전환율"], bottom: 8 },
     xAxis: { type: "category", data: data.map((d) => d.date) },
     yAxis: [
       { type: "value", name: "매출(원) / 주문" },
@@ -457,9 +453,9 @@ const renderBreakdownChart = () => {
   if (!chart) return;
   const data = breakdownData.value;
   chart.setOption({
-    grid: { top: 30, left: 48, right: 36, bottom: 60 },
+    grid: { top: 40, left: 56, right: 40, bottom: 92 },
     tooltip: { trigger: "axis" },
-    legend: { data: ["매출", "주문", "전환율"], top: 0 },
+    legend: { data: ["매출", "주문", "전환율"], bottom: 8 },
     xAxis: {
       type: "category",
       data: data.map((d) => d.name),
@@ -506,8 +502,6 @@ const renderCharts = () => {
 const handleResize = () => {
   Object.values(charts).forEach((c) => c?.resize());
 };
-
-watch([granularity], () => nextTick(renderCharts));
 
 onMounted(() => {
   loadData();
