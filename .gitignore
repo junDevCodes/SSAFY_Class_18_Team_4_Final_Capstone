@@ -438,6 +438,7 @@ data/instacart/
 data/processed/
 data/recipe/
 
+pred/models/AIRScout_model
 
 AGENTS.md
 CLAUDE.md
