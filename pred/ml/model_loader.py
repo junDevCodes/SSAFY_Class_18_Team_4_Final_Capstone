@@ -3,13 +3,20 @@ Pickle 기반 ML 모델 로더
 
 사전 학습된 모델을 pickle 파일에서 로드하여 추천 서비스에 제공
 싱글톤 패턴으로 모델을 한 번만 로드하여 메모리에 유지
+
+Hot Reload 기능:
+- 파일 변경 감지 (mtime 기반)
+- 백그라운드 모니터링 태스크
+- 변경 시 자동 리로드
 """
 
 import os
 import io
 import json
 import pickle
-from typing import Any, Dict, List, Optional
+import asyncio
+import shutil
+from typing import Any, Callable, Dict, List, Optional
 from pathlib import Path
 from datetime import datetime
 
@@ -57,12 +64,22 @@ class ModelLoader:
     """Pickle 모델 로더
 
     싱글톤 패턴으로 모델을 한 번만 로드하여 메모리에 유지
+
+    Hot Reload 기능:
+    - 파일 mtime 변경 감지
+    - 백그라운드 태스크로 주기적 체크
+    - 변경된 모델만 선택적 리로드
+    - 리로드 콜백 지원 (SelfPersonalizedModel 재초기화 등)
     """
 
     _instance = None
     _models: Dict[str, Dict[str, Any]] = {}
     _metadata: Dict[str, Any] = {}
     _loaded: bool = False
+    _file_mtimes: Dict[str, float] = {}  # 파일별 최종 수정 시간
+    _reload_callbacks: List[Callable[[str], None]] = []  # 리로드 콜백
+    _monitor_task: Optional[asyncio.Task] = None  # 백그라운드 모니터링 태스크
+    _monitor_interval: int = 30  # 모니터링 간격 (초)
 
     def __new__(cls):
         if cls._instance is None:
@@ -70,12 +87,17 @@ class ModelLoader:
             cls._models = {}
             cls._metadata = {}
             cls._loaded = False
+            cls._file_mtimes = {}
+            cls._reload_callbacks = []
+            cls._monitor_task = None
         return cls._instance
 
     def __init__(self):
         # 모델 디렉토리 경로 (환경변수 또는 기본값)
         default_path = Path(__file__).parent.parent / "models"
         self.models_dir = Path(os.getenv("MODELS_DIR", str(default_path)))
+        # 모니터링 간격 (환경변수로 설정 가능)
+        self._monitor_interval = int(os.getenv("MODEL_RELOAD_INTERVAL", "30"))
 
     async def load_all_models(self) -> None:
         """모든 모델 로드
@@ -108,47 +130,66 @@ class ModelLoader:
         logger.info(f"발견된 모델 파일: {len(model_files)}개")
 
         for model_file in model_files:
-            try:
-                model_name = model_file.stem  # 확장자 제외 파일명
-
-                # SafeUnpickler를 사용하여 알 수 없는 모듈 무시
-                model_data = safe_pickle_load(model_file)
-
-                self._models[model_name] = model_data
-
-                # 로드된 모델 정보 로깅
-                if isinstance(model_data, dict):
-                    version = model_data.get("version", "unknown")
-                    created_at = model_data.get("created_at", "unknown")
-                    components = list(model_data.get("components", {}).keys()) if "components" in model_data else []
-
-                    # v2 모델 (Masked Set Transformer) 추가 정보
-                    if "model_state_dict" in model_data:
-                        vocab_size = len(model_data.get("tokenizer_vocab", {}))
-                        logger.info(
-                            f"모델 로드 완료: {model_name} (Transformer)",
-                            extra={
-                                "version": version,
-                                "vocab_size": vocab_size,
-                            }
-                        )
-                    else:
-                        logger.info(
-                            f"모델 로드 완료: {model_name}",
-                            extra={
-                                "version": version,
-                                "created_at": created_at,
-                                "components": components,
-                            }
-                        )
-                else:
-                    logger.info(f"모델 로드 완료: {model_name} (type={type(model_data).__name__})")
-
-            except Exception as e:
-                logger.error(f"모델 로드 실패: {model_file}", extra={"error": str(e)})
+            await self._load_single_model(model_file)
 
         self._loaded = True
         logger.info(f"총 {len(self._models)}개 모델 로드 완료")
+
+    async def _load_single_model(self, model_file: Path, is_reload: bool = False) -> bool:
+        """단일 모델 파일 로드
+
+        Args:
+            model_file: 모델 파일 경로
+            is_reload: 리로드 여부 (로깅용)
+
+        Returns:
+            로드 성공 여부
+        """
+        try:
+            model_name = model_file.stem  # 확장자 제외 파일명
+
+            # SafeUnpickler를 사용하여 알 수 없는 모듈 무시
+            model_data = safe_pickle_load(model_file)
+
+            self._models[model_name] = model_data
+
+            # 파일 mtime 저장 (Hot Reload용)
+            self._file_mtimes[model_name] = model_file.stat().st_mtime
+
+            # 로드된 모델 정보 로깅
+            action = "리로드" if is_reload else "로드"
+            if isinstance(model_data, dict):
+                version = model_data.get("version", "unknown")
+                created_at = model_data.get("created_at", "unknown")
+                components = list(model_data.get("components", {}).keys()) if "components" in model_data else []
+
+                # v2 모델 (Masked Set Transformer) 추가 정보
+                if "model_state_dict" in model_data:
+                    vocab_size = len(model_data.get("tokenizer_vocab", {}))
+                    logger.info(
+                        f"모델 {action} 완료: {model_name} (Transformer)",
+                        extra={
+                            "version": version,
+                            "vocab_size": vocab_size,
+                        }
+                    )
+                else:
+                    logger.info(
+                        f"모델 {action} 완료: {model_name}",
+                        extra={
+                            "version": version,
+                            "created_at": created_at,
+                            "components": components,
+                        }
+                    )
+            else:
+                logger.info(f"모델 {action} 완료: {model_name} (type={type(model_data).__name__})")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"모델 로드 실패: {model_file}", extra={"error": str(e)})
+            return False
 
     def get_model(self, model_name: str) -> Optional[Dict[str, Any]]:
         """특정 모델 조회
@@ -281,6 +322,7 @@ class ModelLoader:
                 "version": data.get("version", "unknown"),
                 "created_at": data.get("created_at", "unknown"),
                 "components": list(data.get("components", {}).keys()),
+                "last_loaded_mtime": self._file_mtimes.get(name),
             }
 
         return {
@@ -290,7 +332,246 @@ class ModelLoader:
             "model_count": len(self._models),
             "models": model_info,
             "active_models": self._metadata.get("active_models", {}),
+            "monitor_active": self._monitor_task is not None and not self._monitor_task.done(),
+            "monitor_interval": self._monitor_interval,
         }
+
+    # ===== Hot Reload 기능 =====
+
+    def register_reload_callback(self, callback: Callable[[str], None]) -> None:
+        """모델 리로드 시 호출될 콜백 등록
+
+        콜백은 리로드된 모델 이름을 인자로 받습니다.
+        예: SelfPersonalizedModel.reinitialize()
+
+        Args:
+            callback: 리로드 시 호출될 함수
+        """
+        if callback not in self._reload_callbacks:
+            self._reload_callbacks.append(callback)
+            logger.info(f"리로드 콜백 등록: {callback.__name__}")
+
+    def unregister_reload_callback(self, callback: Callable[[str], None]) -> None:
+        """콜백 등록 해제
+
+        Args:
+            callback: 해제할 콜백 함수
+        """
+        if callback in self._reload_callbacks:
+            self._reload_callbacks.remove(callback)
+
+    async def check_and_reload_models(self) -> List[str]:
+        """파일 변경 감지 및 변경된 모델 리로드
+
+        Returns:
+            리로드된 모델 이름 목록
+        """
+        if not self.models_dir.exists():
+            return []
+
+        reloaded = []
+        model_files = list(self.models_dir.glob("*.pkl"))
+
+        for model_file in model_files:
+            model_name = model_file.stem
+            current_mtime = model_file.stat().st_mtime
+            stored_mtime = self._file_mtimes.get(model_name)
+
+            # 새 파일이거나 변경된 파일
+            if stored_mtime is None or current_mtime > stored_mtime:
+                logger.info(
+                    f"모델 파일 변경 감지: {model_name}",
+                    extra={
+                        "old_mtime": stored_mtime,
+                        "new_mtime": current_mtime,
+                    }
+                )
+
+                # 리로드 수행
+                success = await self._load_single_model(model_file, is_reload=True)
+                if success:
+                    reloaded.append(model_name)
+
+                    # 콜백 호출
+                    for callback in self._reload_callbacks:
+                        try:
+                            result = callback(model_name)
+                            # async 콜백 지원
+                            if asyncio.iscoroutine(result):
+                                await result
+                        except Exception as e:
+                            logger.error(
+                                f"리로드 콜백 실행 실패: {callback.__name__}",
+                                extra={"error": str(e)}
+                            )
+
+        if reloaded:
+            logger.info(f"모델 리로드 완료: {reloaded}")
+
+        return reloaded
+
+    async def start_file_monitor(self) -> None:
+        """백그라운드 파일 모니터링 시작
+
+        주기적으로 모델 파일 변경을 체크하고 변경 시 자동 리로드
+        """
+        if self._monitor_task is not None and not self._monitor_task.done():
+            logger.warning("파일 모니터가 이미 실행 중")
+            return
+
+        async def _monitor_loop():
+            logger.info(
+                f"모델 파일 모니터링 시작",
+                extra={"interval_seconds": self._monitor_interval}
+            )
+            while True:
+                try:
+                    await asyncio.sleep(self._monitor_interval)
+                    await self.check_and_reload_models()
+                except asyncio.CancelledError:
+                    logger.info("모델 파일 모니터링 종료")
+                    break
+                except Exception as e:
+                    logger.error(f"모니터링 중 오류: {e}")
+
+        self._monitor_task = asyncio.create_task(_monitor_loop())
+
+    async def stop_file_monitor(self) -> None:
+        """백그라운드 파일 모니터링 중지"""
+        if self._monitor_task is not None:
+            self._monitor_task.cancel()
+            try:
+                await self._monitor_task
+            except asyncio.CancelledError:
+                pass
+            self._monitor_task = None
+            logger.info("모델 파일 모니터링 중지됨")
+
+    async def reload_model(self, model_name: str) -> bool:
+        """특정 모델 수동 리로드
+
+        Args:
+            model_name: 리로드할 모델 이름
+
+        Returns:
+            리로드 성공 여부
+        """
+        model_file = self.models_dir / f"{model_name}.pkl"
+        if not model_file.exists():
+            logger.error(f"모델 파일 없음: {model_file}")
+            return False
+
+        success = await self._load_single_model(model_file, is_reload=True)
+
+        if success:
+            # 콜백 호출
+            for callback in self._reload_callbacks:
+                try:
+                    result = callback(model_name)
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception as e:
+                    logger.error(f"리로드 콜백 실행 실패: {e}")
+
+        return success
+
+    async def reload_all_models(self) -> List[str]:
+        """모든 모델 강제 리로드
+
+        mtime과 관계없이 모든 모델을 리로드합니다.
+
+        Returns:
+            리로드된 모델 이름 목록
+        """
+        # mtime 초기화하여 강제 리로드
+        self._file_mtimes.clear()
+        return await self.check_and_reload_models()
+
+    def backup_model(self, model_name: str) -> Optional[Path]:
+        """모델 백업 생성
+
+        학습 전 기존 모델을 백업합니다.
+
+        Args:
+            model_name: 백업할 모델 이름
+
+        Returns:
+            백업 파일 경로 또는 None
+        """
+        model_file = self.models_dir / f"{model_name}.pkl"
+        if not model_file.exists():
+            logger.warning(f"백업 대상 모델 없음: {model_name}")
+            return None
+
+        # 백업 디렉토리 생성
+        backup_dir = self.models_dir / "backups"
+        backup_dir.mkdir(exist_ok=True)
+
+        # 타임스탬프 포함 백업 파일명
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = backup_dir / f"{model_name}_backup_{timestamp}.pkl"
+
+        try:
+            shutil.copy2(model_file, backup_file)
+            logger.info(
+                f"모델 백업 완료",
+                extra={
+                    "model": model_name,
+                    "backup_path": str(backup_file),
+                }
+            )
+            return backup_file
+        except Exception as e:
+            logger.error(f"모델 백업 실패: {e}")
+            return None
+
+    def restore_model(self, model_name: str, backup_path: Path) -> bool:
+        """백업에서 모델 복원
+
+        Args:
+            model_name: 복원할 모델 이름
+            backup_path: 백업 파일 경로
+
+        Returns:
+            복원 성공 여부
+        """
+        if not backup_path.exists():
+            logger.error(f"백업 파일 없음: {backup_path}")
+            return False
+
+        model_file = self.models_dir / f"{model_name}.pkl"
+
+        try:
+            shutil.copy2(backup_path, model_file)
+            logger.info(
+                f"모델 복원 완료",
+                extra={
+                    "model": model_name,
+                    "from_backup": str(backup_path),
+                }
+            )
+            return True
+        except Exception as e:
+            logger.error(f"모델 복원 실패: {e}")
+            return False
+
+    def list_backups(self, model_name: str) -> List[Path]:
+        """모델 백업 목록 조회
+
+        Args:
+            model_name: 모델 이름
+
+        Returns:
+            백업 파일 경로 목록 (최신순)
+        """
+        backup_dir = self.models_dir / "backups"
+        if not backup_dir.exists():
+            return []
+
+        backups = list(backup_dir.glob(f"{model_name}_backup_*.pkl"))
+        # 최신순 정렬
+        backups.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return backups
 
 
 # 전역 싱글톤 인스턴스
