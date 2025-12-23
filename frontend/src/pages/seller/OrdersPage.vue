@@ -74,9 +74,12 @@
             </div>
             <div class="status-group">
               <span class="status-chip" :class="`status-${item.status}`">
-                {{ statusLabel(item.status) }}
+                {{ displayStatusText(item) }}
               </span>
-              <span v-if="item.order_status_display" class="sub-chip">
+              <span
+                v-if="item.order_status_display && !['shipping', 'delivered'].includes(item.status)"
+                class="sub-chip"
+              >
                 주문 {{ item.order_status_display }}
               </span>
             </div>
@@ -216,6 +219,14 @@ const statusLabel = (status: string) => {
     refunded: '환불됨',
   }
   return map[status] || status
+}
+
+const displayStatusText = (item: SellerOrderItem) => {
+  if (['shipping', 'delivered'].includes(item.status)) {
+    const base = item.order_status_display || statusLabel(item.status)
+    return base.startsWith('주문') ? base : `주문 ${base}`
+  }
+  return statusLabel(item.status)
 }
 
 const summaryCount = (status: string) => summary.value[status] ?? 0
