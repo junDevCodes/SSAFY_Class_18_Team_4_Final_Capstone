@@ -289,12 +289,66 @@ export interface CartRecommendationsResponse {
   total_count: number
 }
 
+/**
+ * 개인화 추천 상품 정보
+ * ALS 32차원 모델 기반 추천 상품
+ */
+export interface PersonalizedProduct {
+  product_id: number
+  name: string
+  slug: string
+  price: number
+  original_price: number | null
+  main_image: string | null
+  category_id: number | null
+  category_name: string | null
+  order_count: number
+  view_count: number
+  average_rating: number
+  wishlist_count: number
+  recommendation_score: number
+  recommendation_source: string
+}
+
+/**
+ * 개인화 추천 응답
+ * ALS 32차원 + 하이브리드 추천 결과
+ */
+export interface PersonalizedRecommendationsResponse {
+  products: PersonalizedProduct[]
+  user_type: 'cold' | 'lukewarm' | 'warm'
+  model_version: string
+  total_count: number
+  metadata: Record<string, unknown>
+}
+
 export const recommendationsAPI = {
   // 장바구니 기반 ML 추천 (비회원 허용)
   getCartRecommendations: (productIds: number[], limit: number = 20) =>
     apiClient.post<CartRecommendationsResponse>('/api/recommendations/cart/', {
       product_ids: productIds,
       limit,
+    }),
+
+  /**
+   * 개인화 추천 (로그인 필수)
+   * 메인 페이지 MD's Pick 섹션에서 사용
+   *
+   * - ALS 32차원: Kaggle 최상위 수준 알고리즘
+   * - 하이브리드: CBF 0.7 + CF 0.3 동적 가중치
+   * - Cold user: 인기 상품으로 폴백
+   */
+  getPersonalizedRecommendations: (params?: {
+    limit?: number
+    page_type?: 'home' | 'category' | 'product_detail'
+    category_id?: number
+  }) =>
+    apiClient.get<PersonalizedRecommendationsResponse>('/api/recommendations/personalized/', {
+      params: {
+        limit: params?.limit ?? 8,
+        page_type: params?.page_type ?? 'home',
+        ...(params?.category_id ? { category_id: params.category_id } : {}),
+      },
     }),
 }
 
