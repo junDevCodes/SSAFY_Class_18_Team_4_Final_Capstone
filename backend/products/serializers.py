@@ -292,6 +292,103 @@ class CartSerializer(serializers.ModelSerializer):
 
 # ========================= v2.1 신규 Serializer =========================
 
+class NewProductListSerializer(serializers.ModelSerializer):
+    """신상품 목록용 Serializer
+
+    신상품 페이지에서 사용하는 간소화된 Serializer입니다.
+    프론트엔드에서 7일 필터링을 위해 created_at 필드를 포함합니다.
+    """
+    category_name = serializers.SerializerMethodField()
+    main_image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            'id',
+            'slug',
+            'name',
+            'price',
+            'original_price',
+            'main_image',
+            'category_name',
+            'created_at',
+        ]
+
+    def get_category_name(self, obj):
+        """카테고리명 반환 (null 안전)"""
+        if obj.category:
+            return obj.category.name
+        return None
+
+    def get_main_image(self, obj):
+        """메인 이미지 URL 반환 (ProductImage 테이블에서, display_order 기준)"""
+        first_image = obj.images.order_by('display_order').first()
+        if first_image:
+            return first_image.image_url
+        return None
+
+
+class BestProductListSerializer(serializers.ModelSerializer):
+    """베스트 상품 목록용 Serializer
+
+    베스트 상품 페이지에서 사용하는 Serializer입니다.
+    일일 판매량, 누적 판매량, 리뷰 정보를 포함합니다.
+    판매자 상품(product_type='seller') 중 판매량 기준 상위 40개에 사용됩니다.
+    """
+    category_name = serializers.SerializerMethodField()
+    main_image = serializers.SerializerMethodField()
+
+    # 통계 정보 (ProductStats에서)
+    review_count = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+
+    # 판매량 정보 (annotated fields - View에서 annotate로 추가됨)
+    daily_order_count = serializers.IntegerField(read_only=True)
+    total_order_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Product
+        fields = [
+            'id',
+            'slug',
+            'name',
+            'price',
+            'original_price',
+            'main_image',
+            'category_name',
+            'review_count',
+            'average_rating',
+            'daily_order_count',
+            'total_order_count',
+            'created_at',
+        ]
+
+    def get_category_name(self, obj):
+        """카테고리명 반환 (null 안전)"""
+        if obj.category:
+            return obj.category.name
+        return None
+
+    def get_main_image(self, obj):
+        """메인 이미지 URL 반환 (ProductImage 테이블에서, display_order 기준)"""
+        first_image = obj.images.order_by('display_order').first()
+        if first_image:
+            return first_image.image_url
+        return None
+
+    def get_review_count(self, obj):
+        """리뷰 수 (ProductStats에서)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return obj.stats.review_count
+        return 0
+
+    def get_average_rating(self, obj):
+        """평균 평점 (ProductStats에서)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return str(obj.stats.average_rating)
+        return '0.00'
+
+
 class ProductListSerializerV2(serializers.ModelSerializer):
     """상품 목록용 Serializer v2.1 (v2.1 테이블 포함)
 
@@ -310,6 +407,9 @@ class ProductListSerializerV2(serializers.ModelSerializer):
 
     # 재고 정보
     stock_quantity = serializers.SerializerMethodField()
+
+    # GMS 재료 추출 정보
+    main_ingredient = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -331,6 +431,7 @@ class ProductListSerializerV2(serializers.ModelSerializer):
             'wishlist_count',
             'quality_score',
             'stock_quantity',
+            'main_ingredient',
             'created_at',
         ]
 
@@ -383,6 +484,12 @@ class ProductListSerializerV2(serializers.ModelSerializer):
             return obj.inventory.stock_quantity
         return None
 
+    def get_main_ingredient(self, obj):
+        """주요 재료명 반환 (GMS 추출 결과에서)"""
+        if obj.parsed_ingredients:
+            return obj.parsed_ingredients.get('main_ingredient')
+        return None
+
 
 class ProductDetailSerializerV2(serializers.ModelSerializer):
     """상품 상세 Serializer v2.1 (분리된 테이블 포함)
@@ -402,6 +509,10 @@ class ProductDetailSerializerV2(serializers.ModelSerializer):
     is_wishlist = serializers.SerializerMethodField()
     related_products = serializers.SerializerMethodField()
     main_image = serializers.SerializerMethodField()
+
+    # GMS 재료 추출 정보
+    parsed_ingredients = serializers.JSONField(read_only=True)
+    main_ingredient = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -429,6 +540,9 @@ class ProductDetailSerializerV2(serializers.ModelSerializer):
             'shipping_fee',
             'free_shipping_threshold',
             'estimated_delivery_days',
+            # GMS 재료 추출 정보
+            'parsed_ingredients',
+            'main_ingredient',
             # 추가 정보
             'is_wishlist',
             'related_products',
@@ -452,6 +566,12 @@ class ProductDetailSerializerV2(serializers.ModelSerializer):
         first_image = obj.images.order_by('display_order').first()
         if first_image:
             return first_image.image_url
+        return None
+
+    def get_main_ingredient(self, obj):
+        """주요 재료명 반환 (GMS 추출 결과에서)"""
+        if obj.parsed_ingredients:
+            return obj.parsed_ingredients.get('main_ingredient')
         return None
 
     def get_related_products(self, obj):
@@ -543,3 +663,181 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
             )
 
         return review
+
+
+# ========================= 판매자 상품 이미지 업로드 Serializers =========================
+
+class ProductImageUploadSerializer(serializers.Serializer):
+    """상품 메인 이미지 업로드 Serializer (파일 업로드)
+
+    multipart/form-data로 이미지 파일을 받아 S3에 업로드합니다.
+    """
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        required=True,
+        help_text="업로드할 이미지 파일 목록 (최대 10개)",
+    )
+
+    def validate_images(self, value):
+        """이미지 파일 유효성 검사"""
+        if len(value) > 10:
+            raise serializers.ValidationError("이미지는 최대 10개까지 업로드할 수 있습니다.")
+
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        max_size = 5 * 1024 * 1024  # 5MB
+
+        for img in value:
+            if img.content_type not in allowed_types:
+                raise serializers.ValidationError(
+                    f"지원하지 않는 이미지 형식입니다: {img.content_type}. "
+                    f"허용 형식: JPEG, PNG, GIF, WebP"
+                )
+            if img.size > max_size:
+                raise serializers.ValidationError(
+                    f"이미지 크기가 너무 큽니다: {img.name}. 최대 5MB까지 업로드 가능합니다."
+                )
+
+        return value
+
+
+class ProductDetailImageUploadSerializer(serializers.Serializer):
+    """상품 상세 설명 이미지 업로드 Serializer
+
+    상세 페이지 본문에 표시되는 이미지들을 업로드합니다.
+    """
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        required=True,
+        help_text="업로드할 상세 설명 이미지 파일 목록 (최대 20개)",
+    )
+
+    def validate_images(self, value):
+        """이미지 파일 유효성 검사"""
+        if len(value) > 20:
+            raise serializers.ValidationError("상세 이미지는 최대 20개까지 업로드할 수 있습니다.")
+
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        max_size = 10 * 1024 * 1024  # 10MB (상세 이미지는 더 클 수 있음)
+
+        for img in value:
+            if img.content_type not in allowed_types:
+                raise serializers.ValidationError(
+                    f"지원하지 않는 이미지 형식입니다: {img.content_type}"
+                )
+            if img.size > max_size:
+                raise serializers.ValidationError(
+                    f"이미지 크기가 너무 큽니다: {img.name}. 최대 10MB까지 업로드 가능합니다."
+                )
+
+        return value
+
+
+class SellerProductCreateSerializer(serializers.ModelSerializer):
+    """판매자 상품 생성 Serializer
+
+    상품 생성 시 ProductDetail, ProductInventory, ProductStats를 자동으로 생성합니다.
+    """
+    category_id = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(),
+        source='category',
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text="카테고리 ID"
+    )
+
+    # 재고 정보 (옵션)
+    stock_quantity = serializers.IntegerField(
+        write_only=True,
+        required=False,
+        default=0,
+        help_text="초기 재고 수량"
+    )
+
+    # 상세 설명 (옵션)
+    short_description = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="짧은 설명"
+    )
+    full_description = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="상세 설명"
+    )
+
+    class Meta:
+        model = Product
+        fields = [
+            'name', 'slug', 'price', 'original_price',
+            'category_id', 'unit', 'unit_quantity',
+            'shipping_required', 'shipping_fee',
+            'free_shipping_threshold', 'estimated_delivery_days',
+            'stock_quantity', 'short_description', 'full_description'
+        ]
+
+    def validate_slug(self, value):
+        """slug 중복 체크"""
+        if value and Product.objects.filter(slug=value).exists():
+            raise serializers.ValidationError("이미 사용 중인 슬러그입니다.")
+        return value
+
+    def create(self, validated_data):
+        """상품 생성 + 관련 테이블 자동 생성 + GMS 재료 추출"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 추가 필드 추출
+        stock_quantity = validated_data.pop('stock_quantity', 0)
+        short_description = validated_data.pop('short_description', '')
+        full_description = validated_data.pop('full_description', '')
+
+        # 상품 생성
+        product = Product.objects.create(**validated_data)
+
+        # ProductDetail 생성
+        ProductDetail.objects.create(
+            product=product,
+            short_description=short_description,
+            full_description=full_description,
+            full_image_description=[]  # 빈 배열로 초기화
+        )
+
+        # ProductInventory 생성
+        ProductInventory.objects.create(
+            product=product,
+            stock_quantity=stock_quantity,
+            safe_stock_level=10,
+            is_unlimited=False
+        )
+
+        # ProductStats 생성
+        ProductStats.objects.create(product=product)
+
+        # GMS 재료 추출 (Celery 비동기 태스크로 처리)
+        try:
+            from products.tasks import extract_single_product
+            extract_single_product.apply_async(
+                args=[product.id],
+                kwargs={'use_fallback': True},
+                queue='high_priority',
+            )
+            logger.info(f"GMS 재료 추출 태스크 발행: product_id={product.id}")
+        except ImportError:
+            # Celery가 없는 환경에서는 동기 추출 시도
+            try:
+                from products.services import get_gms_extractor
+                extractor = get_gms_extractor()
+                parsed = extractor.extract_sync(product.name)
+                if parsed:
+                    product.parsed_ingredients = parsed.to_dict()
+                    product.save(update_fields=['parsed_ingredients'])
+                    logger.info(f"GMS 재료 추출 성공 (동기): product_id={product.id}")
+            except Exception as e:
+                logger.warning(f"GMS 재료 추출 실패 (product_id={product.id}): {e}")
+        except Exception as e:
+            logger.warning(f"GMS 태스크 발행 실패 (product_id={product.id}): {e}")
+
+        return product

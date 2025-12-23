@@ -8,7 +8,10 @@ import logging
 import sys
 from typing import Any, Dict
 
-import structlog
+try:
+    import structlog
+except ModuleNotFoundError:  # pragma: no cover
+    structlog = None
 
 from core.config import settings
 
@@ -30,6 +33,10 @@ def setup_logging() -> None:
     logging.getLogger("uvicorn").setLevel(logging.WARNING)
     logging.getLogger("asyncpg").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    # 테스트/로컬 환경에서 structlog 의존성이 없으면 표준 logging만 사용
+    if structlog is None:
+        return
 
     # structlog 프로세서 설정
     shared_processors = [
@@ -63,15 +70,17 @@ def setup_logging() -> None:
     )
 
 
-def get_logger(name: str = __name__) -> structlog.stdlib.BoundLogger:
+def get_logger(name: str = __name__) -> Any:
     """로거 인스턴스 반환
 
     Args:
         name: 로거 이름 (일반적으로 __name__ 사용)
 
     Returns:
-        structlog BoundLogger 인스턴스
+        structlog BoundLogger 또는 표준 logging.Logger 인스턴스
     """
+    if structlog is None:
+        return logging.getLogger(name)
     return structlog.get_logger(name)
 
 
@@ -88,6 +97,8 @@ class LogContext:
         Args:
             **kwargs: 바인딩할 키-값 쌍
         """
+        if structlog is None:
+            return
         structlog.contextvars.bind_contextvars(**kwargs)
 
     @staticmethod
@@ -97,11 +108,15 @@ class LogContext:
         Args:
             *keys: 제거할 키들
         """
+        if structlog is None:
+            return
         structlog.contextvars.unbind_contextvars(*keys)
 
     @staticmethod
     def clear() -> None:
         """현재 컨텍스트의 모든 로그 변수 제거"""
+        if structlog is None:
+            return
         structlog.contextvars.clear_contextvars()
 
     @staticmethod
@@ -117,6 +132,8 @@ class LogContext:
             user_id: 사용자 ID (선택적)
             page_type: 페이지 타입 (선택적)
         """
+        if structlog is None:
+            return
         context: Dict[str, Any] = {"request_id": request_id}
         if user_id is not None:
             context["user_id"] = user_id

@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.utils import timezone
 from django.db import transaction
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from .models import Seller, SellerBusiness, SellerSchedule
 from .serializers import (
     SellerSerializer,
@@ -18,6 +19,11 @@ from .serializers import (
 from .permissions import IsSeller, IsOwnerSeller
 
 
+@extend_schema(
+    tags=['판매자'],
+    summary='판매자 등록 신청',
+    description='일반 회원이 판매자로 등록을 신청합니다. MVP에서는 자동 승인됩니다.',
+)
 class SellerRegistrationView(generics.CreateAPIView):
     """판매자 등록 신청 API"""
 
@@ -52,6 +58,23 @@ class SellerRegistrationView(generics.CreateAPIView):
         return seller
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=['판매자'],
+        summary='판매자 목록 조회',
+        description='활성 상태의 판매자 목록을 조회합니다.',
+    ),
+    retrieve=extend_schema(
+        tags=['판매자'],
+        summary='판매자 상세 조회',
+        description='판매자의 상세 정보를 조회합니다.',
+    ),
+    me=extend_schema(
+        tags=['판매자'],
+        summary='내 판매자 정보',
+        description='현재 로그인한 사용자의 판매자 정보를 조회합니다.',
+    ),
+)
 class SellerViewSet(viewsets.ModelViewSet):
     """판매자 ViewSet"""
 
@@ -152,6 +175,11 @@ class SellerApprovalView(generics.UpdateAPIView):
         )
 
 
+@extend_schema(
+    tags=['판매자'],
+    summary='판매자 대시보드',
+    description='판매자의 상품 통계 및 대시보드 정보를 조회합니다.',
+)
 class SellerDashboardView(generics.RetrieveAPIView):
     """판매자 대시보드 API (통계 정보)"""
 

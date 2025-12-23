@@ -6,11 +6,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 시스템 패키지 설치 (ML 라이브러리 빌드 + healthcheck용 curl)
+# ML 라이브러리 및 PostgreSQL 클라이언트 설치 (마이그레이션 대기용)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
-    curl \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 패키지 설치 (캐시 레이어 활용)

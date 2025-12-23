@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
     'django_filters',  # 필터링 지원
+    'drf_spectacular',  # API 문서화 (Swagger/OpenAPI)
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
@@ -242,6 +243,47 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.AllowAny',),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# API 문서화 설정 (drf-spectacular)
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'SSAFY 18기 4팀 - 식료품 쇼핑몰 API',
+    'DESCRIPTION': '''
+## 프로젝트 개요
+SSAFY Class 18 Team 4 Final Capstone Project - 식료품 쇼핑몰 백엔드 API
+
+## 인증 방식
+- JWT (JSON Web Token) 기반 인증
+- Authorization 헤더에 `Bearer <access_token>` 형식으로 전송
+
+## 주요 기능
+- **인증**: 회원가입, 로그인, OAuth (Google, Kakao)
+- **상품**: 상품 목록/상세, 신상품, 베스트 상품
+- **장바구니**: 장바구니 관리
+- **찜 목록**: 위시리스트 관리
+- **주문**: 주문 생성/조회
+- **리뷰**: 상품 리뷰 작성/조회
+- **판매자**: 판매자 상품 관리
+- **추천**: 개인화 추천 시스템
+''',
+    'VERSION': '2.1.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': r'/api/',
+    'TAGS': [
+        {'name': '인증', 'description': '회원가입, 로그인, 토큰 관리'},
+        {'name': '상품', 'description': '상품 목록, 상세, 검색, 필터링'},
+        {'name': '신상품', 'description': '신상품 목록 (최신 40개)'},
+        {'name': '베스트 상품', 'description': '베스트 상품 목록 (판매량 기준 40개)'},
+        {'name': '장바구니', 'description': '장바구니 CRUD'},
+        {'name': '찜 목록', 'description': '위시리스트 관리'},
+        {'name': '주문', 'description': '주문 생성 및 조회'},
+        {'name': '리뷰', 'description': '상품 리뷰 CRUD'},
+        {'name': '판매자', 'description': '판매자 상품 관리, 이미지 S3 업로드'},
+        {'name': '추천', 'description': '개인화 추천 API'},
+        {'name': '카테고리', 'description': '카테고리 조회'},
+    ],
 }
 
 # SimpleJWT 설정
@@ -306,3 +348,65 @@ DEFAULT_FROM_EMAIL = os.getenv('EMAIL_VERIFICATION_FROM_EMAIL', 'noreply@example
 
 # SMTP 타임아웃 설정 (초 단위)
 EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', 5))
+
+# ========================= AWS S3 설정 =========================
+# 판매자 상품 이미지 업로드용 S3 설정
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', '')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '')
+AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_S3_BUCKET', 'self-json-backup')
+AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION', 'ap-northeast-2')
+AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
+
+# S3 업로드 경로 설정
+AWS_S3_THUMBNAIL_PREFIX = os.getenv('AWS_S3_THUMBNAIL_PREFIX', 'homeplus/thumnail/')
+AWS_S3_PRODUCT_DETAIL_PREFIX = os.getenv('AWS_S3_PRODUCT_DETAIL_PREFIX', 'homeplus/product_detail/')
+
+# S3 파일 설정
+AWS_S3_FILE_OVERWRITE = False  # 동일 파일명 덮어쓰기 방지
+AWS_DEFAULT_ACL = 'public-read'  # 공개 읽기 권한
+AWS_S3_OBJECT_PARAMETERS = {
+    'CacheControl': 'max-age=86400',  # 24시간 캐시
+}
+
+# ========================= GMS (SSAFY GPT Proxy) 설정 =========================
+# 상품명에서 재료 추출을 위한 LLM API 설정
+GMS_API_BASE_URL = os.getenv('GMS_API_BASE_URL', 'https://gms.ssafy.io/gmsapi/api.openai.com/v1')
+GMS_API_KEY = os.getenv('GMS_API_KEY', '')
+GMS_MODEL = os.getenv('GMS_MODEL', 'gpt-4o-mini')
+GMS_MAX_RETRIES = int(os.getenv('GMS_MAX_RETRIES', 3))
+GMS_TIMEOUT = int(os.getenv('GMS_TIMEOUT', 30))
+
+# ========================= Celery 설정 =========================
+# Redis를 브로커와 결과 백엔드로 사용
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
+
+# 직렬화 설정
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+# 시간대 설정
+CELERY_TIMEZONE = 'Asia/Seoul'
+CELERY_ENABLE_UTC = True
+
+# 태스크 설정
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30분 (GMS API 배치 처리 고려)
+CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # 25분 (soft limit)
+
+# Worker 설정
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # 순차 처리 (Rate Limit 대응)
+CELERY_WORKER_CONCURRENCY = int(os.getenv('CELERY_CONCURRENCY', 4))
+
+# 재시도 설정
+CELERY_TASK_ACKS_LATE = True  # 태스크 완료 후 ACK (장애 복구)
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+
+# 결과 만료 시간 (24시간)
+CELERY_RESULT_EXPIRES = 60 * 60 * 24
+
+# GMS 추출 관련 설정
+GMS_EXTRACTION_BATCH_SIZE = int(os.getenv('GMS_EXTRACTION_BATCH_SIZE', 100))
+GMS_EXTRACTION_MIN_CONFIDENCE = float(os.getenv('GMS_EXTRACTION_MIN_CONFIDENCE', 0.7))
+GMS_EXTRACTION_USE_FALLBACK = os.getenv('GMS_EXTRACTION_USE_FALLBACK', 'True').lower() == 'true'
