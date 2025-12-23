@@ -512,6 +512,7 @@ class ProductListSerializerV2(serializers.ModelSerializer):
     view_count = serializers.SerializerMethodField()
     average_rating = serializers.SerializerMethodField()
     review_count = serializers.SerializerMethodField()
+    order_event_count = serializers.SerializerMethodField()
     wishlist_count = serializers.SerializerMethodField()
     quality_score = serializers.SerializerMethodField()
 
@@ -538,6 +539,7 @@ class ProductListSerializerV2(serializers.ModelSerializer):
             'view_count',
             'average_rating',
             'review_count',
+            'order_event_count',
             'wishlist_count',
             'quality_score',
             'stock_quantity',
@@ -574,6 +576,12 @@ class ProductListSerializerV2(serializers.ModelSerializer):
         """리뷰 수 (ProductStats에서)"""
         if hasattr(obj, 'stats') and obj.stats:
             return obj.stats.review_count
+        return 0
+
+    def get_order_event_count(self, obj):
+        """주문 이벤트 수 (ProductStats에서)"""
+        if hasattr(obj, 'stats') and obj.stats:
+            return obj.stats.order_event_count
         return 0
 
     def get_wishlist_count(self, obj):

@@ -90,6 +90,7 @@ export interface Product {
   view_count: number
   average_rating: number
   review_count: number
+  order_event_count?: number
   wishlist_count: number
   quality_score: number
 

@@ -191,7 +191,10 @@ class ProductListView(generics.ListAPIView):
         if is_best and is_best.lower() in ('true', '1'):
             # 주문 이벤트 또는 조회수가 높은 상품 (주문수 > 0 또는 조회수 > 100)
             queryset = queryset.filter(
-                Q(stats__order_event_count__gt=0) | Q(stats__view_count__gte=100)
+                Q(stats__order_event_count__gt=0)
+                | Q(stats__review_count__gt=0)
+                | Q(stats__average_rating__gt=0)
+                | Q(stats__view_count__gte=100)
             ).order_by('-stats__order_event_count', '-stats__view_count', '-created_at')
 
         # 커스텀 필터: is_new (신상품 - 최근 7일 내 등록)
