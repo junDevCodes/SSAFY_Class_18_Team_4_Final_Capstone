@@ -31,7 +31,14 @@ const SellerProductCreate = () => import('@/pages/seller/ProductCreatePage.vue')
 const SellerProductEdit = () => import('@/pages/seller/ProductEditPage.vue')
 const SellerRegister = () => import('@/pages/seller/RegisterPage.vue')
 const SellerAnalytics = () => import('@/pages/seller/AnalyticsPage.vue')
+
+// Admin
+const AdminLayout = () => import('@/pages/admin/AdminLayout.vue')
 const AdminAnalytics = () => import('@/pages/admin/AdminAnalyticsPage.vue')
+const AdminRecommendation = () => import('@/pages/admin/AdminRecommendationPage.vue')
+const AdminBehavior = () => import('@/pages/admin/AdminBehaviorPage.vue')
+const AdminOperational = () => import('@/pages/admin/AdminOperationalPage.vue')
+const AdminUsers = () => import('@/pages/admin/AdminUsersPage.vue')
 
 // Brand
 const BrandMallPage = () => import('@/pages/brand/BrandMallPage.vue')
@@ -46,10 +53,46 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '홈' }
   },
   {
-    path: '/admin/analytics',
-    name: 'admin-analytics',
-    component: AdminAnalytics,
-    meta: { title: '관리자 분석' }
+    path: '/admin',
+    component: AdminLayout,
+    meta: { requiresAuth: true, requiresAdmin: true },
+    children: [
+      {
+        path: 'analytics',
+        name: 'admin-analytics',
+        redirect: '/admin/analytics/topline'
+      },
+      {
+        path: 'analytics/topline',
+        name: 'admin-analytics-topline',
+        component: AdminAnalytics,
+        meta: { title: '관리자 분석 · Top Line', requiresAuth: true, requiresAdmin: true }
+      },
+      {
+        path: 'analytics/recommendation',
+        name: 'admin-analytics-recommendation',
+        component: AdminRecommendation,
+        meta: { title: '관리자 분석 · Recommendation', requiresAuth: true, requiresAdmin: true }
+      },
+      {
+        path: 'analytics/behavior',
+        name: 'admin-analytics-behavior',
+        component: AdminBehavior,
+        meta: { title: '관리자 분석 · User Behavior', requiresAuth: true, requiresAdmin: true }
+      },
+      {
+        path: 'analytics/operational',
+        name: 'admin-analytics-operational',
+        component: AdminOperational,
+        meta: { title: '관리자 분석 · Operational', requiresAuth: true, requiresAdmin: true }
+      },
+      {
+        path: 'users',
+        name: 'admin-users',
+        component: AdminUsers,
+        meta: { title: '관리자 · 유저 관리', requiresAuth: true, requiresAdmin: true }
+      }
+    ]
   },
   {
     path: '/search',

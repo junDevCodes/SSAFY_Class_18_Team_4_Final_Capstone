@@ -8,7 +8,7 @@ export type AnalyticsTab =
   | 'region'
   | 'retention'
 
-export type Granularity = 'daily' | 'weekly' | 'monthly'
+export type Granularity = 'daily' | 'weekly' | 'monthly' | 'yearly'
 
 export interface KPI {
   label: string
