@@ -8,6 +8,8 @@
 """
 
 from __future__ import annotations
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
+from drf_spectacular.types import OpenApiTypes
 
 import json
 import logging
@@ -156,9 +158,25 @@ def _oauth_response(request: Request, user, tokens: Dict[str, str], ui_mode: str
 # ----- 기본 인증 -----
 
 
+@extend_schema(
+    tags=['인증'],
+    summary='회원가입',
+    description='''이메일과 비밀번호로 회원가입을 진행합니다.
+
+### 회원가입 플로우
+1. 이메일, 비밀번호, 사용자명 입력
+2. 이메일로 인증 코드 발송
+3. `/auth/register/verify/` 엔드포인트에서 인증 코드 확인
+4. 인증 완료 후 로그인 가능
+
+### 주의사항
+- 이미 가입된 이메일은 사용 불가
+- 비밀번호는 8자 이상 권장
+''',
+)
 class RegisterView(generics.CreateAPIView):
     """POST /auth/register/ - 일반 회원가입
-    
+
     회원가입은 누구나 가능해야 하므로 AllowAny 권한 사용
     """
 
@@ -200,6 +218,11 @@ class EmailVerificationConfirmView(APIView):
 
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['인증'],
+        summary='이메일 인증 확인',
+        description='회원가입 시 발송된 인증 코드를 확인합니다.',
+    )
     def post(self, request: Request):
         serializer = EmailVerificationConfirmSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -266,6 +289,17 @@ class LoginView(APIView):
 
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['인증'],
+        summary='로그인',
+        description='''이메일과 비밀번호로 로그인합니다.
+
+### 응답
+- `access`: JWT 액세스 토큰 (API 요청 시 Authorization 헤더에 사용)
+- `refresh`: JWT 리프레시 토큰 (액세스 토큰 갱신 시 사용)
+- `user`: 사용자 정보
+''',
+    )
     def post(self, request: Request):
         serializer = LoginSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
@@ -293,6 +327,11 @@ class LogoutView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['인증'],
+        summary='로그아웃',
+        description='리프레시 토큰을 블랙리스트에 추가하여 로그아웃 처리합니다.',
+    )
     def post(self, request: Request):
         refresh_token = request.data.get("refresh")
         if not refresh_token:
@@ -305,9 +344,14 @@ class LogoutView(APIView):
         return Response({"detail": "로그아웃되었습니다."}, status=status.HTTP_205_RESET_CONTENT)
 
 
+@extend_schema(
+    tags=['인증'],
+    summary='토큰 갱신',
+    description='리프레시 토큰으로 새로운 액세스 토큰을 발급받습니다.',
+)
 class TokenRefreshView(SimpleJWTTokenRefreshView):
     """POST /auth/token/refresh/ - JWT 토큰 갱신
-    
+
     토큰 갱신 시 User가 존재하지 않을 경우 적절히 처리
     """
 
@@ -337,9 +381,19 @@ class UserMeView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['인증'],
+        summary='내 정보 조회',
+        description='현재 로그인한 사용자의 정보를 조회합니다.',
+    )
     def get(self, request: Request):
         return Response(UserSerializer(request.user).data)
 
+    @extend_schema(
+        tags=['인증'],
+        summary='내 정보 수정',
+        description='현재 로그인한 사용자의 정보를 수정합니다.',
+    )
     def patch(self, request: Request):
         serializer = UserSerializer(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)

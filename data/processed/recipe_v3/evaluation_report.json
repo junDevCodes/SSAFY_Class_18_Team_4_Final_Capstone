@@ -1,0 +1,48 @@
+{
+  "model": "Masked Set Transformer v1",
+  "timestamp": "2025-12-20T08:59:35.524779",
+  "dataset": {
+    "train_recipes": 181937,
+    "val_recipes": 20216,
+    "vocab_size": 12089
+  },
+  "overall_metrics": {
+    "hit_at_1": 22.772825319258594,
+    "hit_at_5": 48.02654602604972,
+    "hit_at_10": 59.49504011809545,
+    "mrr": 0.3352752783188769,
+    "coverage": 12.189672293942404,
+    "total_samples": 157161
+  },
+  "frequency_analysis": {
+    "head": {
+      "hit_at_5": 61.711508418677305,
+      "total": 28805
+    },
+    "torso": {
+      "hit_at_5": 16.598079561042525,
+      "total": 5832
+    },
+    "tail": {
+      "hit_at_5": 2.6769509981851183,
+      "total": 4408
+    }
+  },
+  "comparison": {
+    "best_baseline": {
+      "model": "cooccurrence",
+      "hit_at_5": 28.79
+    },
+    "our_model": 48.02654602604972,
+    "improvement": 19.236546026049723,
+    "relative_improvement": 66.81676285533075
+  },
+  "target": {
+    "hit_at_5": 50.0,
+    "achieved": false
+  },
+  "output_files": {
+    "model": "/content/drive/MyDrive/Colab Notebooks/SSAFY_Class_18_Team_4_Final_Capstone/pred/models/recipe_gapfilling_v2.pkl",
+    "tokenizer": "/content/drive/MyDrive/Colab Notebooks/SSAFY_Class_18_Team_4_Final_Capstone/data/processed/recipe_v3/tokenizer.json"
+  }
+}

@@ -35,6 +35,8 @@ export interface ProductImage {
 export interface ProductDetailInfo {
   short_description: string | null
   full_description: string | null
+  full_image_description: string[] | null  // 상세 이미지 URL 배열 (순서대로)
+  full_text_description: string | null     // 상세 텍스트 설명
   meta_title: string | null
   meta_keywords: string | null
 }
@@ -88,6 +90,7 @@ export interface Product {
   view_count: number
   average_rating: number
   review_count: number
+  order_event_count?: number
   wishlist_count: number
   quality_score: number
 
@@ -247,6 +250,22 @@ export interface ProductListResponse {
   results: Product[]
 }
 
+export interface NewProductSummary {
+  id: number
+  slug: string
+  name: string
+  price: number
+  original_price: number | null
+  main_image: string | null
+  category_name: string | null
+  created_at: string
+}
+
+export interface NewProductListResponse {
+  count: number
+  results: NewProductSummary[]
+}
+
 // 카테고리 목록 응답
 export interface CategoryListResponse {
   count: number
@@ -263,6 +282,9 @@ export interface ProductFilterParams {
   price__lte?: number
   status?: 'active' | 'inactive' | 'draft' | 'out_of_stock' | 'discontinued'
   product_type?: 'main' | 'seller'
+  // 판매자/브랜드 필터
+  brand_slug?: string
+  include_inactive?: boolean
 
   // 커스텀 필터 (백엔드 v2.1 지원)
   is_featured?: boolean  // 추천 상품 (quality_score >= 70)
@@ -345,6 +367,16 @@ export function getProductDescription(product: ProductDetail): string | null {
     return product.detail.short_description
   }
   return null
+}
+
+// 상품 상세 이미지 리스트 가져오기 (v2.1)
+export function getFullImageDescription(product: ProductDetail): string[] {
+  return product.detail?.full_image_description ?? []
+}
+
+// 상품 상세 텍스트 설명 가져오기 (v2.1)
+export function getFullTextDescription(product: ProductDetail): string | null {
+  return product.detail?.full_text_description ?? null
 }
 
 // 상품 재고 수량 가져오기 (v2.1)

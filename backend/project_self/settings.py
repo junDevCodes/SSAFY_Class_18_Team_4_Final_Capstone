@@ -13,10 +13,16 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import os
+import sys
 from dotenv import load_dotenv
 
-# .env 파일 로드
-load_dotenv()
+# .env 파일 로드 (인코딩 명시)
+# Windows 환경에서 인코딩 문제 방지를 위해 UTF-8 명시
+try:
+    load_dotenv(encoding='utf-8')
+except TypeError:
+    # 구버전 python-dotenv는 encoding 파라미터를 지원하지 않을 수 있음
+    load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -48,6 +54,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
     'django_filters',  # 필터링 지원
+    'drf_spectacular',  # API 문서화 (Swagger/OpenAPI)
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
@@ -76,7 +83,7 @@ ROOT_URLCONF = 'project_self.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -105,6 +112,9 @@ DB_PASSWORD = os.getenv('DB_PASSWORD', '')
 DB_HOST = os.getenv('DB_HOST', '')
 DB_PORT = os.getenv('DB_PORT', '')
 ML_API_URL = os.getenv('ML_API_URL', 'http://localhost:8001')
+REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+# 상품 목록 캐시 TTL (초 단위) - 환경변수 PRODUCT_LIST_CACHE_TTL 로 조정 가능
+PRODUCT_LIST_CACHE_TTL = int(os.getenv('PRODUCT_LIST_CACHE_TTL', '60'))
 
 # 환경변수 값에 따라 SQLite(기본) 또는 Postgres 등으로 분기
 if DB_ENGINE == 'django.db.backends.sqlite3':
@@ -112,9 +122,14 @@ if DB_ENGINE == 'django.db.backends.sqlite3':
         'default': {
             'ENGINE': DB_ENGINE,
             'NAME': DB_NAME,
+            'OPTIONS': {
+                'timeout': 20,
+            },
         }
     }
-else:
+elif DB_ENGINE == 'django.db.backends.postgresql' or DB_ENGINE == 'django.db.backends.postgresql_psycopg2':
+    # PostgreSQL: charset 옵션 없음 (데이터베이스 레벨에서 인코딩 설정)
+    # client_encoding을 UTF-8로 명시적으로 설정하여 인코딩 문제 방지
     DATABASES = {
         'default': {
             'ENGINE': DB_ENGINE,
@@ -123,6 +138,47 @@ else:
             'PASSWORD': DB_PASSWORD,
             'HOST': DB_HOST,
             'PORT': DB_PORT,
+            'OPTIONS': {
+                'client_encoding': 'UTF8',
+            },
+        }
+    }
+else:
+    # MySQL/MariaDB: charset 옵션 사용 가능
+    DATABASES = {
+        'default': {
+            'ENGINE': DB_ENGINE,
+            'NAME': DB_NAME,
+            'USER': DB_USER,
+            'PASSWORD': DB_PASSWORD,
+            'HOST': DB_HOST,
+            'PORT': DB_PORT,
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            },
+        }
+    }
+
+# Cache (Redis)
+# 기본: RedisCache. 테스트 실행 시(CI 포함) 로컬 메모리 캐시로 전환해 외부 의존성 없이 검증.
+_cache_backend = os.getenv('DJANGO_CACHE_BACKEND', 'redis')
+_is_test_env = 'test' in sys.argv
+if _is_test_env:
+    _cache_backend = os.getenv('DJANGO_TEST_CACHE_BACKEND', 'locmem')
+
+if _cache_backend == 'locmem':
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-locmem',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
         }
     }
 
@@ -172,6 +228,9 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Frontend origin (admin analytics 등 SPA 링크용)
+FRONTEND_ORIGIN = os.getenv('FRONTEND_ORIGIN', 'http://localhost:8080')
+
 # ========================= Authentication 모듈 설정 =========================
 # 커스텀 User 모델 사용
 AUTH_USER_MODEL = 'authentication.User'
@@ -183,6 +242,47 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.AllowAny',),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# API 문서화 설정 (drf-spectacular)
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'SSAFY 18기 4팀 - 식료품 쇼핑몰 API',
+    'DESCRIPTION': '''
+## 프로젝트 개요
+SSAFY Class 18 Team 4 Final Capstone Project - 식료품 쇼핑몰 백엔드 API
+
+## 인증 방식
+- JWT (JSON Web Token) 기반 인증
+- Authorization 헤더에 `Bearer <access_token>` 형식으로 전송
+
+## 주요 기능
+- **인증**: 회원가입, 로그인, OAuth (Google, Kakao)
+- **상품**: 상품 목록/상세, 신상품, 베스트 상품
+- **장바구니**: 장바구니 관리
+- **찜 목록**: 위시리스트 관리
+- **주문**: 주문 생성/조회
+- **리뷰**: 상품 리뷰 작성/조회
+- **판매자**: 판매자 상품 관리
+- **추천**: 개인화 추천 시스템
+''',
+    'VERSION': '2.1.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': r'/api/',
+    'TAGS': [
+        {'name': '인증', 'description': '회원가입, 로그인, 토큰 관리'},
+        {'name': '상품', 'description': '상품 목록, 상세, 검색, 필터링'},
+        {'name': '신상품', 'description': '신상품 목록 (최신 40개)'},
+        {'name': '베스트 상품', 'description': '베스트 상품 목록 (판매량 기준 40개)'},
+        {'name': '장바구니', 'description': '장바구니 CRUD'},
+        {'name': '찜 목록', 'description': '위시리스트 관리'},
+        {'name': '주문', 'description': '주문 생성 및 조회'},
+        {'name': '리뷰', 'description': '상품 리뷰 CRUD'},
+        {'name': '판매자', 'description': '판매자 상품 관리, 이미지 S3 업로드'},
+        {'name': '추천', 'description': '개인화 추천 API'},
+        {'name': '카테고리', 'description': '카테고리 조회'},
+    ],
 }
 
 # SimpleJWT 설정
@@ -247,3 +347,79 @@ DEFAULT_FROM_EMAIL = os.getenv('EMAIL_VERIFICATION_FROM_EMAIL', 'noreply@example
 
 # SMTP 타임아웃 설정 (초 단위)
 EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', 5))
+
+# ========================= AWS S3 설정 =========================
+# 판매자 상품 이미지 업로드용 S3 설정
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+# 크롤러 변수명(S3_*)과 백엔드 변수명(AWS_S3_*) 모두 지원 (버킷/리전만 환경변수로 제어)
+AWS_STORAGE_BUCKET_NAME = os.getenv('S3_BUCKET') or os.getenv('AWS_S3_BUCKET', 'self-json-backup')
+AWS_S3_REGION_NAME = os.getenv('S3_REGION') or os.getenv('AWS_S3_REGION', 'ap-northeast-2')
+AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
+
+# S3 업로드 경로 설정 (prefix 는 하드코딩으로 고정해 혼선을 방지)
+AWS_S3_BASE_DIR = 'seller_profile/'
+
+# 상품 이미지 prefix (판매자 상품용 경로를 고정)
+AWS_S3_THUMBNAIL_PREFIX = f'{AWS_S3_BASE_DIR}seller_product_thumbnail/'
+AWS_S3_PRODUCT_DETAIL_PREFIX = f'{AWS_S3_BASE_DIR}seller_product_detail/'
+
+# 판매자 프로필/브랜드 이미지 prefix
+AWS_S3_SELLER_PROFILE_PREFIX = f'{AWS_S3_BASE_DIR}seller_profile/'
+AWS_S3_BRAND_LOGO_PREFIX = f'{AWS_S3_BASE_DIR}brand_logo/'
+AWS_S3_BRAND_BANNER_PREFIX = f'{AWS_S3_BASE_DIR}brand_banner/'
+
+# S3 파일 설정
+AWS_S3_FILE_OVERWRITE = False  # 동일 파일명 덮어쓰기 방지
+AWS_S3_USE_PUBLIC_URL = (os.getenv('S3_USE_PUBLIC_URL') or os.getenv('AWS_S3_USE_PUBLIC_URL', 'true')).lower() in ('1', 'true', 'yes')
+# ACL 설정을 건너뛰고 버킷 정책으로 관리하려면 False (권장)
+AWS_S3_SET_ACL = os.getenv('AWS_S3_SET_ACL', 'false').lower() in ('1', 'true', 'yes')
+AWS_DEFAULT_ACL = 'public-read' if AWS_S3_SET_ACL else None
+AWS_S3_OBJECT_PARAMETERS = {
+    'CacheControl': 'max-age=86400',  # 24시간 캐시
+}
+AWS_S3_PRESIGN_EXPIRES = int(os.getenv('S3_PRESIGN_EXPIRES') or os.getenv('AWS_S3_PRESIGN_EXPIRES', '3600'))
+
+# ========================= GMS (SSAFY GPT Proxy) 설정 =========================
+# 상품명에서 재료 추출을 위한 LLM API 설정
+GMS_API_BASE_URL = os.getenv('GMS_API_BASE_URL', 'https://gms.ssafy.io/gmsapi/api.openai.com/v1')
+GMS_API_KEY = os.getenv('GMS_API_KEY', '')
+GMS_MODEL = os.getenv('GMS_MODEL', 'gpt-4o-mini')
+GMS_MAX_RETRIES = int(os.getenv('GMS_MAX_RETRIES', 3))
+GMS_TIMEOUT = int(os.getenv('GMS_TIMEOUT', 30))
+
+# ========================= Celery 설정 =========================
+# Redis를 브로커와 결과 백엔드로 사용
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
+
+# 직렬화 설정
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+# 시간대 설정
+CELERY_TIMEZONE = 'Asia/Seoul'
+CELERY_ENABLE_UTC = True
+
+# 태스크 설정
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30분 (GMS API 배치 처리 고려)
+CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # 25분 (soft limit)
+
+# Worker 설정
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # 순차 처리 (Rate Limit 대응)
+CELERY_WORKER_CONCURRENCY = int(os.getenv('CELERY_CONCURRENCY', 4))
+
+# 재시도 설정
+CELERY_TASK_ACKS_LATE = True  # 태스크 완료 후 ACK (장애 복구)
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+
+# 결과 만료 시간 (24시간)
+CELERY_RESULT_EXPIRES = 60 * 60 * 24
+
+# GMS 추출 관련 설정
+GMS_EXTRACTION_BATCH_SIZE = int(os.getenv('GMS_EXTRACTION_BATCH_SIZE', 100))
+GMS_EXTRACTION_MIN_CONFIDENCE = float(os.getenv('GMS_EXTRACTION_MIN_CONFIDENCE', 0.7))
+GMS_EXTRACTION_USE_FALLBACK = os.getenv('GMS_EXTRACTION_USE_FALLBACK', 'True').lower() == 'true'

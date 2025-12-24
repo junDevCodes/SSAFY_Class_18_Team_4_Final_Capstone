@@ -16,10 +16,11 @@ from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from django.db.models import F
 
-from products.models import Cart, ProductInventory, ProductStats, UserProductStats
+from products.models import Cart, ProductInventory, ProductStats, UserProductStats, DailySalesStats
 
 from .models import (
     Order,
@@ -49,6 +50,42 @@ class StandardResultsSetPagination(PageNumberPagination):
     max_page_size = 100
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=['주문'],
+        summary='주문 목록 조회',
+        description='현재 로그인한 사용자의 주문 목록을 조회합니다.',
+    ),
+    retrieve=extend_schema(
+        tags=['주문'],
+        summary='주문 상세 조회',
+        description='특정 주문의 상세 정보를 조회합니다.',
+    ),
+    create_order=extend_schema(
+        tags=['주문'],
+        summary='주문 생성',
+        description='''장바구니 기반으로 주문을 생성합니다.
+
+### 처리 순서
+1. 재고 확인 및 차감 (동시성 제어)
+2. Order 생성
+3. OrderItem 생성 (Cart 기반)
+4. Shipment 생성 (배송 정보)
+5. Payment 생성 (모의 결제)
+6. Cart 항목 삭제
+''',
+    ),
+    cancel=extend_schema(
+        tags=['주문'],
+        summary='주문 취소',
+        description='주문을 취소합니다. pending, paid, processing 상태에서만 가능합니다.',
+    ),
+    confirm_delivery=extend_schema(
+        tags=['주문'],
+        summary='배송 완료 확인',
+        description='배송 완료를 확인합니다.',
+    ),
+)
 class OrderViewSet(viewsets.ReadOnlyModelViewSet):
     """주문 ViewSet (조회 + 커스텀 액션)
 
@@ -223,6 +260,25 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
                         order_event_count=1
                     )
 
+        # 8) DailySalesStats 업데이트: 일일 판매량 기록 (베스트 상품 산정용)
+        today = timezone.now().date()
+        for cart_item in cart_items:
+            product = cart_item.product
+
+            # UPDATE 먼저 시도 (기존 레코드가 있는 경우)
+            rows_updated = DailySalesStats.objects.filter(
+                product=product,
+                date=today
+            ).update(order_count=F('order_count') + 1)
+
+            # 기존 레코드가 없으면 생성
+            if rows_updated == 0:
+                DailySalesStats.objects.create(
+                    product=product,
+                    date=today,
+                    order_count=1
+                )
+
         response_serializer = OrderSerializer(order)
         return Response(
             {
@@ -268,6 +324,11 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         order.status = OrderStatus.CANCELLED
         order.cancelled_at = timezone.now()
         order.cancel_reason = serializer.validated_data["cancel_reason"]
+
+        # 항목 상태도 모두 취소로 동기화 (seller 대시보드 감지용)
+        order.items.exclude(status__in=[OrderItemStatus.CANCELLED, OrderItemStatus.REFUNDED]).update(
+            status=OrderItemStatus.CANCELLED
+        )
 
         # 결제 상태 갱신 (모의 결제 기준)
         payments = order.payments.all()
@@ -323,6 +384,11 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         shipment.delivered_at = now
         shipment.save(update_fields=["delivered_at", "updated_at"])
 
+        # ?ˆëª© ?íƒœë¥? ëª¨ë‘ ë°°ì†¡?„ë£Œë¡œ ë?™ê¸°í™”í•˜ì—¬ seller ì¤‘ë¬¸ê´ë¦¬ ëŒ€ì‹œë³´ë“œ??ê²°ì¹˜ë™
+        order.items.exclude(status__in=[OrderItemStatus.CANCELLED, OrderItemStatus.REFUNDED]).update(
+            status=OrderItemStatus.DELIVERED
+        )
+
         order.status = OrderStatus.DELIVERED
         order.save(update_fields=["status", "updated_at"])
 
@@ -334,6 +400,18 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 
+@extend_schema_view(
+    create_order=extend_schema(
+        tags=['주문'],
+        summary='비회원 주문 생성',
+        description='비회원이 상품을 주문합니다. 이메일과 전화번호로 주문 조회가 가능합니다.',
+    ),
+    lookup=extend_schema(
+        tags=['주문'],
+        summary='비회원 주문 조회',
+        description='주문번호와 이메일로 비회원 주문을 조회합니다.',
+    ),
+)
 class GuestOrderViewSet(viewsets.GenericViewSet):
     """비회원 주문 ViewSet
 
@@ -477,6 +555,25 @@ class GuestOrderViewSet(viewsets.GenericViewSet):
             ProductStats.objects.filter(product_id=product.id).update(
                 order_event_count=F('order_event_count') + 1
             )
+
+        # 7) DailySalesStats 업데이트: 일일 판매량 기록 (비회원 주문도 반영)
+        today = timezone.now().date()
+        for item in items:
+            product = item["product"]
+
+            # UPDATE 먼저 시도 (기존 레코드가 있는 경우)
+            rows_updated = DailySalesStats.objects.filter(
+                product=product,
+                date=today
+            ).update(order_count=F('order_count') + 1)
+
+            # 기존 레코드가 없으면 생성
+            if rows_updated == 0:
+                DailySalesStats.objects.create(
+                    product=product,
+                    date=today,
+                    order_count=1
+                )
 
         response_serializer = OrderSerializer(order)
         return Response(

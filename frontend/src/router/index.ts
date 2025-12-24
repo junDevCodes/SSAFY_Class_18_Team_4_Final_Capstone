@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Vue Router 설정
  */
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
@@ -31,6 +31,8 @@ const SellerProductCreate = () => import('@/pages/seller/ProductCreatePage.vue')
 const SellerProductEdit = () => import('@/pages/seller/ProductEditPage.vue')
 const SellerRegister = () => import('@/pages/seller/RegisterPage.vue')
 const SellerAnalytics = () => import('@/pages/seller/AnalyticsPage.vue')
+const SellerOrders = () => import('@/pages/seller/OrdersPage.vue')
+const SellerSettings = () => import('@/pages/seller/SettingsPage.vue')
 const AdminAnalytics = () => import('@/pages/admin/AdminAnalyticsPage.vue')
 
 // Brand
@@ -49,7 +51,7 @@ const routes: RouteRecordRaw[] = [
     path: '/admin/analytics',
     name: 'admin-analytics',
     component: AdminAnalytics,
-    meta: { title: '관리자 분석', requiresAuth: true, requiresAdmin: true }
+    meta: { title: '관리자 분석' }
   },
   {
     path: '/search',
@@ -163,6 +165,18 @@ const routes: RouteRecordRaw[] = [
     name: 'seller-analytics',
     component: SellerAnalytics,
     meta: { title: '매출·환불 분석', requiresAuth: true, requiresSeller: true }
+  },
+  {
+    path: '/seller/orders',
+    name: 'seller-orders',
+    component: SellerOrders,
+    meta: { title: '주문 관리', requiresAuth: true, requiresSeller: true }
+  },
+  {
+    path: '/seller/settings',
+    name: 'seller-settings',
+    component: SellerSettings,
+    meta: { title: '판매자 설정', requiresAuth: true, requiresSeller: true }
   },
   {
     path: '/seller/products',

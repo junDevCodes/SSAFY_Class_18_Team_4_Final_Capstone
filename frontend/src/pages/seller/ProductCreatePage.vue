@@ -3,7 +3,7 @@
     <div class="container">
       <div class="page-header">
         <h1 class="page-title">상품 등록</h1>
-        <p class="page-description">새로운 상품을 등록하세요</p>
+        <p class="page-description">새로운 상품을 등록하세요.</p>
       </div>
 
       <form @submit.prevent="handleSubmit" class="product-form">
@@ -20,7 +20,17 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label for="price">가격 *</label>
+            <label for="original_price">가격 (정가)</label>
+            <input
+              id="original_price"
+              v-model.number="formData.original_price"
+              type="number"
+              min="0"
+              placeholder="0"
+            />
+          </div>
+          <div class="form-group">
+            <label for="price">할인가격 (판매가) *</label>
             <input
               id="price"
               v-model.number="formData.price"
@@ -29,19 +39,42 @@
               placeholder="0"
               required
             />
+            <p v-if="discountRate !== null" class="field-hint">
+              예상 할인율: {{ discountRate }}%
+            </p>
           </div>
-
           <div class="form-group">
-            <label for="stock_quantity">재고 수량</label>
+            <label for="stock_quantity">재고 *</label>
             <input
               id="stock_quantity"
               v-model.number="formData.stock_quantity"
               type="number"
               min="0"
               placeholder="0"
+              required
             />
           </div>
+        </div>
 
+        <div class="form-group">
+          <label for="category">카테고리 *</label>
+          <select
+            id="category"
+            v-model.number="formData.category_id"
+            required
+          >
+            <option value="" disabled>카테고리를 선택하세요</option>
+            <option
+              v-for="category in categories"
+              :key="category.id"
+              :value="category.id"
+            >
+              {{ category.name }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-row single">
           <div class="form-group">
             <label for="unit">단위</label>
             <input
@@ -54,42 +87,79 @@
         </div>
 
         <div class="form-group">
-          <label for="short_description">짧은 설명</label>
+          <label>메인 상품 이미지 업로드 *</label>
+          <div class="upload-box">
+            <input
+              ref="mainFileInput"
+              class="file-input"
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              multiple
+              @change="handleMainImages"
+            />
+            <div class="upload-copy">
+              <strong>파일을 선택하거나 클릭해 업로드</strong>
+              <span>최대 10개, JPEG/PNG/GIF/WebP, 5MB 이하</span>
+            </div>
+          </div>
+          <div v-if="mainImages.length" class="preview-grid">
+            <div v-for="(item, index) in mainImages" :key="item.preview" class="preview-card">
+              <img :src="item.preview" :alt="item.file.name" />
+              <div class="preview-meta">
+                <span class="filename" :title="item.file.name">{{ item.file.name }}</span>
+                <button type="button" class="btn-remove-image" @click="removeMainImage(index)">삭제</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="short_description">간단한 설명</label>
           <input
             id="short_description"
             v-model="formData.short_description"
             type="text"
-            placeholder="한 줄 설명"
+            maxlength="120"
+            placeholder="한 줄 설명 (예: 달콤한 제철 과일)"
           />
+          <p class="field-hint">리스트 노출용, 120자 이내 추천</p>
         </div>
 
         <div class="form-group">
-          <label for="description">상품 설명</label>
+          <label>상품 상세 설명 이미지 업로드</label>
+          <div class="upload-box">
+            <input
+              ref="detailFileInput"
+              class="file-input"
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              multiple
+              @change="handleDetailImages"
+            />
+            <div class="upload-copy">
+              <strong>파일을 선택하거나 클릭해 업로드</strong>
+              <span>최대 20개, JPEG/PNG/GIF/WebP, 10MB 이하</span>
+            </div>
+          </div>
+          <div v-if="detailImages.length" class="preview-grid">
+            <div v-for="(item, index) in detailImages" :key="item.preview" class="preview-card">
+              <img :src="item.preview" :alt="item.file.name" />
+              <div class="preview-meta">
+                <span class="filename" :title="item.file.name">{{ item.file.name }}</span>
+                <button type="button" class="btn-remove-image" @click="removeDetailImage(index)">삭제</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="full_description">상품 설명 (선택)</label>
           <textarea
-            id="description"
-            v-model="formData.description"
+            id="full_description"
+            v-model="formData.full_description"
             rows="6"
-            placeholder="상품에 대한 자세한 설명을 입력하세요"
+            placeholder="상품에 대한 상세 설명을 입력하세요."
           ></textarea>
-        </div>
-
-        <div class="form-group">
-          <label for="main_image_url">메인 이미지 URL</label>
-          <input
-            id="main_image_url"
-            v-model="formData.main_image_url"
-            type="url"
-            placeholder="https://example.com/image.jpg"
-            @input="handleImageUrlChange"
-          />
-          <p class="field-hint">MVP: 이미지 URL을 직접 입력해주세요</p>
-          <div v-if="formData.main_image_url && imagePreview" class="image-preview">
-            <img :src="formData.main_image_url" alt="이미지 미리보기" @error="handleImageError" />
-            <button type="button" @click="clearImage" class="btn-remove-image">이미지 제거</button>
-          </div>
-          <div v-else-if="formData.main_image_url && !imagePreview" class="image-error">
-            <p>이미지를 불러올 수 없습니다. URL을 확인해주세요.</p>
-          </div>
         </div>
 
         <div v-if="error" class="error-message">{{ error }}</div>
@@ -97,7 +167,7 @@
         <div class="form-actions">
           <button type="submit" class="btn-submit" :disabled="submitting">
             <span v-if="submitting">등록 중...</span>
-            <span v-else">상품 등록</span>
+            <span v-else>상품 등록</span>
           </button>
           <router-link to="/seller/products" class="btn-cancel">취소</router-link>
         </div>
@@ -107,84 +177,223 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { sellerProductsAPI } from '@/services/api'
+import { productsAPI, sellerProductsAPI } from '@/services/api'
+import type { Category } from '@/types/product'
+
+type UploadItem = { file: File; preview: string }
 
 const router = useRouter()
 const submitting = ref(false)
 const error = ref<string | null>(null)
-const imagePreview = ref(false)
+const categories = ref<Category[]>([])
 
 const formData = reactive({
   name: '',
   price: 0,
+  original_price: 0,
   stock_quantity: 0,
+  category_id: null as number | null,
   unit: '',
   short_description: '',
-  description: '',
-  main_image_url: ''
+  full_description: ''
 })
 
-// Handle image URL change
-const handleImageUrlChange = () => {
-  if (formData.main_image_url) {
-    // Validate URL format
-    try {
-      new URL(formData.main_image_url)
-      // Test if image loads
-      const img = new Image()
-      img.onload = () => {
-        imagePreview.value = true
-      }
-      img.onerror = () => {
-        imagePreview.value = false
-      }
-      img.src = formData.main_image_url
-    } catch {
-      imagePreview.value = false
+const mainImages = ref<UploadItem[]>([])
+const detailImages = ref<UploadItem[]>([])
+
+const generateSlug = (value: string) => {
+  const base = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  const suffix = Date.now().toString(36).slice(-4)
+  return base ? `${base}-${suffix}` : `product-${suffix}`
+}
+
+const discountRate = computed(() => {
+  if (!formData.original_price || !formData.price) return null
+  if (formData.original_price <= formData.price) return null
+  const rate = Math.round(((formData.original_price - formData.price) / formData.original_price) * 100)
+  return Number.isFinite(rate) ? rate : null
+})
+
+const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+
+const revokePreviews = (items: UploadItem[]) => {
+  items.forEach((item) => URL.revokeObjectURL(item.preview))
+}
+
+const validateAndAddFiles = (files: File[], target: 'main' | 'detail') => {
+  const limit = target === 'main' ? 10 : 20
+  const maxSize = target === 'main' ? 5 * 1024 * 1024 : 10 * 1024 * 1024
+  const current = target === 'main' ? mainImages : detailImages
+
+  const next: UploadItem[] = [...current.value]
+  for (const file of files) {
+    if (!allowedImageTypes.includes(file.type)) {
+      error.value = 'JPEG, PNG, GIF, WebP 형식만 업로드할 수 있습니다.'
+      continue
     }
-  } else {
-    imagePreview.value = false
+    if (file.size > maxSize) {
+      error.value = target === 'main' ? '메인 이미지는 5MB 이하만 업로드하세요.' : '상세 이미지는 10MB 이하만 업로드하세요.'
+      continue
+    }
+    if (next.length >= limit) {
+      error.value = target === 'main' ? '메인 이미지는 최대 10개까지 업로드할 수 있습니다.' : '상세 이미지는 최대 20개까지 업로드할 수 있습니다.'
+      break
+    }
+    next.push({ file, preview: URL.createObjectURL(file) })
+  }
+  current.value = next
+}
+
+const handleMainImages = (event: Event) => {
+  const files = (event.target as HTMLInputElement)?.files
+  if (files) {
+    validateAndAddFiles(Array.from(files), 'main')
+    ;(event.target as HTMLInputElement).value = ''
   }
 }
 
-// Handle image error
-const handleImageError = () => {
-  imagePreview.value = false
+const handleDetailImages = (event: Event) => {
+  const files = (event.target as HTMLInputElement)?.files
+  if (files) {
+    validateAndAddFiles(Array.from(files), 'detail')
+    ;(event.target as HTMLInputElement).value = ''
+  }
 }
 
-// Clear image
-const clearImage = () => {
-  formData.main_image_url = ''
-  imagePreview.value = false
+const removeMainImage = (index: number) => {
+  const removed = mainImages.value.splice(index, 1)
+  revokePreviews(removed)
+}
+
+const removeDetailImage = (index: number) => {
+  const removed = detailImages.value.splice(index, 1)
+  revokePreviews(removed)
+}
+
+onBeforeUnmount(() => {
+  revokePreviews(mainImages.value)
+  revokePreviews(detailImages.value)
+})
+
+const validateForm = () => {
+  if (!formData.name.trim()) {
+    error.value = '상품명을 입력해주세요.'
+    return false
+  }
+  if (!formData.price || formData.price <= 0) {
+    error.value = '판매가를 0보다 크게 입력해주세요.'
+    return false
+  }
+  if (formData.original_price && formData.original_price < formData.price) {
+    error.value = '할인가격은 정가보다 클 수 없습니다.'
+    return false
+  }
+  if (formData.stock_quantity < 0) {
+    error.value = '재고는 0 이상이어야 합니다.'
+    return false
+  }
+  if (!formData.category_id) {
+    error.value = '????? ??????.'
+    return false
+  }
+  if (!mainImages.value.length) {
+    error.value = '메인 상품 이미지를 최소 1개 이상 업로드하세요.'
+    return false
+  }
+  return true
+}
+
+const loadCategories = async () => {
+  try {
+    const res = await productsAPI.getCategories()
+    const results = res.data?.results ?? res.data ?? []
+    categories.value = Array.isArray(results) ? results : []
+  } catch (err) {
+    console.error('???? ???? ??:', err)
+  }
 }
 
 const handleSubmit = async () => {
   error.value = null
+  if (!validateForm()) return
+
   submitting.value = true
 
   try {
-    const data: any = {
-      name: formData.name,
-      price: formData.price
+    const payload = {
+      name: formData.name.trim(),
+      slug: generateSlug(formData.name),
+      price: formData.price,
+      original_price: formData.original_price || undefined,
+      stock_quantity: formData.stock_quantity || 0,
+      category_id: formData.category_id || undefined,
+      unit: formData.unit || undefined,
+      short_description: formData.short_description || '',
+      full_description: formData.full_description || '',
+      // backend 호환용: description 필드도 동일 내용 전달
+      description: formData.full_description || ''
     }
 
-    if (formData.stock_quantity) data.stock_quantity = formData.stock_quantity
-    if (formData.unit) data.unit = formData.unit
-    if (formData.short_description) data.short_description = formData.short_description
-    if (formData.description) data.description = formData.description
-    if (formData.main_image_url) data.main_image_url = formData.main_image_url
+    const createRes = await sellerProductsAPI.createProduct(payload)
+    let productId = createRes.data?.id || createRes.data?.product?.id
 
-    await sellerProductsAPI.createProduct(data)
+    // Location 헤더에서 ID 파싱 (DRF 기본 Location: /api/seller-products/{id}/)
+    if (!productId) {
+      const location = createRes.headers?.location || createRes.headers?.Location
+      const match = location && location.match(/seller-products\/(\d+)/)
+      if (match && match[1]) {
+        productId = Number(match[1])
+      }
+    }
+
+    // 생성 응답에 id가 없으면 최신 상품을 한번 더 조회해 확인 (내 상품 목록)
+    if (!productId) {
+      const listRes = await sellerProductsAPI.getMyProducts({ page: 1, page_size: 1 })
+      const listData = listRes.data?.results || listRes.data || []
+      const latest = Array.isArray(listData) ? listData[0] : listData
+      productId = latest?.id
+    }
+
+    if (!productId) {
+      throw new Error('상품 ID를 가져오지 못했습니다.')
+    }
+
+    await sellerProductsAPI.uploadProductImages(
+      productId,
+      mainImages.value.map((item) => item.file)
+    )
+
+    if (detailImages.value.length) {
+      await sellerProductsAPI.uploadProductDetailImages(
+        productId,
+        detailImages.value.map((item) => item.file)
+      )
+    }
+
     alert('상품이 등록되었습니다.')
     router.push('/seller/products')
   } catch (err: any) {
-    error.value = err.response?.data?.message || '상품 등록에 실패했습니다.'
+    error.value =
+      err.response?.data?.message ||
+      err.response?.data?.error ||
+      err.message ||
+      '상품 등록에 실패했습니다.'
   } finally {
     submitting.value = false
   }
 }
+
+onMounted(() => {
+  loadCategories()
+})
 </script>
 
 <style scoped>
@@ -229,9 +438,13 @@ const handleSubmit = async () => {
 
 .form-row {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 1rem;
   margin-bottom: 1.5rem;
+}
+
+.form-row.single {
+  grid-template-columns: 1fr;
 }
 
 .form-group label {
@@ -243,15 +456,18 @@ const handleSubmit = async () => {
 }
 
 .form-group input,
+.form-group select,
 .form-group textarea {
   width: 100%;
   padding: 0.875rem;
   border: 1px solid #ddd;
   border-radius: 6px;
   font-size: 1rem;
+  resize: vertical;
 }
 
 .form-group input:focus,
+.form-group select:focus,
 .form-group textarea:focus {
   outline: none;
   border-color: #00a86b;
@@ -263,30 +479,85 @@ const handleSubmit = async () => {
   margin-top: 0.375rem;
 }
 
-.image-preview {
-  margin-top: 1rem;
-  padding: 1rem;
-  background: #f8f9fa;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
+.upload-box {
+  position: relative;
+  padding: 1.25rem;
+  border: 1px dashed #d1d5db;
+  border-radius: 10px;
+  background: #f9fafb;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
 }
 
-.image-preview img {
+.upload-box:hover {
+  border-color: #00a86b;
+  background: #f4faf6;
+}
+
+.file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.upload-copy {
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: #4b5563;
+}
+
+.upload-copy strong {
+  color: #1f2937;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.preview-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-card img {
   width: 100%;
-  max-width: 400px;
-  height: auto;
-  border-radius: 6px;
-  margin-bottom: 0.75rem;
-  display: block;
+  height: 120px;
+  object-fit: cover;
+}
+
+.preview-meta {
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.filename {
+  font-size: 0.85rem;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .btn-remove-image {
-  padding: 0.5rem 1rem;
+  padding: 0.35rem 0.65rem;
   background: #dc2626;
   color: white;
   border: none;
   border-radius: 6px;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;
@@ -294,16 +565,6 @@ const handleSubmit = async () => {
 
 .btn-remove-image:hover {
   background: #b91c1c;
-}
-
-.image-error {
-  margin-top: 0.75rem;
-  padding: 0.75rem;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 6px;
-  color: #dc2626;
-  font-size: 0.875rem;
 }
 
 .error-message {
@@ -364,6 +625,10 @@ const handleSubmit = async () => {
 
   .form-actions {
     flex-direction: column;
+  }
+
+  .preview-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
 }
 </style>

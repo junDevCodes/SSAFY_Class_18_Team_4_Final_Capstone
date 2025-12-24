@@ -58,6 +58,20 @@ class ProductData:
     # 고유 식별자 (브랜드 + 상품명 조합으로 중복 체크)
     brand_name: Optional[str] = None  # source_site에서 추출 가능
 
+    # 확장 필드 (원문 카테고리/서비스 카테고리/패싯)
+    source_category_path: Optional[str] = None
+    source_category_l1: Optional[str] = None
+    source_category_l2: Optional[str] = None
+    source_category_l3: Optional[str] = None
+    service_category: Optional[str] = None
+    service_subcategory: Optional[str] = None
+    storage_type: Optional[str] = None
+    processing_level: Optional[str] = None
+
+    # 상세 설명 분리
+    full_image_description: Optional[List[str]] = None
+    full_text_description: Optional[str] = None
+
     def to_dict(self) -> dict:
         """딕셔너리로 변환"""
         data = asdict(self)
@@ -131,6 +145,7 @@ class CrawlBatch:
     source: str  # 데이터 소스 (예: "naver", "coupang")
     crawled_at: str  # 배치 크롤링 시작 시각
     total_count: int
+    crawl_type: Optional[str] = None  # full, sample, price_refresh 등 배치 용도 구분
 
     # 상품 데이터 리스트
     products: List[ProductData] = field(default_factory=list)
@@ -147,6 +162,7 @@ class CrawlBatch:
             'source': self.source,
             'crawled_at': self.crawled_at,
             'total_count': self.total_count,
+            'crawl_type': self.crawl_type,
             'products': [p.to_dict() for p in self.products],
             'status': self.status,
             'processed_at': self.processed_at,
@@ -171,6 +187,7 @@ class CrawlBatch:
             source=data['source'],
             crawled_at=data['crawled_at'],
             total_count=data['total_count'],
+            crawl_type=data.get('crawl_type'),
             products=products,
             status=data.get('status', 'pending'),
             processed_at=data.get('processed_at'),

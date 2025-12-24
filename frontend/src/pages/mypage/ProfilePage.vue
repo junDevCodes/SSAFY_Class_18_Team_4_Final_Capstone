@@ -5,6 +5,8 @@
       <p class="page-description">회원 정보를 관리할 수 있습니다</p>
     </div>
 
+    <ResetTasteCard class="mb-6" @reset-tutorial="openTutorialModal" />
+
     <!-- Loading State -->
     <div v-if="loading" class="loading-state">
       <div class="spinner"></div>
@@ -288,6 +290,12 @@
         </div>
       </div>
     </div>
+    <TutorialModal
+      :open="showTutorialModal"
+      mode="MANUAL"
+      @tutorialCompleted="handleTutorialCompleted"
+      @close="handleTutorialClose"
+    />
   </div>
 </template>
 
@@ -298,6 +306,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useAddressesStore } from '@/stores/addresses'
 import { authAPI } from '@/services/api'
 import type { UserAddress } from '@/types/auth'
+import ResetTasteCard from '@/components/mypage/ResetTasteCard.vue'
+import TutorialModal from '@/components/tutorial/TutorialModal.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -324,6 +334,17 @@ const passwordData = reactive({
   new_password: '',
   new_password_confirm: ''
 })
+
+const showTutorialModal = ref(false)
+const openTutorialModal = () => {
+  showTutorialModal.value = true
+}
+const handleTutorialCompleted = () => {
+  showTutorialModal.value = false
+}
+const handleTutorialClose = () => {
+  showTutorialModal.value = false
+}
 
 const isPasswordChangeAvailable = computed(() => {
   return !authStore.authProvider || authStore.authProvider === 'email'

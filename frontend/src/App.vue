@@ -1,6 +1,6 @@
 <template>
   <div class="relative min-h-screen flex flex-col">
-    <AppHeader />
+    <AppHeader v-if="showChrome" />
     <main
       class="flex-1"
       :class="mainClass"
@@ -8,21 +8,31 @@
     >
       <router-view />
     </main>
-    <AppFooter />
+    <AppFooter v-if="showChrome" />
     <LoginModal />
     <CartDrawer />
+    <RecentDrawer />
+    <TutorialModal
+      :open="autoTutorialOpen"
+      mode="AUTO"
+      @tutorialCompleted="handleTutorialCompleted"
+      @close="handleTutorialClose"
+    />
     <Toast />
   </div>
 </template>
 
+
 <script setup lang="ts">
-import { onMounted, onUnmounted, computed } from 'vue'
+import { onMounted, onUnmounted, computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppHeader from './components/layout/AppHeader.vue'
 import AppFooter from './components/layout/AppFooter.vue'
 import LoginModal from './components/ui/LoginModal.vue'
 import CartDrawer from './components/ui/CartDrawer.vue'
+import RecentDrawer from './components/ui/RecentDrawer.vue'
 import Toast from './components/ui/Toast.vue'
+import TutorialModal from './components/tutorial/TutorialModal.vue'
 import { useAuthStore } from './stores/auth'
 import { useWishlistStore } from './stores/wishlist'
 import { useUIStore } from './stores/ui'
@@ -33,12 +43,41 @@ const wishlistStore = useWishlistStore()
 const uiStore = useUIStore()
 
 const isHome = computed(() => route.name === 'home')
-const mainStyle = computed(() =>
-  isHome.value ? {} : { paddingTop: 'var(--app-content-top)' }
-)
-const mainClass = computed(() =>
-  isHome.value ? '' : 'bg-gray-50'
-)
+const isAdminAnalytics = computed(() => route.path.startsWith('/admin'))
+const showChrome = computed(() => !isAdminAnalytics.value)
+const mainStyle = computed(() => {
+  if (isHome.value || isAdminAnalytics.value) return {}
+  return { paddingTop: 'var(--app-content-top)' }
+})
+const mainClass = computed(() => (isHome.value ? '' : 'bg-gray-50'))
+
+const TUTORIAL_COMPLETED_KEY = 'tutorialCompleted'
+const autoTutorialOpen = ref(false)
+const tutorialCompleted = ref(false)
+
+const syncTutorialCompleted = () => {
+  if (typeof window === 'undefined') return
+  tutorialCompleted.value = localStorage.getItem(TUTORIAL_COMPLETED_KEY) === 'true'
+}
+
+const tryOpenAutoTutorial = () => {
+  syncTutorialCompleted()
+  if (authStore.isAuthenticated && !tutorialCompleted.value) {
+    autoTutorialOpen.value = true
+  }
+}
+
+const handleTutorialCompleted = () => {
+  tutorialCompleted.value = true
+  autoTutorialOpen.value = false
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(TUTORIAL_COMPLETED_KEY, 'true')
+  }
+}
+
+const handleTutorialClose = () => {
+  autoTutorialOpen.value = false
+}
 
 // 인증 필요 시 로그인 모달 열고 리다이렉트 경로 저장
 const handleAuthRequired = (e: Event) => {
@@ -55,6 +94,7 @@ const handleOAuthSuccess = async () => {
     await authStore.loadUser()
     uiStore.showToast('로그인되었습니다.')
     uiStore.closeLogin()
+    tryOpenAutoTutorial()
   } catch (error) {
     console.error('사용자 정보 로드 실패:', error)
   }
@@ -77,6 +117,7 @@ onMounted(async () => {
     await authStore.loadUser()
     if (authStore.isAuthenticated) {
       await wishlistStore.loadWishlist()
+      tryOpenAutoTutorial()
     }
   } catch (error) {
     console.error('초기 사용자 정보 로드 실패:', error)
@@ -95,5 +136,16 @@ onUnmounted(() => {
   window.removeEventListener('oauth:success', handleOAuthSuccess)
   window.removeEventListener('auth:logout', handleAuthLogout)
 })
+
+watch(
+  () => authStore.isAuthenticated,
+  (authed) => {
+    if (authed) {
+      tryOpenAutoTutorial()
+    } else {
+      autoTutorialOpen.value = false
+    }
+  },
+)
 </script>
 

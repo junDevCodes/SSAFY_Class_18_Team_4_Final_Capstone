@@ -15,7 +15,14 @@ fi
 
 echo "[INFO] JSON 백업 정리 시작: 디렉터리=${JSON_BACKUP_DIR}, 보관일수=${RETENTION_DAYS}일"
 
+<<<<<<< Updated upstream
 find "${JSON_BACKUP_DIR}" -type f -name "*.json" -mtime +"${RETENTION_DAYS}" -print -delete || true
+=======
+# 삭제 대상 패턴 (기본: *_done_*.json 만 정리)
+JSON_BACKUP_PATTERN="${JSON_BACKUP_PATTERN:-*_done_*.json}"
+
+find "${JSON_BACKUP_DIR}" -type f -name "${JSON_BACKUP_PATTERN}" -mtime +"${RETENTION_DAYS}" -print -delete || true
+>>>>>>> Stashed changes
 
 echo "[INFO] JSON 백업 정리 완료"
 
