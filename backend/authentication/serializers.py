@@ -299,3 +299,14 @@ class AdminUserDetailSerializer(serializers.ModelSerializer):
         if value not in valid_roles:
             raise serializers.ValidationError("유효하지 않은 역할입니다.")
         return value
+
+
+class AdminUserSummarySerializer(serializers.Serializer):
+    """관리자용 유저 요약 KPI 시리얼라이저"""
+
+    total_users = serializers.IntegerField()
+    active_users = serializers.IntegerField()
+    inactive_users = serializers.IntegerField()
+    seller_count = serializers.IntegerField()
+    admin_count = serializers.IntegerField()
+    new_users_last_7d = serializers.IntegerField()

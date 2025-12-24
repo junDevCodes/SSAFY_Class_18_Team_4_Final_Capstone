@@ -52,7 +52,14 @@ from .providers import (
     exchange_google_token,
     exchange_kakao_token,
 )
-from .models import UserAddress, UserPaymentMethod, UserProfile, AuthGoogleAccount, AuthKakaoAccount, AuthEmailCredential
+from .models import (
+    UserAddress,
+    UserPaymentMethod,
+    UserProfile,
+    AuthGoogleAccount,
+    AuthKakaoAccount,
+    AuthEmailCredential,
+)
 from .serializers import (
     LoginSerializer,
     PasswordChangeSerializer,
@@ -65,6 +72,7 @@ from .serializers import (
     UserPaymentMethodSerializer,
     AdminUserListSerializer,
     AdminUserDetailSerializer,
+    AdminUserSummarySerializer,
 )
 from .services import (
     finalize_pending_registration,
@@ -811,8 +819,8 @@ class AdminUserListView(generics.ListAPIView):
 
     def get_queryset(self):
         """검색/필터 조건을 적용한 유저 목록 반환"""
-        User = get_user_model()
-        qs = User.objects.all().order_by("-date_joined")
+        UserModel = get_user_model()
+        qs = UserModel.objects.all().order_by("-date_joined")
 
         q = self.request.query_params.get("q", "").strip()
         if q:
@@ -837,5 +845,47 @@ class AdminUserDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = AdminUserDetailSerializer
 
     def get_queryset(self):
-        User = get_user_model()
-        return User.objects.all().order_by("-date_joined")
+        UserModel = get_user_model()
+        return UserModel.objects.all().order_by("-date_joined")
+
+
+class AdminUserSummaryView(APIView):
+    """관리자용 유저 요약 KPI 조회 뷰
+
+    - 총 유저 수 (guest 포함)
+    - 활성/비활성 유저 수
+    - 판매자/관리자 수
+    - 최근 7일 내 신규 가입자 수
+    """
+
+    permission_classes = [RoleRequired]
+    required_roles = ["admin"]
+
+    @extend_schema(
+        tags=["관리자"],
+        summary="유저 요약 KPI 조회",
+        description="관리자 대시보드 상단에 표시할 유저 요약 통계를 반환합니다.",
+    )
+    def get(self, request: Request) -> Response:
+        UserModel = get_user_model()
+
+        qs = UserModel.objects.all()
+        total_users = qs.count()
+        active_users = qs.filter(is_active=True).count()
+        inactive_users = qs.filter(is_active=False).count()
+        seller_count = qs.filter(role="seller").count()
+        admin_count = qs.filter(role="admin").count()
+
+        seven_days_ago = timezone.now() - timezone.timedelta(days=7)
+        new_users_last_7d = qs.filter(date_joined__gte=seven_days_ago).count()
+
+        payload = {
+            "total_users": total_users,
+            "active_users": active_users,
+            "inactive_users": inactive_users,
+            "seller_count": seller_count,
+            "admin_count": admin_count,
+            "new_users_last_7d": new_users_last_7d,
+        }
+        serializer = AdminUserSummarySerializer(payload)
+        return Response(serializer.data)
