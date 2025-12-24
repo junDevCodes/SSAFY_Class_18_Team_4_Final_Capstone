@@ -130,7 +130,14 @@ class ProductDetailInfoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ProductDetail
-        fields = ['short_description', 'full_description', 'meta_title', 'meta_keywords']
+        fields = [
+            'short_description',
+            'full_description',
+            'full_image_description',
+            'full_text_description',
+            'meta_title',
+            'meta_keywords',
+        ]
 
 
 class ProductInventorySerializer(serializers.ModelSerializer):

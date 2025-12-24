@@ -17,7 +17,7 @@
       <div class="flex-1 overflow-y-auto p-5 bg-gray-50 space-y-4">
         <div v-if="cartStore.items.length === 0" class="flex flex-col items-center justify-center text-gray-400 space-y-3 py-10">
           <ShoppingBag :size="48" class="opacity-20" />
-          <p class="text-sm font-medium">담긴 상품이 없습니다.</p>
+          <p class="text-sm font-medium">담긴 상품이 없어요.</p>
           <button @click="uiStore.closeCart" class="text-xs bg-white border border-gray-300 px-4 py-2 rounded hover:bg-gray-100 text-gray-700 font-medium">쇼핑 계속하기</button>
         </div>
         
@@ -26,7 +26,7 @@
             <img :src="getProductImage(item.product)" :alt="item.product.name" class="w-20 h-24 object-cover rounded bg-gray-50" @error="onImgError">
             <div class="flex-1 flex flex-col justify-between py-0.5">
               <div>
-                <div class="text-[10px] text-brand-600 font-bold mb-1">샛별배송</div>
+                <div class="text-[10px] text-brand-600 font-bold mb-1">묶음배송</div>
                 <h4 class="text-sm text-gray-800 font-medium line-clamp-2 leading-tight">{{ item.product.name }}</h4>
               </div>
               <div class="flex items-center justify-between mt-2">
@@ -49,7 +49,7 @@
 
       <div class="bg-white p-5 border-t border-gray-100 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
         <div class="flex justify-between items-center mb-4 text-sm">
-          <span class="text-gray-600">총 결제 예정 금액</span>
+          <span class="text-gray-600">예상 결제 금액</span>
           <span class="text-xl font-bold text-gray-900">{{ formatPrice(cartStore.total) }}</span>
         </div>
         <div class="flex gap-2 text-[11px] text-gray-500 mb-4 bg-gray-50 p-2 rounded">
@@ -93,20 +93,14 @@ const handleCheckout = () => {
   // 장바구니 닫기
   uiStore.closeCart()
 
-  // 로그인 여부 확인
+  // 비로그인: 로그인 모달을 열고 이후 이동 경로 저장
   if (!authStore.isAuthenticated) {
-    // 비회원인 경우 비회원 주문 페이지로 이동
-    router.push({
-      name: 'checkout',
-      query: {
-        guest: 'true',
-        items: cartStore.items.map(item => item.id).join(',')
-      }
-    })
+    uiStore.setRedirectPath('/checkout')
+    uiStore.openLogin()
     return
   }
 
-  // 회원인 경우 모든 장바구니 항목으로 주문
+  // 로그인: 주문/결제 페이지로 이동
   router.push({
     name: 'checkout',
     query: {
@@ -115,4 +109,3 @@ const handleCheckout = () => {
   })
 }
 </script>
-

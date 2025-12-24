@@ -8,6 +8,7 @@ from rest_framework import status
 from products.models import Category, Product
 from authentication.models import User
 from sellers.models import Seller
+from django.core.cache import cache
 
 
 class ProductAPITest(TestCase):
@@ -15,6 +16,8 @@ class ProductAPITest(TestCase):
 
     def setUp(self):
         """테스트 데이터 생성"""
+        # 캐시에 이전 테스트 결과가 남지 않도록 초기화
+        cache.clear()
         self.client = APIClient()
 
         # 유저 및 셀러 생성 (ERD V2.1: Product는 seller 필수)

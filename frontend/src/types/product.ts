@@ -35,6 +35,8 @@ export interface ProductImage {
 export interface ProductDetailInfo {
   short_description: string | null
   full_description: string | null
+  full_image_description: string[] | null  // 상세 이미지 URL 배열 (순서대로)
+  full_text_description: string | null     // 상세 텍스트 설명
   meta_title: string | null
   meta_keywords: string | null
 }
@@ -345,6 +347,16 @@ export function getProductDescription(product: ProductDetail): string | null {
     return product.detail.short_description
   }
   return null
+}
+
+// 상품 상세 이미지 리스트 가져오기 (v2.1)
+export function getFullImageDescription(product: ProductDetail): string[] {
+  return product.detail?.full_image_description ?? []
+}
+
+// 상품 상세 텍스트 설명 가져오기 (v2.1)
+export function getFullTextDescription(product: ProductDetail): string | null {
+  return product.detail?.full_text_description ?? null
 }
 
 // 상품 재고 수량 가져오기 (v2.1)

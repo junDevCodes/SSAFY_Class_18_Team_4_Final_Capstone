@@ -68,14 +68,36 @@
                 @error="handleImageError"
               />
             </div>
-            <div class="item-info">
-              <h4 class="item-name">{{ item.product_name }}</h4>
-              <p class="item-price">
+            <div class="item-info clickable" @click="goProductDetail(item)">
+              <h4 class="item-name link">{{ item.product_name }}</h4>
+              <p class="item-price link-sub">
                 {{ formatPrice(item.unit_price) }} × {{ item.quantity }}개
               </p>
             </div>
             <div class="item-total">
               {{ formatPrice(item.total_price) }}
+            </div>
+            <div v-if="reviewMap[item.id]" class="item-actions">
+              <button class="btn-review" @click="goEditReview(item, reviewMap[item.id])">
+                리뷰 수정
+              </button>
+              <button
+                class="btn-review danger"
+                :disabled="deletingReviewId === reviewMap[item.id].id"
+                @click="handleDeleteReview(reviewMap[item.id])"
+              >
+                {{ deletingReviewId === reviewMap[item.id].id ? '삭제 중...' : '리뷰 삭제' }}
+              </button>
+            </div>
+            <div v-else-if="isReviewedToday(item)" class="item-actions">
+              <button class="btn-review" disabled>
+                이미 작성했어요!
+              </button>
+            </div>
+            <div v-else-if="isReviewWriteAvailable(item)" class="item-actions">
+              <button class="btn-review" @click="openWriteReview(item)">
+                리뷰 작성
+              </button>
             </div>
           </div>
         </div>
@@ -226,17 +248,29 @@
         </div>
       </section>
     </div>
+
+    <ReviewWriteModal
+      :open="writeModalOpen"
+      :product-id="writeModalProductId"
+      :order-item-id="writeModalOrderItemId"
+      :product-name="writeModalProductName"
+      @close="writeModalOpen = false"
+      @submitted="handleReviewSubmitted"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { useOrdersStore, type Order } from '@/stores/orders'
+import { ref, onMounted, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useOrdersStore, type Order, type OrderItem } from '@/stores/orders'
 import { formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 import { getOrderStatusText, getPaymentStatusText } from '@/utils/status'
+import { reviewApi, type Review } from '@/services/api/reviews'
+import ReviewWriteModal from '@/components/order/ReviewWriteModal.vue'
 
 const route = useRoute()
+const router = useRouter()
 const ordersStore = useOrdersStore()
 
 const loading = ref(true)
@@ -244,6 +278,22 @@ const error = ref<string | null>(null)
 const cancelling = ref(false)
 const confirming = ref(false)
 const order = ref<Order | null>(null)
+const myReviews = ref<Review[]>([])
+const deletingReviewId = ref<number | null>(null)
+const writeModalOpen = ref(false)
+const writeModalProductId = ref<number | null>(null)
+const writeModalOrderItemId = ref<number | null>(null)
+const writeModalProductName = ref<string>('')
+const reviewMap = computed<Record<number, Review>>(() => {
+  const map: Record<number, Review> = {}
+  myReviews.value.forEach((r) => {
+    if (r.order_item) {
+      map[r.order_item] = r
+    }
+  })
+  return map
+})
+const isDelivered = computed(() => order.value?.status === 'delivered')
 
 // 주문 상세 로드
 const loadOrderDetail = async () => {
@@ -265,6 +315,132 @@ const loadOrderDetail = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const loadMyReviews = async () => {
+  try {
+    const results: Review[] = []
+    let page = 1
+    let hasNext = true
+    while (hasNext) {
+      const data = await reviewApi.getMyReviews({ page, page_size: 100 })
+      results.push(...data.results)
+      hasNext = Boolean(data.next)
+      page += 1
+    }
+    myReviews.value = results
+  } catch (err: any) {
+    console.error('리뷰 목록 로드 실패:', err)
+  }
+}
+
+const getProductSlug = (item: OrderItem): string | number | null => {
+  const productAny = (item as any).product
+  if (productAny && typeof productAny === 'object') {
+    return productAny.slug ?? productAny.id ?? null
+  }
+  if (typeof productAny === 'string' || typeof productAny === 'number') {
+    return productAny
+  }
+  return null
+}
+
+const normalizeId = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const num = Number(value)
+    if (Number.isFinite(num)) return num
+  }
+  return null
+}
+
+const getProductId = (item: OrderItem): number | null => {
+  const anyItem = item as any
+  // 직접 필드 우선
+  const direct = normalizeId(anyItem.product_id)
+  if (direct !== null) return direct
+
+  const productAny = anyItem.product
+  if (productAny && typeof productAny === 'object') {
+    const fromObj = normalizeId((productAny as any).id) ?? normalizeId((productAny as any).product_id)
+    if (fromObj !== null) return fromObj
+  }
+
+  return normalizeId(productAny)
+}
+
+const hasAnyReview = (productId: number) =>
+  myReviews.value.some((r) => r.product === productId)
+
+const isReviewedToday = (item: OrderItem) => {
+  const productId = getProductId(item)
+  if (!productId) return false
+  return hasAnyReview(productId)
+}
+
+const goEditReview = (item: OrderItem, review: Review) => {
+  const slug = getProductSlug(item)
+  if (!slug) {
+    alert('상품 정보를 찾을 수 없습니다.')
+    return
+  }
+  router.push({
+    name: 'product-detail',
+    params: { slug },
+    query: { tab: 'review', editReviewId: review.id },
+  })
+}
+
+const goProductDetail = (item: OrderItem) => {
+  const slug = getProductSlug(item)
+  if (!slug) {
+    alert('상품 정보를 찾을 수 없습니다.')
+    return
+  }
+  router.push({ name: 'product-detail', params: { slug } })
+}
+
+const handleDeleteReview = async (review: Review) => {
+  const confirmed = confirm('리뷰를 삭제하시겠습니까?')
+  if (!confirmed) return
+  deletingReviewId.value = review.id
+  try {
+    await reviewApi.deleteReview(review.id)
+    myReviews.value = myReviews.value.filter((r) => r.id !== review.id)
+    alert('리뷰가 삭제되었습니다.')
+  } catch (err: any) {
+    console.error('리뷰 삭제 실패:', err)
+    alert(err?.response?.data?.detail || '리뷰 삭제에 실패했습니다.')
+  } finally {
+    deletingReviewId.value = null
+  }
+}
+
+const isReviewWriteAvailable = (item: OrderItem) => {
+  if (!isDelivered.value || !order.value) return false
+  const productId = getProductId(item)
+  if (!productId) return false
+  if (hasAnyReview(productId)) return false
+  return true
+}
+
+const openWriteReview = (item: OrderItem) => {
+  if (!isReviewWriteAvailable(item)) return
+  const productId = getProductId(item)
+  if (!productId) {
+    alert('상품 정보를 찾을 수 없습니다.')
+    return
+  }
+  writeModalProductId.value = productId
+  writeModalOrderItemId.value = item.id
+  writeModalProductName.value = item.product_name
+  writeModalOpen.value = true
+}
+
+const handleReviewSubmitted = (payload?: { message?: string; alreadyReviewed?: boolean }) => {
+  if (payload?.message) alert(payload.message)
+  writeModalOpen.value = false
+  loadMyReviews()
 }
 
 // 주문 취소
@@ -351,6 +527,7 @@ const handleImageError = (event: Event) => {
 // 초기 로드
 onMounted(() => {
   loadOrderDetail()
+  loadMyReviews()
 })
 </script>
 
@@ -584,11 +761,52 @@ onMounted(() => {
   color: #666;
 }
 
+.item-name.link { color: #1a1a1a; }
+.item-name.link:hover { color: #00a86b; text-decoration: underline; }
+.item-price.link-sub { color: #666; }
+.clickable { cursor: pointer; }
+
 .item-total {
   text-align: right;
   font-size: 1.125rem;
   font-weight: 700;
   color: #1a1a1a;
+}
+
+.item-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: 1rem;
+}
+
+.btn-review {
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-review:hover:not(:disabled) {
+  border-color: #00a86b;
+  color: #00a86b;
+}
+
+.btn-review.danger {
+  border-color: #f5c2c7;
+  color: #dc3545;
+}
+
+.btn-review.danger:hover:not(:disabled) {
+  background: #dc3545;
+  color: #fff;
+}
+
+.btn-review:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Shipping Info */

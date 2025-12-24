@@ -13,10 +13,16 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import os
+import sys
 from dotenv import load_dotenv
 
-# .env 파일 로드
-load_dotenv()
+# .env 파일 로드 (인코딩 명시)
+# Windows 환경에서 인코딩 문제 방지를 위해 UTF-8 명시
+try:
+    load_dotenv(encoding='utf-8')
+except TypeError:
+    # 구버전 python-dotenv는 encoding 파라미터를 지원하지 않을 수 있음
+    load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -76,7 +82,7 @@ ROOT_URLCONF = 'project_self.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -105,6 +111,9 @@ DB_PASSWORD = os.getenv('DB_PASSWORD', '')
 DB_HOST = os.getenv('DB_HOST', '')
 DB_PORT = os.getenv('DB_PORT', '')
 ML_API_URL = os.getenv('ML_API_URL', 'http://localhost:8001')
+REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+# 상품 목록 캐시 TTL (초 단위) - 환경변수 PRODUCT_LIST_CACHE_TTL 로 조정 가능
+PRODUCT_LIST_CACHE_TTL = int(os.getenv('PRODUCT_LIST_CACHE_TTL', '60'))
 
 # 환경변수 값에 따라 SQLite(기본) 또는 Postgres 등으로 분기
 if DB_ENGINE == 'django.db.backends.sqlite3':
@@ -112,9 +121,14 @@ if DB_ENGINE == 'django.db.backends.sqlite3':
         'default': {
             'ENGINE': DB_ENGINE,
             'NAME': DB_NAME,
+            'OPTIONS': {
+                'timeout': 20,
+            },
         }
     }
-else:
+elif DB_ENGINE == 'django.db.backends.postgresql' or DB_ENGINE == 'django.db.backends.postgresql_psycopg2':
+    # PostgreSQL: charset 옵션 없음 (데이터베이스 레벨에서 인코딩 설정)
+    # client_encoding을 UTF-8로 명시적으로 설정하여 인코딩 문제 방지
     DATABASES = {
         'default': {
             'ENGINE': DB_ENGINE,
@@ -123,6 +137,47 @@ else:
             'PASSWORD': DB_PASSWORD,
             'HOST': DB_HOST,
             'PORT': DB_PORT,
+            'OPTIONS': {
+                'client_encoding': 'UTF8',
+            },
+        }
+    }
+else:
+    # MySQL/MariaDB: charset 옵션 사용 가능
+    DATABASES = {
+        'default': {
+            'ENGINE': DB_ENGINE,
+            'NAME': DB_NAME,
+            'USER': DB_USER,
+            'PASSWORD': DB_PASSWORD,
+            'HOST': DB_HOST,
+            'PORT': DB_PORT,
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            },
+        }
+    }
+
+# Cache (Redis)
+# 기본: RedisCache. 테스트 실행 시(CI 포함) 로컬 메모리 캐시로 전환해 외부 의존성 없이 검증.
+_cache_backend = os.getenv('DJANGO_CACHE_BACKEND', 'redis')
+_is_test_env = 'test' in sys.argv
+if _is_test_env:
+    _cache_backend = os.getenv('DJANGO_TEST_CACHE_BACKEND', 'locmem')
+
+if _cache_backend == 'locmem':
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-locmem',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
         }
     }
 
@@ -171,6 +226,9 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Frontend origin (admin analytics 등 SPA 링크용)
+FRONTEND_ORIGIN = os.getenv('FRONTEND_ORIGIN', 'http://localhost:8080')
 
 # ========================= Authentication 모듈 설정 =========================
 # 커스텀 User 모델 사용

@@ -156,7 +156,8 @@
             <div class="info-item">
               <span class="label">회원 유형</span>
               <span class="value">
-                <span v-if="authStore.isSeller" class="badge badge-seller">판매자</span>
+                <span v-if="authStore.isAdmin" class="badge badge-admin">관리자</span>
+                <span v-else-if="authStore.isSeller" class="badge badge-seller">판매자</span>
                 <span v-else class="badge badge-buyer">구매자</span>
               </span>
             </div>
@@ -171,7 +172,7 @@
           </div>
         </div>
 
-        <div v-if="!authStore.isSeller" class="info-card seller-promotion">
+        <div v-if="!authStore.isSeller && !authStore.isAdmin" class="info-card seller-promotion">
           <h3 class="card-title">판매자로 전환하기</h3>
           <p class="card-description">
             판매자로 등록하고 농산물을 판매해보세요
@@ -752,6 +753,11 @@ onMounted(() => {
 
 .badge-seller {
   background: linear-gradient(135deg, #5f0080 0%, #4c0066 100%);
+  color: white;
+}
+
+.badge-admin {
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
   color: white;
 }
 
