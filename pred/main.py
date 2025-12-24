@@ -27,12 +27,14 @@ _recipe_model = None
 _self_personalized_model = None
 _continuous_trainer = None
 _price_scout_service = None
+_airscout_model = None  # AIRScout Cold Start 보조 모델
 
 # 싱글톤 초기화용 Lock (Race Condition 방지)
 _recipe_model_lock = asyncio.Lock()
 _personalized_model_lock = asyncio.Lock()
 _price_scout_lock = asyncio.Lock()
 _continuous_trainer_lock = asyncio.Lock()
+_airscout_model_lock = asyncio.Lock()  # AIRScout 모델 Lock
 
 # 연속 학습 모드 설정 (환경변수로 제어)
 # CONTINUOUS_TRAINING_MODE: "aggressive" | "scheduled" | "disabled"
@@ -118,6 +120,33 @@ async def get_price_scout_service():
     return _price_scout_service
 
 
+async def get_airscout_model():
+    """AIRScoutModel 싱글톤 인스턴스 반환
+
+    Cold Start 사용자를 위한 semantic 유사도 기반 보조 추천 모델
+    - ko-sroberta-multitask (768D RoBERTa) 기반
+    - Sigmoid 스케줄에 따라 개인화로 점진 전환
+    - 독립 모델 아님 (항상 기존 모델의 보조 가중치로만 작동)
+
+    Double-checked locking 패턴으로 Race Condition 방지
+    """
+    global _airscout_model
+
+    # 빠른 경로: 이미 초기화된 경우
+    if _airscout_model is not None:
+        return _airscout_model
+
+    # 느린 경로: Lock 획득 후 초기화
+    async with _airscout_model_lock:
+        if _airscout_model is None:
+            from ml.models.airscout_model import AIRScoutModel
+            model = await AIRScoutModel.get_instance(db=db)
+            _airscout_model = model
+            logger.info("AIRScoutModel 초기화 완료")
+
+    return _airscout_model
+
+
 async def get_continuous_trainer():
     """ContinuousTrainer 싱글톤 인스턴스 반환
 
@@ -176,7 +205,7 @@ async def _on_model_reload(model_name: str):
     모델 파일이 변경되면 새 인스턴스를 생성하고 초기화 완료 후 교체합니다.
     이를 통해 초기화 중에도 기존 모델로 추천 서비스를 계속 제공할 수 있습니다.
     """
-    global _self_personalized_model, _recipe_model
+    global _self_personalized_model, _recipe_model, _airscout_model
 
     if model_name.startswith("self_personalized"):
         logger.info("SelfPersonalizedModel 재초기화 시작 (Atomic Swap)")
@@ -226,21 +255,49 @@ async def _on_model_reload(model_name: str):
                 exc_info=True
             )
 
+    elif model_name.startswith("airscout") or model_name.startswith("AIRScout"):
+        logger.info("AIRScoutModel 재초기화 시작 (Atomic Swap)")
+
+        from ml.models.airscout_model import AIRScoutModel
+
+        try:
+            # AIRScoutModel은 내부적으로 싱글톤을 관리하므로 _instance를 리셋 후 재생성
+            AIRScoutModel._instance = None
+            new_model = await AIRScoutModel.get_instance(db=db)
+
+            async with _airscout_model_lock:
+                old_model = _airscout_model
+                _airscout_model = new_model
+
+            logger.info("AIRScoutModel 재초기화 완료 (Atomic Swap 성공)")
+            del old_model
+
+        except Exception as e:
+            logger.error(
+                f"AIRScoutModel 재초기화 실패, 기존 모델 유지: {e}",
+                exc_info=True
+            )
+
 
 async def classify_user(user_id: int) -> str:
     """사용자 타입 분류
 
     상호작용 이력 기반으로 사용자를 분류합니다.
+    - guest: 비회원 (user_id=0 또는 None)
     - cold: 신규 사용자 (상호작용 거의 없음)
     - lukewarm: 탐색 중인 사용자 (조회 활발, 구매 적음)
     - warm: 활성 사용자 (구매 이력 있음)
 
     Args:
-        user_id: 사용자 ID
+        user_id: 사용자 ID (0 또는 None이면 비회원)
 
     Returns:
-        사용자 타입 ('cold', 'lukewarm', 'warm')
+        사용자 타입 ('guest', 'cold', 'lukewarm', 'warm')
     """
+    # 비회원 처리: user_id=0 또는 None
+    if user_id is None or user_id == 0:
+        return "guest"
+
     try:
         stats = await db.fetch_one(
             """
@@ -357,6 +414,15 @@ async def lifespan(app: FastAPI):
         print("[SelfPersonalizedModel] 초기화 중...")
         await get_self_personalized_model()
         print("[SelfPersonalizedModel] ✓ 초기화 완료")
+
+        # AIRScout 보조 모델 초기화 (Cold Start 사용자용)
+        print("[AIRScoutModel] 초기화 중...")
+        airscout = await get_airscout_model()
+        airscout_status = airscout.get_status()
+        print(f"[AIRScoutModel] ✓ 초기화 완료")
+        print(f"  - 모델: {airscout_status.get('model_version', 'unknown')}")
+        print(f"  - 활성화: {airscout_status.get('enabled', False)}")
+        print(f"  - 인코더: {'로드됨' if airscout_status.get('encoder_initialized', False) else '미로드'}")
 
         # 모델 리로드 콜백 등록 및 파일 모니터링 시작
         model_loader.register_reload_callback(_on_model_reload)
@@ -633,6 +699,15 @@ async def health_check():
     db_healthy = await db.health_check()
     model_loaded = model_loader.is_loaded
 
+    # AIRScout 모델 상태 확인
+    airscout_status = None
+    if _airscout_model is not None:
+        airscout_status = {
+            "initialized": _airscout_model._initialized,
+            "enabled": _airscout_model.get_status().get("enabled", False),
+            "model_version": _airscout_model.model_version,
+        }
+
     status = "healthy" if db_healthy and model_loaded else "degraded"
 
     return {
@@ -640,6 +715,7 @@ async def health_check():
         "db": "connected" if db_healthy else "disconnected",
         "models": "loaded" if model_loaded else "not_loaded",
         "loaded_models": model_loader.loaded_models,
+        "airscout": airscout_status,
     }
 
 
