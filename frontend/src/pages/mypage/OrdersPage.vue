@@ -766,18 +766,23 @@ onMounted(() => {
 
 .item-actions {
   display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 0.5rem;
   margin-left: 1rem;
 }
 
 .btn-review {
-  padding: 0.35rem 0.75rem;
-  border-radius: 8px;
+  min-width: 88px;
+  height: 36px;
+  padding: 0 0.75rem;
+  border-radius: 10px;
   border: 1px solid #d1d5db;
   background: #fff;
   font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .btn-review:hover:not(:disabled) {

@@ -121,11 +121,6 @@
         </ProductInfoTabs>
       </div>
 
-      <section class="section" id="shipping">
-        <h2>배송/교환/반품</h2>
-        <p>배송·교환·반품 정보는 준비 중입니다.</p>
-      </section>
-
       <section v-if="product?.related_products?.length" class="related section">
         <h2>연관 상품</h2>
         <div class="related-grid">
