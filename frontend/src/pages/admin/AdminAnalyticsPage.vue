@@ -898,7 +898,6 @@ function buildMockOverview(): AnalyticsOverview {
     breakdown: {
       source: product,
       product,
-      campaign: product,
       keyword: product,
       time: product,
       device: product,
@@ -908,7 +907,6 @@ function buildMockOverview(): AnalyticsOverview {
     trend: {
       source: trend,
       product: trend,
-      campaign: trend,
       keyword: trend,
       time: trend,
       device: trend,

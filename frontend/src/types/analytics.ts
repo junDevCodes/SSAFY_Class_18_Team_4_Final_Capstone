@@ -1,7 +1,6 @@
 export type AnalyticsTab =
   | 'source'
   | 'product'
-  | 'campaign'
   | 'keyword'
   | 'time'
   | 'device'

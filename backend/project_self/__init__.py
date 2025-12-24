@@ -9,6 +9,11 @@ Celery가 설치되지 않은 환경에서도 Django는 정상 동작합니다.
 try:
     from .celery import app as celery_app
     __all__ = ('celery_app',)
+    
+    # Celery CLI(-A project_self)가 project_self.celery 를 찾는 경우 대비
+    import project_self.celery as celery  # noqa: F401
+
+    __all__ = ("celery_app", "celery")
 except ImportError:
     # Celery가 설치되지 않은 환경 (로컬 개발 등)
     celery_app = None

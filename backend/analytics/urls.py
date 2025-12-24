@@ -13,6 +13,7 @@ from analytics.views import (
 )
 
 urlpatterns = [
+    # Admin 분석 API
     path(
         "overview/",
         AdminAnalyticsOverviewView.as_view(),
