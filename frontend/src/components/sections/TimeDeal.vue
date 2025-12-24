@@ -78,6 +78,25 @@
               >
                 할인
               </div>
+              <!-- 호버 시 좋아요/장바구니 버튼 -->
+              <div
+                class="absolute bottom-3 right-3 flex items-center gap-2 opacity-0 translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 z-10"
+              >
+                <button
+                  @click="handleToggleWishlist($event, product)"
+                  class="w-8 h-8 bg-white/90 backdrop-blur rounded-full shadow flex items-center justify-center hover:bg-gray-100 transition-colors"
+                  :title="authStore.isAuthenticated ? (isWishlisted(product.product_id) ? '찜취소' : '찜하기') : '로그인 필요'"
+                >
+                  <Heart :size="16" :class="isWishlisted(product.product_id) ? 'text-red-500 fill-red-500' : 'text-gray-700'" />
+                </button>
+                <button
+                  @click="handleAddToCart($event, product)"
+                  class="w-10 h-10 bg-white/90 backdrop-blur text-gray-900 rounded-full shadow-lg flex items-center justify-center hover:bg-brand-600 hover:text-white transition-colors"
+                  title="장바구니 담기"
+                >
+                  <Plus :size="20" />
+                </button>
+              </div>
             </div>
             <h4 class="text-base font-medium text-gray-900 mb-1 line-clamp-1 group-hover:text-brand-600 transition-colors">
               {{ product.name }}
@@ -124,14 +143,24 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { Timer, ChevronLeft, ChevronRight, TrendingDown, TrendingUp, Tag, Flame } from 'lucide-vue-next'
+import { Timer, ChevronLeft, ChevronRight, TrendingDown, TrendingUp, Tag, Flame, Heart, Plus } from 'lucide-vue-next'
 import { useTimer } from '@/composables/useTimer'
 import { formatPrice } from '@/utils/formatters'
 import { recommendationsAPI, type TimeDealProduct } from '@/services/api'
+import { useCartStore } from '@/stores/cart'
+import { useUIStore } from '@/stores/ui'
+import { useWishlistStore } from '@/stores/wishlist'
+import { useAuthStore } from '@/stores/auth'
 
 const { timer } = useTimer()
 const timeDealProducts = ref<TimeDealProduct[]>([])
 const loading = ref(false)
+
+// 스토어
+const cartStore = useCartStore()
+const uiStore = useUIStore()
+const wishlistStore = useWishlistStore()
+const authStore = useAuthStore()
 
 // 스크롤 관련 상태
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -159,6 +188,64 @@ const getDiscountRate = (product: TimeDealProduct): number => {
   return Math.round(((product.original_price - product.price) / product.original_price) * 100)
 }
 
+// 찜 여부 확인
+const isWishlisted = (productId: number): boolean => {
+  if (!authStore.isAuthenticated) return false
+  return wishlistStore.isWishlisted(productId)
+}
+
+// 장바구니 추가
+const handleAddToCart = async (event: Event, product: TimeDealProduct) => {
+  event.preventDefault()
+  event.stopPropagation()
+
+  try {
+    // TimeDealProduct를 Product 형식으로 변환
+    const cartProduct = {
+      id: product.product_id,
+      slug: product.slug || `product-${product.product_id}`,
+      name: product.name,
+      price: product.price,
+      original_price: product.original_price,
+      main_image: product.main_image,
+      status: 'active' as const,
+    }
+    await cartStore.addToCart(cartProduct as any, 1)
+    const message = cartStore.isGuest
+      ? '장바구니에 담았어요! 로그인 후 주문가능해요!'
+      : '장바구니에 담았어요!'
+    uiStore.showToast(message)
+  } catch {
+    uiStore.showToast('장바구니 담기에 실패했어요. 잠시 후 다시 시도해주세요.')
+  }
+}
+
+// 찜하기/취소
+const handleToggleWishlist = async (event: Event, product: TimeDealProduct) => {
+  event.preventDefault()
+  event.stopPropagation()
+
+  if (!authStore.isAuthenticated) {
+    window.dispatchEvent(new CustomEvent('auth:required'))
+    uiStore.showToast('로그인이 필요해요.')
+    return
+  }
+
+  try {
+    // TimeDealProduct를 Product 형식으로 변환
+    const wishlistProduct = {
+      id: product.product_id,
+      slug: product.slug || `product-${product.product_id}`,
+      name: product.name,
+      price: product.price,
+      original_price: product.original_price,
+      main_image: product.main_image,
+    }
+    await wishlistStore.toggleWishlist(wishlistProduct as any)
+  } catch {
+    uiStore.showToast('찜 처리에 실패했어요.')
+  }
+}
 
 // 스크롤 상태 업데이트
 const updateScrollState = () => {
