@@ -127,10 +127,57 @@
   - 좌측 축: 성공률/가용성(%) – 크롤링 성공률, 가용성
   - 우측 축: 네트워크 활동도 (Bytes 또는 MB 단위로 표시)
 
-### 3-5. Alert · To-do · Incident
+### 3-5. Alert · To-do · Incident (EC2 모니터링 기준)
 
-- 공통 스키마/규칙은 `docs/Admin_Analytics_alert_incident.md` 참고.
-- CloudWatch 모드에서도 동일 스키마를 사용하되, Threshold/룰은 CPU/네트워크 기반으로 조정 가능.
+#### Alert 자동 생성 규칙 (메트릭 기반)
+
+| **Alert ID** | **지표** | **기준** | **Severity** | **자동 생성 Todo** |
+|-------------|---------|---------|-------------|------------------|
+| `crawl-success-low` | 크롤링 성공률 | < 97% (high)<br/>< 98% (medium) | high/medium | 크롤러 실패 구간 점검 |
+| `ec2-cpu-high` | EC2 CPU 사용률 | > 80% (high)<br/>> 60% (medium) | high/medium | EC2 CPU 부하 분석 |
+| `network-traffic-high` | 네트워크 트래픽 (In) | > 8MB (high)<br/>> 4MB (medium) | high/medium | 네트워크 트래픽 분석 |
+| `availability-low` | 서비스 가용성 | < 99.0% (high)<br/>< 99.5% (medium) | high/medium | 가용성 저하 원인 분석 |
+
+#### Incident 자동 생성 규칙 (시계열 패턴 기반)
+
+**전제조건**: 시계열 데이터 포인트가 7개 이상일 경우
+
+| **Incident Code** | **탐지 조건** | **Severity** | **자동 해제 조건** |
+|------------------|-------------|-------------|-----------------|
+| `INC_EC2_CPU_OVERLOAD` | CPU ≥ 90% 가 2포인트 이상 지속 | high | CPU < 80% |
+| `INC_NETWORK_TRAFFIC_SPIKE` | 네트워크 트래픽이 평균 대비 3배 이상 급증 | medium | 트래픽 < 평균×2 |
+| `INC_CRAWLER_SUCCESS_LOW` | 크롤링 성공률 < 95% 가 2포인트 이상 지속 | high | 성공률 ≥ 97% |
+| `INC_AVAILABILITY_DEGRADED` | 가용성 < 98% | high | 가용성 ≥ 99.5% |
+
+#### Todo 자동 생성 규칙
+
+1. **Alert 기반 Todo**: Alert 발생 시 관련 Todo 자동 생성 (위 테이블 참고)
+2. **Incident 기반 Todo**: Incident 발생 시 포스트모텀(회고) Todo 자동 생성
+   - ID: `todo-postmortem-{incident_id}`
+   - Title: `{incident_title} 회고`
+   - Description: 장애 원인, 영향 범위, 재발 방지 대책 정리
+   - Priority: incident severity에 따라 high/medium
+
+#### 데이터 흐름
+
+```
+CloudWatch EC2 메트릭 조회
+    ↓
+시계열 생성 (timeseries)
+    ↓
+┌─────────────────┬──────────────────┐
+│ 메트릭 스냅샷   │  시계열 패턴 분석 │
+│ (최신값 기준)   │  (전체 기간)      │
+└────────┬────────┴────────┬─────────┘
+         ↓                 ↓
+     Alert 생성        Incident 생성
+         ↓                 ↓
+     Todo 생성         Todo 생성
+         ↓                 ↓
+     시스템 필터 적용 (crawler/api/infra)
+         ↓
+     프론트엔드 표시
+```
 
 ---
 
