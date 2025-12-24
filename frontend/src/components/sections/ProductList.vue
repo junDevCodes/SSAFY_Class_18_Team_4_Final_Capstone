@@ -7,10 +7,10 @@
       <div>
         <!-- 로그인 여부에 따라 타이틀 변경 -->
         <h3 class="text-3xl font-display font-bold text-gray-900 mb-3">
-          {{ isAuthenticated ? '나를 위한 추천' : "MD's Pick" }}
+          {{ isAuthenticated ? '나를 위한 추천' : 'Just Do It!' }}
         </h3>
         <p class="text-gray-500">
-          {{ isAuthenticated ? 'AI가 분석한 맞춤 상품' : '전문 MD가 엄선한 가장 신선한 제철 상품' }}
+          {{ isAuthenticated ? 'AI가 분석한 맞춤 상품' : 'AI가 추천한 인기 상품' }}
         </p>
       </div>
       <RouterLink
@@ -64,12 +64,12 @@ const isAuthenticated = computed(() => authStore.isAuthenticated)
 
 /**
  * 표시할 상품 목록
- * 로그인 사용자: 개인화 추천 상품을 Product 형식으로 변환
- * 비로그인/실패: 기존 상품 목록
+ * 회원/비회원 모두: AI 추천 상품을 Product 형식으로 변환
+ * 추천 실패 시: 기존 상품 목록으로 폴백
  */
 const displayProducts = computed<Product[]>(() => {
-  if (isAuthenticated.value && isPersonalized.value && personalizedProducts.value.length > 0) {
-    // 개인화 추천 상품을 Product 형식으로 변환
+  if (isPersonalized.value && personalizedProducts.value.length > 0) {
+    // AI 추천 상품을 Product 형식으로 변환 (회원/비회원 모두)
     return personalizedProducts.value.map(p => ({
       id: p.product_id,
       slug: p.slug || `product-${p.product_id}`,
@@ -90,13 +90,14 @@ const displayProducts = computed<Product[]>(() => {
       quality_score: p.recommendation_score,
     }))
   }
-  // 비로그인 또는 개인화 추천 실패 시 기존 상품 목록
+  // AI 추천 실패 시 기존 상품 목록으로 폴백
   return productStore.products
 })
 
 /**
- * 개인화 추천 가져오기
- * ALS 32차원 모델 기반 개인화 추천
+ * AI 추천 상품 가져오기
+ * - 회원: ALS 32차원 + AIRScout 하이브리드 추천
+ * - 비회원: AIRScout 100% 기반 추천
  */
 const fetchPersonalizedRecommendations = async () => {
   loading.value = true
@@ -110,8 +111,11 @@ const fetchPersonalizedRecommendations = async () => {
     })
     personalizedProducts.value = data.products
     isPersonalized.value = true
+
+    // 디버그: user_type 로깅
+    console.log(`AI 추천 완료: user_type=${data.user_type}, 상품 수=${data.products.length}`)
   } catch (err) {
-    console.error('개인화 추천 실패, 폴백으로 전환:', err)
+    console.error('AI 추천 실패, 폴백으로 전환:', err)
     // 폴백: 일반 상품 목록
     await fetchFallbackProducts()
   } finally {
@@ -121,7 +125,7 @@ const fetchPersonalizedRecommendations = async () => {
 
 /**
  * 폴백: 일반 상품 목록
- * 개인화 추천 실패 또는 비로그인 시
+ * AI 추천 실패 시
  */
 const fetchFallbackProducts = async () => {
   loading.value = true
@@ -140,16 +144,13 @@ const fetchFallbackProducts = async () => {
 
 /**
  * 데이터 로딩
- * 로그인 여부에 따라 개인화 추천 또는 일반 상품 목록
+ * 회원/비회원 모두 AI 추천 API 호출
+ * - 회원: ALS + AIRScout 하이브리드
+ * - 비회원: AIRScout 100%
  */
 const loadData = async () => {
-  if (isAuthenticated.value) {
-    // 로그인 사용자: 개인화 추천
-    await fetchPersonalizedRecommendations()
-  } else {
-    // 비로그인: 일반 상품 목록
-    await fetchFallbackProducts()
-  }
+  // 회원/비회원 모두 AI 추천 API 호출
+  await fetchPersonalizedRecommendations()
 }
 
 // 마운트 시 데이터 로딩
