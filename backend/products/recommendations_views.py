@@ -11,7 +11,12 @@ from rest_framework.views import APIView
 
 from .models import UserProductStats
 from .serializers import ProductListSerializerV2
-from .pred_client import request_cart_recommendations, request_personalized_recommendations
+from .pred_client import (
+    request_cart_recommendations,
+    request_personalized_recommendations,
+    request_time_deal_products,
+    request_price_history,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -147,10 +152,11 @@ class PersonalizedRecommendationsView(APIView):
 
     GET /api/recommendations/personalized/
 
-    로그인 사용자를 위한 개인화 추천을 제공합니다.
+    회원/비회원 모두를 위한 개인화 추천을 제공합니다.
     메인 페이지 MD's Pick 섹션에서 사용됩니다.
 
-    - **인증 필수**: 로그인 사용자만 사용 가능
+    - **비회원 허용**: 비회원은 AIRScout 100% 기반 추천
+    - **회원**: user_type(cold/lukewarm/warm)에 따라 AIRScout 가중치 적용
     - **장바구니 제외**: 현재 장바구니에 있는 상품은 추천에서 제외
     - **가중치 적용**: order > cart + 시간 감쇠
     - **항상 8개 반환**: 부족하면 인기 상품으로 채움
@@ -166,15 +172,14 @@ class PersonalizedRecommendationsView(APIView):
     Returns:
         200: {
             "products": [...],          # 추천 상품 목록
-            "user_type": "warm",        # 사용자 유형 (cold/lukewarm/warm)
+            "user_type": "warm",        # 사용자 유형 (cold/lukewarm/warm/guest)
             "model_version": "v2",      # 모델 버전
             "total_count": 8,           # 추천 상품 개수
             "metadata": {...}           # 추가 메타데이터
         }
-        401: { "detail": "자격 인증데이터가 제공되지 않았습니다." }
         503: { "error": "추천 서비스 오류" }
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # 비회원도 허용
 
     def get(self, request):
         # 쿼리 파라미터 추출
@@ -197,12 +202,18 @@ class PersonalizedRecommendationsView(APIView):
         else:
             category_id = None
 
-        # 사용자 장바구니 상품 ID 조회 (제외용)
-        cart_product_ids = self._get_user_cart_product_ids(request.user)
+        # 비회원/회원 분기 처리
+        if request.user.is_authenticated:
+            user_id = request.user.id
+            cart_product_ids = self._get_user_cart_product_ids(request.user)
+        else:
+            # 비회원: user_id=0으로 전달 → pred에서 is_guest=True 처리
+            user_id = 0
+            cart_product_ids = []
 
         try:
             result = request_personalized_recommendations(
-                user_id=request.user.id,
+                user_id=user_id,
                 limit=limit,
                 page_type=page_type,
                 category_id=category_id,
@@ -233,3 +244,126 @@ class PersonalizedRecommendationsView(APIView):
         except Exception as e:
             logger.warning(f"장바구니 조회 실패: {e}")
             return []
+
+
+class TimeDealProductsView(APIView):
+    """타임세일 가성비 상품 API
+
+    GET /api/recommendations/time-deal/
+
+    self_price_analyzer_v1.pkl 모델과 PriceScout 점수 기반으로
+    가성비 상품을 추천합니다.
+
+    - **인증 불필요**: 회원/비회원 모두 사용 가능
+    - **정렬 기준**: PriceScout 점수 내림차순
+    - **필터링**: 가격 하락 상품만, ABNORMAL 상품 제외
+    - **폴백**: 가격 하락 상품 부족 시 할인 상품으로 대체
+
+    가격 상태 분류:
+    - SUPER_SALE (< -10%): 특가 할인
+    - DISCOUNT (-10% ~ -2%): 일반 할인
+    - STABLE (-2% ~ +2%): 안정적
+    - INCREASE (+2% ~ +20%): 소폭 상승
+
+    Query Parameters:
+        limit (int, optional): 조회할 상품 수 (기본: 10, 최대: 50)
+        category_id (int, optional): 카테고리 ID 필터
+
+    Returns:
+        200: {
+            "products": [...],          # 가성비 상품 목록
+            "model_version": "v1",      # 모델 버전
+            "total_count": 10           # 상품 개수
+        }
+        503: { "error": "추천 서비스 오류" }
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        # 쿼리 파라미터 추출
+        try:
+            limit = int(request.query_params.get('limit', 10))
+            limit = max(1, min(limit, 50))
+        except (ValueError, TypeError):
+            limit = 10
+
+        category_id = request.query_params.get('category_id')
+        if category_id:
+            try:
+                category_id = int(category_id)
+            except (ValueError, TypeError):
+                category_id = None
+        else:
+            category_id = None
+
+        try:
+            result = request_time_deal_products(
+                limit=limit,
+                category_id=category_id,
+            )
+            return Response(result)
+
+        except Exception as e:
+            logger.error(f"타임세일 상품 API 호출 실패: {e}", exc_info=True)
+            return Response(
+                {'error': f'타임세일 서비스에 연결할 수 없습니다: {str(e)}'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+
+class PriceHistoryView(APIView):
+    """상품 가격 히스토리 API
+
+    GET /api/recommendations/price-history/{product_id}/
+
+    상품의 가격 변동 이력을 조회합니다.
+    폴센트(Pollcent) 스타일의 가격 추적 그래프용 데이터를 제공합니다.
+
+    - **인증 불필요**: 회원/비회원 모두 사용 가능
+    - **기간 설정**: 7일 ~ 365일 (기본 30일)
+
+    Path Parameters:
+        product_id (int): 상품 ID
+
+    Query Parameters:
+        days (int, optional): 조회 기간 (기본: 30, 범위: 7~365)
+
+    Returns:
+        200: {
+            "product_id": int,
+            "product_name": str,
+            "history": [...],
+            "statistics": {...}
+        }
+        404: { "error": "상품을 찾을 수 없습니다" }
+        503: { "error": "서비스 오류" }
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, product_id):
+        # 쿼리 파라미터 추출
+        try:
+            days = int(request.query_params.get('days', 30))
+            days = max(7, min(days, 365))
+        except (ValueError, TypeError):
+            days = 30
+
+        try:
+            result = request_price_history(
+                product_id=product_id,
+                days=days,
+            )
+            return Response(result)
+
+        except Exception as e:
+            error_msg = str(e)
+            if '404' in error_msg:
+                return Response(
+                    {'error': f'상품을 찾을 수 없습니다: {product_id}'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            logger.error(f"가격 히스토리 API 호출 실패: {e}", exc_info=True)
+            return Response(
+                {'error': f'가격 히스토리 서비스에 연결할 수 없습니다: {error_msg}'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )

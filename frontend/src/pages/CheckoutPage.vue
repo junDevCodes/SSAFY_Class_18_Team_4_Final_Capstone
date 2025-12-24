@@ -258,26 +258,51 @@
             </form>
           </section>
 
-          <!-- Payment Method Section -->
-          <section class="section payment-section">
+          <!-- 결제 수단 섹션 (회원 전용 - 토스 결제 위젯) -->
+          <section v-if="authStore.isAuthenticated" class="section payment-section">
+            <h2 class="section-title">결제 수단</h2>
+
+            <!-- 결제 위젯이 렌더링될 영역 -->
+            <div v-if="paymentReady" class="payment-widget-area">
+              <!-- 토스 결제 수단 위젯 -->
+              <div id="payment-method" class="payment-method-widget"></div>
+              <!-- 토스 약관 동의 위젯 -->
+              <div id="agreement" class="agreement-widget"></div>
+            </div>
+
+            <!-- 결제 위젯 로딩/준비 상태 -->
+            <div v-else class="payment-widget-placeholder">
+              <div v-if="paymentLoading" class="widget-loading">
+                <div class="spinner-small"></div>
+                <span>결제 위젯을 불러오는 중...</span>
+              </div>
+              <div v-else class="widget-notice">
+                <p>배송 정보 입력 후 결제하기 버튼을 누르면 결제 수단을 선택할 수 있습니다.</p>
+              </div>
+            </div>
+
+          </section>
+
+          <!-- 결제 수단 섹션 (비회원 - 기존 모의 결제) -->
+          <section v-else class="section payment-section">
             <h2 class="section-title">결제 수단</h2>
             <div class="payment-methods">
-              <div class="payment-method">
+              <div class="payment-method selected">
                 <input
                   id="instant"
                   type="radio"
                   value="instant"
-                  v-model="paymentMethod"
+                  v-model="guestPaymentMethod"
                   checked
                 />
                 <label for="instant">
                   <span class="method-name">즉시 결제</span>
-                  <span class="method-desc">주문과 동시에 결제가 완료됩니다 (MVP)</span>
+                  <span class="method-desc">주문과 동시에 결제가 완료됩니다</span>
                 </label>
               </div>
             </div>
             <p class="mvp-notice">
-              * MVP 버전으로 실제 결제 연동 없이 주문이 즉시 완료됩니다
+              * 비회원 주문은 모의 결제로 진행됩니다 (실제 결제 없음)
             </p>
           </section>
         </div>
@@ -318,8 +343,10 @@
               무료 배송
             </div>
 
+            <!-- 결제 버튼 -->
             <button
-              @click="handlePlaceOrder"
+              v-if="!paymentReady"
+              @click="handlePreparePayment"
               class="btn-place-order"
               :disabled="placing || !isFormValid"
             >
@@ -327,11 +354,19 @@
               <span v-else>{{ formatPrice(orderSummary.total) }} 결제하기</span>
             </button>
 
-            <div class="terms">
-              <label class="checkbox-label">
-                <input type="checkbox" v-model="agreedToTerms" />
-                <span>주문 내용을 확인했으며, 개인정보 처리 및 결제에 동의합니다.</span>
-              </label>
+            <!-- 결제 위젯 렌더링 후에는 결제 요청 버튼 -->
+            <button
+              v-else
+              @click="handleRequestPayment"
+              class="btn-place-order btn-payment"
+              :disabled="paymentLoading"
+            >
+              <span v-if="paymentLoading">결제 진행 중...</span>
+              <span v-else>{{ formatPrice(orderSummary.total) }} 결제하기</span>
+            </button>
+
+            <div v-if="paymentError" class="payment-error">
+              {{ paymentError }}
             </div>
 
             <div class="recommendation-card">
@@ -345,12 +380,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCartStore } from '@/stores/cart'
-import { useOrdersStore } from '@/stores/orders'
 import { useAuthStore } from '@/stores/auth'
 import { useAddressesStore } from '@/stores/addresses'
+import { usePayment } from '@/composables/usePayment'
 import { guestOrdersAPI } from '@/services/api'
 import { getProductImage, formatPrice, DEFAULT_PRODUCT_IMAGE } from '@/types/product'
 import type { UserAddress } from '@/types/auth'
@@ -358,9 +393,17 @@ import CartRecommendations from '@/components/ui/CartRecommendations.vue'
 
 const router = useRouter()
 const cartStore = useCartStore()
-const ordersStore = useOrdersStore()
 const authStore = useAuthStore()
 const addressesStore = useAddressesStore()
+
+// 결제 composable
+const {
+  loading: paymentLoading,
+  error: paymentError,
+  preparePayment,
+  renderPaymentWidget,
+  requestPayment,
+} = usePayment()
 
 const FREE_SHIPPING_THRESHOLD = 30000
 
@@ -368,9 +411,11 @@ const FREE_SHIPPING_THRESHOLD = 30000
 const loading = ref(true)
 const error = ref<string | null>(null)
 const placing = ref(false)
-const agreedToTerms = ref(false)
-const paymentMethod = ref('instant')
 const customRequest = ref('')
+const paymentReady = ref(false) // 결제 위젯이 렌더링되었는지
+
+// 결제 수단 (비회원용)
+const guestPaymentMethod = ref('instant')
 
 // 배송지 선택 관련
 const selectedAddressId = ref<number | null>(null)
@@ -421,8 +466,8 @@ const orderSummary = computed(() => {
 
 // Form validation
 const isFormValid = computed(() => {
-  // 기본 조건: 약관 동의, 주문 상품 있음
-  if (!agreedToTerms.value || orderItems.value.length === 0) {
+  // 기본 조건: 주문 상품 있음
+  if (orderItems.value.length === 0) {
     return false
   }
 
@@ -529,8 +574,61 @@ const openPostcode = () => {
   }).open()
 }
 
-// Place order
-const handlePlaceOrder = async () => {
+// 배송 정보 추출 헬퍼
+const getShippingDetails = () => {
+  let recipientName = ''
+  let recipientPhone = ''
+  let postalCode = ''
+  let address = ''
+  let addressDetail = ''
+  let deliveryRequest = ''
+
+  if (selectedAddressId.value && selectedAddress.value) {
+    // 저장된 배송지 사용
+    recipientName = selectedAddress.value.recipient_name
+    recipientPhone = selectedAddress.value.recipient_phone
+    postalCode = selectedAddress.value.postal_code
+    address = selectedAddress.value.address_line1
+    addressDetail = selectedAddress.value.address_line2 || ''
+
+    // 배송 요청사항
+    if (shippingInfo.value.delivery_request === '직접 입력' && customRequest.value.trim()) {
+      deliveryRequest = customRequest.value.trim()
+    } else if (shippingInfo.value.delivery_request && shippingInfo.value.delivery_request !== '') {
+      deliveryRequest = shippingInfo.value.delivery_request
+    } else {
+      deliveryRequest = selectedAddress.value.delivery_memo || ''
+    }
+  } else {
+    // 새 배송지 입력
+    recipientName = shippingInfo.value.recipient_name
+    recipientPhone = shippingInfo.value.phone
+    postalCode = shippingInfo.value.postal_code
+    address = shippingInfo.value.address
+    addressDetail = shippingInfo.value.address_detail
+
+    if (shippingInfo.value.delivery_request === '직접 입력' && customRequest.value.trim()) {
+      deliveryRequest = customRequest.value.trim()
+    } else {
+      deliveryRequest = shippingInfo.value.delivery_request || ''
+    }
+  }
+
+  const shippingAddress = `(${postalCode}) ${address} ${addressDetail}`.trim()
+
+  return {
+    recipientName,
+    recipientPhone,
+    postalCode,
+    address,
+    addressDetail,
+    shippingAddress,
+    deliveryRequest
+  }
+}
+
+// 결제 준비 (회원: PG, 비회원: 모의 결제)
+const handlePreparePayment = async () => {
   if (!isFormValid.value || placing.value) return
 
   // 비회원 검증
@@ -549,22 +647,8 @@ const handlePlaceOrder = async () => {
     }
   }
 
-  // 저장된 배송지 선택 시와 새 배송지 입력 시 검증 분리
-  let recipientName = ''
-  let recipientPhone = ''
-  let postalCode = ''
-  let address = ''
-  let addressDetail = ''
-
-  if (selectedAddressId.value && selectedAddress.value) {
-    // 저장된 배송지 사용
-    recipientName = selectedAddress.value.recipient_name
-    recipientPhone = selectedAddress.value.recipient_phone
-    postalCode = selectedAddress.value.postal_code
-    address = selectedAddress.value.address_line1
-    addressDetail = selectedAddress.value.address_line2 || ''
-  } else {
-    // 새 배송지 입력
+  // 새 배송지 입력 시 검증
+  if (!selectedAddressId.value && !selectedAddress.value) {
     if (!shippingInfo.value.recipient_name.trim()) {
       alert('받는 사람 이름을 입력해주세요.')
       return
@@ -577,51 +661,15 @@ const handlePlaceOrder = async () => {
       alert('배송 주소를 입력해주세요.')
       return
     }
-
-    recipientName = shippingInfo.value.recipient_name
-    recipientPhone = shippingInfo.value.phone
-    postalCode = shippingInfo.value.postal_code
-    address = shippingInfo.value.address
-    addressDetail = shippingInfo.value.address_detail
   }
-
-  if (!agreedToTerms.value) {
-    alert('주문 내용 및 결제에 동의해주세요.')
-    return
-  }
-
-  const confirmed = confirm(`총 ${formatPrice(orderSummary.value.total)}을 결제하시겠습니까?`)
-  if (!confirmed) return
 
   placing.value = true
 
   try {
-    // Prepare delivery request
-    let deliveryRequest = ''
-
-    if (selectedAddressId.value && selectedAddress.value) {
-      // 저장된 배송지: 오버라이드 값 또는 저장된 값 사용
-      if (shippingInfo.value.delivery_request === '직접 입력' && customRequest.value.trim()) {
-        deliveryRequest = customRequest.value.trim()
-      } else if (shippingInfo.value.delivery_request && shippingInfo.value.delivery_request !== '') {
-        deliveryRequest = shippingInfo.value.delivery_request
-      } else {
-        // 저장된 배송지의 요청사항 사용
-        deliveryRequest = selectedAddress.value.delivery_memo || ''
-      }
-    } else {
-      // 새 배송지: 입력된 값 사용
-      if (shippingInfo.value.delivery_request === '직접 입력' && customRequest.value.trim()) {
-        deliveryRequest = customRequest.value.trim()
-      } else {
-        deliveryRequest = shippingInfo.value.delivery_request || ''
-      }
-    }
-
-    const shippingAddress = `(${postalCode}) ${address} ${addressDetail}`.trim()
+    const shipping = getShippingDetails()
 
     if (!authStore.isAuthenticated) {
-      // 비회원 주문
+      // ========== 비회원 주문 (기존 모의 결제) ==========
       const guestOrderData = {
         items: cartStore.items.map(item => ({
           product_id: item.product.id,
@@ -630,10 +678,10 @@ const handlePlaceOrder = async () => {
         guest_email: guestInfo.value.email,
         guest_name: guestInfo.value.name,
         guest_phone: guestInfo.value.phone,
-        recipient_name: recipientName,
-        recipient_phone: recipientPhone,
-        shipping_address: shippingAddress,
-        shipping_memo: deliveryRequest
+        recipient_name: shipping.recipientName,
+        recipient_phone: shipping.recipientPhone,
+        shipping_address: shipping.shippingAddress,
+        shipping_memo: shipping.deliveryRequest
       }
 
       const response = await guestOrdersAPI.createOrder(guestOrderData)
@@ -648,45 +696,52 @@ const handlePlaceOrder = async () => {
       // 홈으로 이동
       router.push('/')
     } else {
-      // 회원 주문 - 새 배송지 저장 옵션이 선택된 경우 배송지 먼저 저장
+      // ========== 회원 주문 - PG 결제 흐름 ==========
+
+      // 새 배송지 저장 옵션이 선택된 경우 배송지 먼저 저장
       if (!selectedAddressId.value && saveAsNewAddress.value) {
         try {
           await addressesStore.addAddress({
             address_name: newAddressName.value.trim() || '새 배송지',
-            recipient_name: recipientName,
-            recipient_phone: recipientPhone,
-            postal_code: postalCode,
-            address_line1: address,
-            address_line2: addressDetail || null,
-            delivery_memo: deliveryRequest || null,
+            recipient_name: shipping.recipientName,
+            recipient_phone: shipping.recipientPhone,
+            postal_code: shipping.postalCode,
+            address_line1: shipping.address,
+            address_line2: shipping.addressDetail || null,
+            delivery_memo: shipping.deliveryRequest || null,
             is_default: setAsDefault.value
           })
         } catch (saveErr) {
           console.error('배송지 저장 실패 (주문은 계속 진행):', saveErr)
-          // 배송지 저장 실패해도 주문은 계속 진행
         }
       }
 
-      const orderData = {
-        recipient_name: recipientName,
-        recipient_phone: recipientPhone,
-        shipping_address: shippingAddress,
-        shipping_memo: deliveryRequest
+      // 1. 결제 준비 API 호출 (주문 생성 + PG 초기화)
+      const prepareResult = await preparePayment({
+        cart_item_ids: cartStore.items.map(item => item.id as number),
+        recipient_name: shipping.recipientName,
+        recipient_phone: shipping.recipientPhone,
+        shipping_address: shipping.shippingAddress,
+        shipping_memo: shipping.deliveryRequest,
+        save_address: saveAsNewAddress.value && !selectedAddressId.value,
+        address_name: newAddressName.value.trim() || undefined,
+      })
+
+      if (!prepareResult) {
+        alert(paymentError.value || '결제 준비 중 오류가 발생했습니다.')
+        return
       }
 
-      const response = await ordersStore.createOrder(orderData)
+      // 2. 결제 위젯 렌더링
+      paymentReady.value = true
 
-      // Clear cart after successful order
-      await cartStore.clearCart()
+      // DOM 업데이트 후 위젯 렌더링
+      await nextTick()
 
-      // Show success message
-      alert('주문이 완료되었습니다!')
-
-      // Redirect to order detail page
-      if (response && response.id) {
-        router.push(`/mypage/orders/${response.id}`)
-      } else {
-        router.push('/mypage/orders')
+      const widgetRendered = await renderPaymentWidget('#payment-method', '#agreement')
+      if (!widgetRendered) {
+        paymentReady.value = false
+        alert(paymentError.value || '결제 위젯 로드에 실패했습니다.')
       }
     }
   } catch (err: any) {
@@ -695,6 +750,13 @@ const handlePlaceOrder = async () => {
   } finally {
     placing.value = false
   }
+}
+
+// 결제 요청 (위젯 렌더링 후)
+const handleRequestPayment = async () => {
+  await requestPayment()
+  // requestPayment 실행 후 성공 시 토스가 자동으로 successUrl로 리다이렉트
+  // 실패 시 failUrl로 리다이렉트
 }
 
 // Handle image error
@@ -755,6 +817,15 @@ onMounted(() => {
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 1rem;
+}
+
+.spinner-small {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #00a86b;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
@@ -1068,7 +1139,43 @@ onMounted(() => {
   border-color: #00a86b;
 }
 
-/* Payment Methods */
+/* Payment Widget Area */
+.payment-widget-area {
+  min-height: 300px;
+}
+
+.payment-method-widget {
+  margin-bottom: 1rem;
+}
+
+.agreement-widget {
+  margin-top: 1rem;
+}
+
+.payment-widget-placeholder {
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 2rem;
+}
+
+.widget-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  color: #666;
+}
+
+.widget-notice {
+  text-align: center;
+  color: #666;
+}
+
+/* Payment Methods (비회원용) */
 .payment-methods {
   display: flex;
   flex-direction: column;
@@ -1086,7 +1193,7 @@ onMounted(() => {
   transition: all 0.2s;
 }
 
-.payment-method:has(input:checked) {
+.payment-method.selected {
   border-color: #00a86b;
   background: #f0fdf7;
 }
@@ -1142,12 +1249,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-}
-
-.summary-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
 }
 
 .summary-title {
@@ -1239,6 +1340,24 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
+.btn-payment {
+  background: #0050ff;
+}
+
+.btn-payment:hover:not(:disabled) {
+  background: #0040cc;
+}
+
+.payment-error {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 4px;
+  color: #721c24;
+  font-size: 0.875rem;
+}
+
 /* Guest Section */
 .guest-section {
   border: 2px solid #ffc107;
@@ -1262,10 +1381,6 @@ onMounted(() => {
   color: #6c757d;
   font-size: 0.75rem;
   margin-top: 0.25rem;
-}
-
-.terms {
-  margin-top: 1rem;
 }
 
 .checkbox-label {

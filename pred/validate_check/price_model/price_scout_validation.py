@@ -637,5 +637,3 @@ async def run_price_scout_validation() -> None:
 
 if __name__ == "__main__":
     asyncio.run(run_price_scout_validation())
-
-

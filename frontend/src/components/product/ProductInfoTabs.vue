@@ -142,12 +142,14 @@ const averageRating = computed(() => {
   line-height: 1.6;
 }
 .detail-images {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
 }
 .detail-images img {
   width: 100%;
+  max-width: 720px;
   border-radius: 8px;
   background: #f9fafb;
   border: 1px solid var(--gray-200, #e5e7eb);

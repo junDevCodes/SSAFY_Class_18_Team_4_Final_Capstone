@@ -3,7 +3,8 @@
     <!-- 헤더 -->
     <div class="page-header">
       <h2 class="section-title">배송지 관리</h2>
-      <button class="btn-add" @click="openAddModal">
+      <!-- 배송지가 있을 때만 헤더에 버튼 표시 (빈 상태에서는 중앙 버튼만 표시) -->
+      <button v-if="addressesStore.hasAddresses" class="btn-add" @click="openAddModal">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
@@ -92,6 +93,13 @@
           </button>
         </div>
         <form @submit.prevent="submitForm" class="modal-body">
+          <!-- 에러 메시지 표시 -->
+          <div v-if="formError" class="form-error">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+            <span>{{ formError }}</span>
+          </div>
           <div class="form-group">
             <label for="address_name">배송지 이름 <span class="required">*</span></label>
             <input
@@ -244,6 +252,9 @@ const submitting = ref(false)
 const showDeleteConfirm = ref(false)
 const deleteTarget = ref<UserAddress | null>(null)
 
+// 폼 에러 메시지
+const formError = ref<string | null>(null)
+
 // 폼 데이터
 const initialFormData: UserAddressRequest = {
   address_name: '',
@@ -264,6 +275,7 @@ const openAddModal = () => {
   isEditMode.value = false
   editingId.value = null
   customMemo.value = ''
+  formError.value = null  // 에러 초기화
   Object.assign(formData, {
     ...initialFormData,
     // 프로필에 이름이 있으면 수령인 기본값으로 설정
@@ -278,6 +290,7 @@ const openAddModal = () => {
 const openEditModal = (address: UserAddress) => {
   isEditMode.value = true
   editingId.value = address.id
+  formError.value = null  // 에러 초기화
   formData.address_name = address.address_name
   formData.recipient_name = address.recipient_name
   formData.recipient_phone = address.recipient_phone
@@ -337,6 +350,7 @@ const searchAddress = () => {
 const submitForm = async () => {
   if (submitting.value) return
 
+  formError.value = null  // 에러 초기화
   submitting.value = true
   try {
     // 직접 입력인 경우 customMemo 사용
@@ -351,8 +365,28 @@ const submitForm = async () => {
       await addressesStore.addAddress(submitData)
     }
     closeModal()
-  } catch (error) {
+  } catch (error: any) {
     console.error('배송지 저장 실패:', error)
+    // 백엔드 에러 메시지 추출
+    const errorData = error.response?.data
+    if (errorData) {
+      // DRF 유효성 검증 에러 형식 처리
+      if (typeof errorData === 'object') {
+        const messages: string[] = []
+        for (const [field, errors] of Object.entries(errorData)) {
+          if (Array.isArray(errors)) {
+            messages.push(`${field}: ${errors.join(', ')}`)
+          } else if (typeof errors === 'string') {
+            messages.push(errors)
+          }
+        }
+        formError.value = messages.join('\n') || '배송지 저장에 실패했습니다.'
+      } else {
+        formError.value = String(errorData)
+      }
+    } else {
+      formError.value = '배송지 저장에 실패했습니다. 네트워크 연결을 확인해주세요.'
+    }
   } finally {
     submitting.value = false
   }
@@ -690,6 +724,30 @@ onMounted(() => {
 
 .modal-body {
   padding: 1.5rem;
+}
+
+.form-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  color: #dc2626;
+  font-size: 0.875rem;
+}
+
+.form-error svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.form-error span {
+  white-space: pre-line;
 }
 
 .form-group {

@@ -325,6 +325,11 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         order.cancelled_at = timezone.now()
         order.cancel_reason = serializer.validated_data["cancel_reason"]
 
+        # 항목 상태도 모두 취소로 동기화 (seller 대시보드 감지용)
+        order.items.exclude(status__in=[OrderItemStatus.CANCELLED, OrderItemStatus.REFUNDED]).update(
+            status=OrderItemStatus.CANCELLED
+        )
+
         # 결제 상태 갱신 (모의 결제 기준)
         payments = order.payments.all()
         refunded = False
@@ -378,6 +383,11 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         now = timezone.now()
         shipment.delivered_at = now
         shipment.save(update_fields=["delivered_at", "updated_at"])
+
+        # ?ˆëª© ?íƒœë¥? ëª¨ë‘ ë°°ì†¡?„ë£Œë¡œ ë?™ê¸°í™”í•˜ì—¬ seller ì¤‘ë¬¸ê´ë¦¬ ëŒ€ì‹œë³´ë“œ??ê²°ì¹˜ë™
+        order.items.exclude(status__in=[OrderItemStatus.CANCELLED, OrderItemStatus.REFUNDED]).update(
+            status=OrderItemStatus.DELIVERED
+        )
 
         order.status = OrderStatus.DELIVERED
         order.save(update_fields=["status", "updated_at"])

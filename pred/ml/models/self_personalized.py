@@ -420,8 +420,8 @@ class SelfPersonalizedModel(HybridModel):
         """
         components = self._pickle_model.get("components", {})
 
-        # Cold user: 사전 계산된 인기 상품
-        if context.user_type == "cold":
+        # 비회원(guest) 또는 Cold user: 사전 계산된 인기 상품 + AIRScout 부스트
+        if context.user_type in ("guest", "cold"):
             return await self._recommend_cold_pickle(context, limit, components)
 
         # v2면 ALS 기반 추천 사용
@@ -437,9 +437,10 @@ class SelfPersonalizedModel(HybridModel):
         limit: int,
         components: Dict,
     ) -> List[Dict[str, Any]]:
-        """Cold user 추천 (Pickle 기반)
+        """Cold user 추천 (Pickle 기반 + AIRScout 부스트)
 
         사전 계산된 카테고리별/전체 인기 상품 활용
+        비회원(guest) 및 cold user에게 AIRScout semantic 부스트 적용
 
         Args:
             context: 추천 컨텍스트
@@ -453,21 +454,84 @@ class SelfPersonalizedModel(HybridModel):
         if context.category_id:
             # 키 이름 호환성: category_popular_products 또는 category_popular
             category_popular = components.get("category_popular_products") or components.get("category_popular", {})
-            product_ids = category_popular.get(context.category_id, [])[:limit]
+            candidate_ids = category_popular.get(context.category_id, [])[:limit * 3]
         else:
             # 전체 인기 상품 (키 이름 호환성)
-            product_ids = components.get("global_popular_products") or components.get("global_popular", [])
-            product_ids = product_ids[:limit]
+            candidate_ids = components.get("global_popular_products") or components.get("global_popular", [])
+            candidate_ids = candidate_ids[:limit * 3]  # AIRScout 재정렬을 위해 여유분 확보
 
-        if not product_ids:
+        if not candidate_ids:
             return []
+
+        # ===== AIRScout 부스트 적용 (비회원/cold user) =====
+        # 비회원은 무조건 AIRScout 100%, cold는 Sigmoid 스케줄 적용
+        product_scores = {pid: 50.0 for pid in candidate_ids}  # 기본 점수
+
+        try:
+            from ml.models.airscout_model import AIRScoutModel, ENABLE_AIRSCOUT_BOOST
+
+            if ENABLE_AIRSCOUT_BOOST:
+                airscout = await AIRScoutModel.get_instance(db=self.db)
+
+                # 상품명 목록 추출
+                product_names = await self._get_product_names(candidate_ids)
+
+                # 부스트 점수 계산 (user_type 기반 가중치 자동 적용)
+                # guest: 100% AIRScout, cold: Sigmoid 스케줄
+                boost_scores = await airscout.compute_boost_scores(
+                    context=context,
+                    product_texts=product_names,
+                    user_score=None,
+                )
+
+                # 부스트 적용 (기존 점수에 가산)
+                boost_applied = 0
+                for i, pid in enumerate(candidate_ids):
+                    if i < len(boost_scores):
+                        boost_val = float(boost_scores[i])
+                        if boost_val > 0:
+                            # 기본 점수의 최대 50%까지 부스트
+                            max_boost = product_scores[pid] * 0.5
+                            product_scores[pid] += min(boost_val * 100, max_boost)
+                            boost_applied += 1
+
+                # 비회원 판단
+                is_guest = context.user_id is None or context.user_id == 0
+
+                if boost_applied > 0:
+                    logger.info(
+                        f"AIRScout 부스트 적용 완료 (cold/guest)",
+                        extra={
+                            "user_id": context.user_id,
+                            "user_type": context.user_type,
+                            "is_guest": is_guest,
+                            "boost_applied": boost_applied,
+                            "candidate_count": len(candidate_ids),
+                            "mean_boost": round(float(boost_scores.mean()) * 100, 2) if len(boost_scores) > 0 else 0,
+                        }
+                    )
+
+        except Exception as e:
+            logger.warning(f"AIRScout 부스트 적용 실패 (무시됨): {e}")
+
+        # 점수 기준 재정렬 후 상위 limit개 선택
+        sorted_ids = sorted(candidate_ids, key=lambda pid: product_scores.get(pid, 0), reverse=True)
+        product_ids = sorted_ids[:limit]
 
         # DB에서 상품 정보 조회
         products = await self._fetch_products_by_ids(product_ids)
 
+        # 점수 정규화 (0-100 범위)
+        max_score = max(product_scores.values()) if product_scores else 1.0
+        min_score = min(product_scores.values()) if product_scores else 0.0
+        score_range = max_score - min_score if max_score != min_score else 1.0
+
         for product in products:
-            product["recommendation_score"] = 50.0  # 기본 점수
-            product["recommendation_source"] = "pickle_popular"
+            pid = product.get("product_id")
+            raw_score = product_scores.get(pid, 50.0)
+            normalized_score = ((raw_score - min_score) / score_range) * 100
+            product["recommendation_score"] = round(normalized_score, 2)
+            product["recommendation_source"] = "pickle_popular_airscout"
 
         return products
 
@@ -654,15 +718,48 @@ class SelfPersonalizedModel(HybridModel):
         user_idx = user_id_to_idx.get(context.user_id)
 
         if user_idx is None:
-            logger.debug(f"v2: 사용자 임베딩 없음 (user_id={context.user_id}), cold 추천 사용")
-            return await self._recommend_cold_pickle(context, limit, components)
+            # ALS 임베딩이 없으면 실제 cold 상태 → user_type을 cold로 강제 설정
+            # classify_user()가 warm으로 분류해도, 모델 학습 이후 가입한 사용자는
+            # 임베딩이 없으므로 AIRScout 부스트가 적용되어야 함
+            logger.debug(
+                f"v2: 사용자 임베딩 없음 (user_id={context.user_id}), "
+                f"user_type={context.user_type} → cold로 강제 전환"
+            )
+            cold_context = RecommendationContext(
+                user_id=context.user_id,
+                user_type="cold",  # 강제로 cold 설정 → AIRScout 활성화
+                category_id=context.category_id,
+                cart_product_ids=context.cart_product_ids,
+                page_type=context.page_type,
+                interaction_count=context.interaction_count,
+                time_context=context.time_context,
+                is_weekend=context.is_weekend,
+                day_of_week=context.day_of_week,
+                hour_of_day=context.hour_of_day,
+                metadata=context.metadata,
+            )
+            return await self._recommend_cold_pickle(cold_context, limit, components)
 
         if not isinstance(user_idx, int) or user_idx < 0 or user_idx >= user_embeddings.shape[0]:
+            # 인덱스 범위 오류도 마찬가지로 cold 처리
             logger.warning(
                 "v2 사용자 인덱스 범위 오류, cold 추천으로 폴백",
                 extra={"user_id": context.user_id, "user_idx": user_idx, "n_users": int(user_embeddings.shape[0])},
             )
-            return await self._recommend_cold_pickle(context, limit, components)
+            cold_context = RecommendationContext(
+                user_id=context.user_id,
+                user_type="cold",  # 강제로 cold 설정 → AIRScout 활성화
+                category_id=context.category_id,
+                cart_product_ids=context.cart_product_ids,
+                page_type=context.page_type,
+                interaction_count=context.interaction_count,
+                time_context=context.time_context,
+                is_weekend=context.is_weekend,
+                day_of_week=context.day_of_week,
+                hour_of_day=context.hour_of_day,
+                metadata=context.metadata,
+            )
+            return await self._recommend_cold_pickle(cold_context, limit, components)
 
         # 사용자 임베딩
         user_vec = user_embeddings[user_idx]
@@ -718,6 +815,51 @@ class SelfPersonalizedModel(HybridModel):
 
         if not product_ids:
             return await self._recommend_cold_pickle(context, limit, components)
+
+        # ===== AIRScout 부스트 적용 =====
+        # user_type 기반 판단: warm은 스킵, cold/lukewarm은 부스트 적용
+        # 참고: 이 메서드는 lukewarm/warm만 진입 (cold는 _recommend_cold_pickle으로 분기)
+        # compute_boost_scores 내부에서 user_type 기반으로 가중치 자동 계산
+        try:
+            from ml.models.airscout_model import AIRScoutModel, ENABLE_AIRSCOUT_BOOST
+
+            if ENABLE_AIRSCOUT_BOOST:
+                airscout = await AIRScoutModel.get_instance(db=self.db)
+
+                # 상품명 목록 추출 (부스트 대상 상품들)
+                product_names = await self._get_product_names(product_ids)
+
+                # 부스트 점수 계산 (user_type 기반 가중치 자동 적용)
+                # warm: 0 반환, lukewarm: 0.5 가중치, cold: Sigmoid 스케줄
+                boost_scores = await airscout.compute_boost_scores(
+                    context=context,
+                    product_texts=product_names,
+                    user_score=None,
+                )
+
+                # 기존 점수에 부스트 적용 (최대 50%)
+                boost_applied = 0
+                for i, pid in enumerate(product_ids):
+                    if i < len(boost_scores) and pid in product_scores:
+                        boost_val = boost_scores[i]
+                        if boost_val > 0:
+                            max_boost = product_scores[pid] * 0.5
+                            product_scores[pid] += min(boost_val, max_boost)
+                            boost_applied += 1
+
+                if boost_applied > 0:
+                    logger.debug(
+                        f"AIRScout 부스트 적용 완료",
+                        extra={
+                            "user_id": context.user_id,
+                            "user_type": context.user_type,
+                            "boost_applied": boost_applied,
+                            "mean_boost": float(boost_scores.mean()) if len(boost_scores) > 0 else 0,
+                        }
+                    )
+
+        except Exception as e:
+            logger.warning(f"AIRScout 부스트 적용 실패 (무시됨): {e}")
 
         # DB에서 상품 정보 조회
         products = await self._fetch_products_by_ids(product_ids)
@@ -859,6 +1001,31 @@ class SelfPersonalizedModel(HybridModel):
         # 원래 순서 유지
         product_map = {r["product_id"]: dict(r) for r in records}
         return [product_map[pid] for pid in product_ids if pid in product_map]
+
+    async def _get_product_names(self, product_ids: List[int]) -> List[str]:
+        """상품 ID 목록으로 상품명 조회 (AIRScout 연동용)
+
+        Args:
+            product_ids: 상품 ID 목록
+
+        Returns:
+            상품명 목록 (없으면 빈 문자열)
+        """
+        if not product_ids:
+            return []
+
+        placeholders = ", ".join(f"${i+1}" for i in range(len(product_ids)))
+        query = f"""
+            SELECT id, name FROM products
+            WHERE id IN ({placeholders})
+        """
+        records = await self.db.fetch_all(query, *product_ids)
+
+        # ID → name 매핑
+        name_map = {r["id"]: r["name"] for r in records}
+
+        # 원래 순서 유지, 없으면 빈 문자열
+        return [name_map.get(pid, "") for pid in product_ids]
 
     async def _recommend_with_user_stats(
         self,

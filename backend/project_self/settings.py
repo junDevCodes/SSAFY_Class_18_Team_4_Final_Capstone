@@ -351,29 +351,36 @@ EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', 5))
 
 # ========================= AWS S3 설정 =========================
 # 판매자 상품 이미지 업로드용 S3 설정
-AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', '')
-AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '')
-AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_S3_BUCKET', 'self-json-backup')
-AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION', 'ap-northeast-2')
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+# 크롤러 변수명(S3_*)과 백엔드 변수명(AWS_S3_*) 모두 지원 (버킷/리전만 환경변수로 제어)
+AWS_STORAGE_BUCKET_NAME = os.getenv('S3_BUCKET') or os.getenv('AWS_S3_BUCKET', 'self-json-backup')
+AWS_S3_REGION_NAME = os.getenv('S3_REGION') or os.getenv('AWS_S3_REGION', 'ap-northeast-2')
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 
-# S3 업로드 경로 설정
-# Base: s3://self-json-backup/seller_profile/
-# 상품 이미지
-AWS_S3_THUMBNAIL_PREFIX = os.getenv('AWS_S3_THUMBNAIL_PREFIX', 'seller_profile/seller_product_thumbnail/')
-AWS_S3_PRODUCT_DETAIL_PREFIX = os.getenv('AWS_S3_PRODUCT_DETAIL_PREFIX', 'seller_profile/seller_product_detail/')
+# S3 업로드 경로 설정 (prefix 는 하드코딩으로 고정해 혼선을 방지)
+AWS_S3_BASE_DIR = 'seller_profile/'
 
-# 판매자 프로필/브랜드 이미지
-AWS_S3_SELLER_PROFILE_PREFIX = os.getenv('AWS_S3_SELLER_PROFILE_PREFIX', 'seller_profile/seller_profile/')
-AWS_S3_BRAND_LOGO_PREFIX = os.getenv('AWS_S3_BRAND_LOGO_PREFIX', 'seller_profile/brand_logo/')
-AWS_S3_BRAND_BANNER_PREFIX = os.getenv('AWS_S3_BRAND_BANNER_PREFIX', 'seller_profile/brand_banner/')
+# 상품 이미지 prefix (판매자 상품용 경로를 고정)
+AWS_S3_THUMBNAIL_PREFIX = f'{AWS_S3_BASE_DIR}seller_product_thumbnail/'
+AWS_S3_PRODUCT_DETAIL_PREFIX = f'{AWS_S3_BASE_DIR}seller_product_detail/'
+
+# 판매자 프로필/브랜드 이미지 prefix
+AWS_S3_SELLER_PROFILE_PREFIX = f'{AWS_S3_BASE_DIR}seller_profile/'
+AWS_S3_BRAND_LOGO_PREFIX = f'{AWS_S3_BASE_DIR}brand_logo/'
+AWS_S3_BRAND_BANNER_PREFIX = f'{AWS_S3_BASE_DIR}brand_banner/'
 
 # S3 파일 설정
 AWS_S3_FILE_OVERWRITE = False  # 동일 파일명 덮어쓰기 방지
-AWS_DEFAULT_ACL = 'public-read'  # 공개 읽기 권한
+AWS_S3_USE_PUBLIC_URL = (os.getenv('S3_USE_PUBLIC_URL') or os.getenv('AWS_S3_USE_PUBLIC_URL', 'true')).lower() in ('1', 'true', 'yes')
+# ACL 설정을 건너뛰고 버킷 정책으로 관리하려면 False (권장)
+AWS_S3_SET_ACL = os.getenv('AWS_S3_SET_ACL', 'false').lower() in ('1', 'true', 'yes')
+AWS_DEFAULT_ACL = 'public-read' if AWS_S3_SET_ACL else None
 AWS_S3_OBJECT_PARAMETERS = {
     'CacheControl': 'max-age=86400',  # 24시간 캐시
 }
+AWS_S3_PRESIGN_EXPIRES = int(os.getenv('S3_PRESIGN_EXPIRES') or os.getenv('AWS_S3_PRESIGN_EXPIRES', '3600'))
 
 # ========================= GMS (SSAFY GPT Proxy) 설정 =========================
 # 상품명에서 재료 추출을 위한 LLM API 설정
@@ -417,3 +424,24 @@ CELERY_RESULT_EXPIRES = 60 * 60 * 24
 GMS_EXTRACTION_BATCH_SIZE = int(os.getenv('GMS_EXTRACTION_BATCH_SIZE', 100))
 GMS_EXTRACTION_MIN_CONFIDENCE = float(os.getenv('GMS_EXTRACTION_MIN_CONFIDENCE', 0.7))
 GMS_EXTRACTION_USE_FALLBACK = os.getenv('GMS_EXTRACTION_USE_FALLBACK', 'True').lower() == 'true'
+
+# ========================= 토스페이먼츠 PG 설정 =========================
+# 결제 모드: 'demo' (데모 모드) 또는 'production' (실제 PG)
+PAYMENT_MODE = os.getenv('PAYMENT_MODE', 'demo')
+
+# 토스페이먼츠 API 키
+# 테스트 키: test_ck_..., test_sk_...
+# 라이브 키: live_ck_..., live_sk_...
+TOSS_CLIENT_KEY = os.getenv('TOSS_CLIENT_KEY', 'test_ck_demo_key')
+TOSS_SECRET_KEY = os.getenv('TOSS_SECRET_KEY', 'test_sk_demo_key')
+
+# 토스페이먼츠 API URL
+TOSS_API_URL = os.getenv('TOSS_API_URL', 'https://api.tosspayments.com/v1')
+
+# 웹훅 시그니처 검증 키 (토스 대시보드에서 발급)
+TOSS_WEBHOOK_SECRET = os.getenv('TOSS_WEBHOOK_SECRET', '')
+
+# 프론트엔드 URL (토스 결제 후 리다이렉트)
+FRONTEND_ORIGIN = os.getenv('FRONTEND_ORIGIN', 'http://localhost:5173')
+PAYMENT_SUCCESS_URL = os.getenv('PAYMENT_SUCCESS_URL', f'{FRONTEND_ORIGIN}/checkout/success')
+PAYMENT_FAIL_URL = os.getenv('PAYMENT_FAIL_URL', f'{FRONTEND_ORIGIN}/checkout/fail')

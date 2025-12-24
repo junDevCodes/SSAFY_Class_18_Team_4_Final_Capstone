@@ -90,6 +90,7 @@ export interface Product {
   view_count: number
   average_rating: number
   review_count: number
+  order_event_count?: number
   wishlist_count: number
   quality_score: number
 
@@ -281,6 +282,9 @@ export interface ProductFilterParams {
   price__lte?: number
   status?: 'active' | 'inactive' | 'draft' | 'out_of_stock' | 'discontinued'
   product_type?: 'main' | 'seller'
+  // 판매자/브랜드 필터
+  brand_slug?: string
+  include_inactive?: boolean
 
   // 커스텀 필터 (백엔드 v2.1 지원)
   is_featured?: boolean  // 추천 상품 (quality_score >= 70)

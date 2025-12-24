@@ -12,6 +12,7 @@ from .views import (
     ProductImageManageView,
     ProductImageUploadView,
     ProductDetailImageUploadView,
+    ReviewImageUploadView,
     WishlistViewSet,
     CartViewSet,
     ReviewViewSet,
@@ -51,6 +52,9 @@ urlpatterns = [
     # 판매자 상품 이미지 업로드 (파일 업로드 → S3)
     path('seller-products/<int:product_id>/images/upload/', ProductImageUploadView.as_view(), name='product-image-upload'),
     path('seller-products/<int:product_id>/detail-images/upload/', ProductDetailImageUploadView.as_view(), name='product-detail-image-upload'),
+
+    # 리뷰 이미지 업로드 (파일 업로드 → S3)
+    path('reviews/images/upload/', ReviewImageUploadView.as_view(), name='review-image-upload'),
 
     # GMS 재료 추출 모니터링 API
     path('products/gms-status/', GMSExtractionStatusView.as_view(), name='gms-extraction-status'),

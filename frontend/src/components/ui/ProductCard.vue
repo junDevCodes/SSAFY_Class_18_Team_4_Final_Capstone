@@ -1,10 +1,30 @@
 <template>
-  <div class="group relative flex flex-col cursor-pointer" @click="goToDetail">
+  <div
+    class="group relative flex flex-col cursor-pointer"
+    @click="goToDetail"
+  >
     <div class="relative aspect-[3/4] bg-gray-50 rounded-lg overflow-hidden mb-5">
-      <img :src="getProductImage(product)" :alt="product.name" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105">
+      <img
+        :src="getProductImage(product)"
+        :alt="product.name"
+        class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+        :class="{ 'grayscale opacity-80': !!statusLabel }"
+      >
+
+      <div
+        v-if="statusLabel"
+        class="absolute inset-0 bg-gray-900/50 backdrop-blur-[1px] flex items-center justify-center text-white z-10"
+      >
+        <span class="px-3 py-1 rounded-full bg-black/60 text-sm font-semibold">
+          {{ statusLabel }}
+        </span>
+      </div>
 
       <!-- Bottom-right actions: heart (smaller) + cart (+) -->
-      <div class="absolute bottom-4 right-4 flex items-center gap-2 opacity-0 translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 z-10">
+      <div
+        class="absolute bottom-4 right-4 flex items-center gap-2 opacity-0 translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 z-10"
+        :class="{ 'pointer-events-none opacity-30 !translate-y-0': !isActive }"
+      >
         <button
           @click.stop="handleToggleWishlist"
           class="w-8 h-8 bg-white/90 backdrop-blur rounded-full shadow flex items-center justify-center hover:bg-gray-100 transition-colors"
@@ -93,6 +113,22 @@ const uiStore = useUIStore()
 const wishlistStore = useWishlistStore()
 const authStore = useAuthStore()
 
+const isActive = computed(() => props.product.status === 'active')
+const statusLabel = computed(() => {
+  switch (props.product.status) {
+    case 'inactive':
+      return '판매 일시정지'
+    case 'draft':
+      return '판매 준비중'
+    case 'out_of_stock':
+      return '품절'
+    case 'discontinued':
+      return '단종'
+    default:
+      return ''
+  }
+})
+
 const goToDetail = () => {
   router.push({ name: 'product-detail', params: { slug: props.product.slug } })
 }
@@ -115,6 +151,10 @@ const isWishlisted = computed(() => {
 })
 
 const handleAddToCart = async () => {
+  if (!isActive.value) {
+    uiStore.showToast('현재 판매가 일시정지된 상품입니다.')
+    return
+  }
   try {
     await cartStore.addToCart(props.product, 1)
     const message = cartStore.isGuest
@@ -127,6 +167,10 @@ const handleAddToCart = async () => {
 }
 
 const handleToggleWishlist = async () => {
+  if (!isActive.value) {
+    uiStore.showToast('판매 중인 상품만 찜이 가능해요.')
+    return
+  }
   if (!authStore.isAuthenticated) {
     window.dispatchEvent(new CustomEvent('auth:required'))
     uiStore.showToast('로그인이 필요해요.')

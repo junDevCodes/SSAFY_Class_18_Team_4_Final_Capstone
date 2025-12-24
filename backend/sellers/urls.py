@@ -9,10 +9,12 @@ from .views import (
     SellerApprovalView,
     SellerDashboardView,
     SellerImageUploadView,
+    SellerOrderItemViewSet,
 )
 
 # Router 설정
 router = DefaultRouter()
+router.register(r'orders', SellerOrderItemViewSet, basename='seller-orders')
 router.register(r'', SellerViewSet, basename='seller')
 
 urlpatterns = [

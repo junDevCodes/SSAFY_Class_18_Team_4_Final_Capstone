@@ -70,29 +70,32 @@ class ModelLoader:
     - 백그라운드 태스크로 주기적 체크
     - 변경된 모델만 선택적 리로드
     - 리로드 콜백 지원 (SelfPersonalizedModel 재초기화 등)
+    - Atomic Swap으로 읽기/쓰기 동시성 문제 해결
     """
 
     _instance = None
-    _models: Dict[str, Dict[str, Any]] = {}
-    _metadata: Dict[str, Any] = {}
-    _loaded: bool = False
-    _file_mtimes: Dict[str, float] = {}  # 파일별 최종 수정 시간
-    _reload_callbacks: List[Callable[[str], None]] = []  # 리로드 콜백
-    _monitor_task: Optional[asyncio.Task] = None  # 백그라운드 모니터링 태스크
-    _monitor_interval: int = 30  # 모니터링 간격 (초)
+    _init_lock = asyncio.Lock()  # 싱글톤 초기화용 Lock
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._models = {}
-            cls._metadata = {}
-            cls._loaded = False
-            cls._file_mtimes = {}
-            cls._reload_callbacks = []
-            cls._monitor_task = None
+            instance = super().__new__(cls)
+            # 인스턴스 변수로 초기화 (클래스 변수 공유 문제 해결)
+            instance._models: Dict[str, Dict[str, Any]] = {}
+            instance._metadata: Dict[str, Any] = {}
+            instance._loaded: bool = False
+            instance._file_mtimes: Dict[str, float] = {}
+            instance._reload_callbacks: List[Callable[[str], None]] = []
+            instance._monitor_task: Optional[asyncio.Task] = None
+            instance._monitor_interval: int = 30
+            instance._reload_lock = asyncio.Lock()  # 리로드 동시성 제어용 Lock
+            cls._instance = instance
         return cls._instance
 
     def __init__(self):
+        # __new__에서 이미 초기화된 경우 스킵 (싱글톤이므로 __init__이 여러 번 호출될 수 있음)
+        if hasattr(self, 'models_dir'):
+            return
+
         # 모델 디렉토리 경로 (환경변수 또는 기본값)
         default_path = Path(__file__).parent.parent / "models"
         self.models_dir = Path(os.getenv("MODELS_DIR", str(default_path)))
@@ -108,6 +111,7 @@ class ModelLoader:
             logger.info("모델이 이미 로드됨, 스킵")
             return
 
+        print(f"\n[ModelLoader] 모델 로딩 시작: {self.models_dir}")
         logger.info(f"모델 로딩 시작: {self.models_dir}")
 
         if not self.models_dir.exists():
@@ -133,10 +137,14 @@ class ModelLoader:
             await self._load_single_model(model_file)
 
         self._loaded = True
+        print(f"[ModelLoader] ✓ 총 {len(self._models)}개 모델 로드 완료: {self.loaded_models}")
         logger.info(f"총 {len(self._models)}개 모델 로드 완료")
 
     async def _load_single_model(self, model_file: Path, is_reload: bool = False) -> bool:
-        """단일 모델 파일 로드
+        """단일 모델 파일 로드 (Atomic Swap 패턴)
+
+        파일에서 모델 데이터를 완전히 로드한 후에만 _models에 할당합니다.
+        이를 통해 읽기 연산이 항상 완전한 모델 데이터를 얻도록 보장합니다.
 
         Args:
             model_file: 모델 파일 경로
@@ -145,27 +153,37 @@ class ModelLoader:
         Returns:
             로드 성공 여부
         """
+        model_name = model_file.stem  # 확장자 제외 파일명
+
         try:
-            model_name = model_file.stem  # 확장자 제외 파일명
-
-            # SafeUnpickler를 사용하여 알 수 없는 모듈 무시
+            # 1단계: 파일에서 모델 데이터 완전히 로드 (아직 _models에 할당 안 함)
             model_data = safe_pickle_load(model_file)
+            file_mtime = model_file.stat().st_mtime
 
-            self._models[model_name] = model_data
+            # 2단계: 로드 성공 후 검증
+            if model_data is None:
+                logger.error(f"모델 로드 결과가 None: {model_file}")
+                return False
 
-            # 파일 mtime 저장 (Hot Reload용)
-            self._file_mtimes[model_name] = model_file.stat().st_mtime
+            # 3단계: Atomic Swap - Lock 하에 참조만 교체
+            # asyncio는 단일 스레드이므로 딕셔너리 할당 자체는 atomic하지만,
+            # 명시적 Lock으로 의도를 명확히 하고 향후 확장성 확보
+            async with self._reload_lock:
+                self._models[model_name] = model_data
+                self._file_mtimes[model_name] = file_mtime
 
-            # 로드된 모델 정보 로깅
+            # 4단계: 로깅 (Lock 밖에서 수행)
             action = "리로드" if is_reload else "로드"
             if isinstance(model_data, dict):
                 version = model_data.get("version", "unknown")
                 created_at = model_data.get("created_at", "unknown")
+                model_type = model_data.get("model_type", "unknown")
                 components = list(model_data.get("components", {}).keys()) if "components" in model_data else []
 
                 # v2 모델 (Masked Set Transformer) 추가 정보
                 if "model_state_dict" in model_data:
                     vocab_size = len(model_data.get("tokenizer_vocab", {}))
+                    print(f"  └─ {model_name}: v{version} (Transformer, vocab={vocab_size})")
                     logger.info(
                         f"모델 {action} 완료: {model_name} (Transformer)",
                         extra={
@@ -174,6 +192,7 @@ class ModelLoader:
                         }
                     )
                 else:
+                    print(f"  └─ {model_name}: v{version} ({model_type})")
                     logger.info(
                         f"모델 {action} 완료: {model_name}",
                         extra={
@@ -183,6 +202,7 @@ class ModelLoader:
                         }
                     )
             else:
+                print(f"  └─ {model_name}: {type(model_data).__name__}")
                 logger.info(f"모델 {action} 완료: {model_name} (type={type(model_data).__name__})")
 
             return True

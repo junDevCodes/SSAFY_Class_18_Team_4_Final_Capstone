@@ -11,6 +11,8 @@ const ProductDetailPage = () => import('@/pages/ProductDetailPage.vue')
 const CartPage = () => import('@/pages/CartPage.vue')
 const WishlistPage = () => import('@/pages/WishlistPage.vue')
 const CheckoutPage = () => import('@/pages/CheckoutPage.vue')
+const CheckoutSuccessPage = () => import('@/pages/CheckoutSuccessPage.vue')
+const CheckoutFailPage = () => import('@/pages/CheckoutFailPage.vue')
 const AllProductsPage = () => import('@/pages/AllProductsPage.vue')
 const BestPage = () => import('@/pages/BestPage.vue')
 const NewPage = () => import('@/pages/NewPage.vue')
@@ -31,6 +33,8 @@ const SellerProductCreate = () => import('@/pages/seller/ProductCreatePage.vue')
 const SellerProductEdit = () => import('@/pages/seller/ProductEditPage.vue')
 const SellerRegister = () => import('@/pages/seller/RegisterPage.vue')
 const SellerAnalytics = () => import('@/pages/seller/AnalyticsPage.vue')
+const SellerOrders = () => import('@/pages/seller/OrdersPage.vue')
+const SellerSettings = () => import('@/pages/seller/SettingsPage.vue')
 
 // Admin
 const AdminLayout = () => import('@/pages/admin/AdminLayout.vue')
@@ -152,7 +156,19 @@ const routes: RouteRecordRaw[] = [
     path: '/checkout',
     name: 'checkout',
     component: CheckoutPage,
-    meta: { title: '주문/결제', requiresAuth: true }
+    meta: { title: '주문/결제' }  // 비회원 주문 지원으로 requiresAuth 제거
+  },
+  {
+    path: '/checkout/success',
+    name: 'checkout-success',
+    component: CheckoutSuccessPage,
+    meta: { title: '결제 완료' }
+  },
+  {
+    path: '/checkout/fail',
+    name: 'checkout-fail',
+    component: CheckoutFailPage,
+    meta: { title: '결제 실패' }
   },
   {
     path: '/mypage',
@@ -206,6 +222,18 @@ const routes: RouteRecordRaw[] = [
     name: 'seller-analytics',
     component: SellerAnalytics,
     meta: { title: '매출·환불 분석', requiresAuth: true, requiresSeller: true }
+  },
+  {
+    path: '/seller/orders',
+    name: 'seller-orders',
+    component: SellerOrders,
+    meta: { title: '주문 관리', requiresAuth: true, requiresSeller: true }
+  },
+  {
+    path: '/seller/settings',
+    name: 'seller-settings',
+    component: SellerSettings,
+    meta: { title: '판매자 설정', requiresAuth: true, requiresSeller: true }
   },
   {
     path: '/seller/products',

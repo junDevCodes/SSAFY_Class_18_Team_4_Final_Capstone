@@ -723,7 +723,8 @@ onMounted(() => {
 
 .order-item {
   display: grid;
-  grid-template-columns: 80px 1fr auto;
+  grid-template-columns: 80px 1fr auto auto;
+  align-items: center;
   gap: 1rem;
   padding: 1rem;
   background: #f8f9fa;
@@ -775,18 +776,23 @@ onMounted(() => {
 
 .item-actions {
   display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 0.5rem;
-  margin-left: 1rem;
+  margin-left: 0;
 }
 
 .btn-review {
-  padding: 0.35rem 0.75rem;
-  border-radius: 8px;
+  min-width: 88px;
+  height: 36px;
+  padding: 0 0.75rem;
+  border-radius: 10px;
   border: 1px solid #d1d5db;
   background: #fff;
   font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .btn-review:hover:not(:disabled) {
@@ -1005,7 +1011,8 @@ onMounted(() => {
     grid-template-columns: 60px 1fr;
     grid-template-areas:
       "image info"
-      "total total";
+      "total actions";
+    align-items: start;
   }
 
   .item-image {
@@ -1024,6 +1031,18 @@ onMounted(() => {
     padding-top: 0.75rem;
     margin-top: 0.75rem;
     border-top: 1px solid #e9ecef;
+  }
+
+  .item-actions {
+    grid-area: actions;
+    justify-content: flex-start;
+    margin-left: 0;
+    margin-top: 0.5rem;
+  }
+
+  .btn-review {
+    width: 100%;
+    max-width: 140px;
   }
 
   .timeline {

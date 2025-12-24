@@ -32,9 +32,10 @@ from .serializers import (
     CategorySerializer, ProductSerializer, ProductDetailSerializer,
     ProductListSerializer, ProductImageSerializer, WishlistSerializer, CartSerializer,
     ProductListSerializerV2, ProductDetailSerializerV2,
-    ReviewSerializer, ReviewCreateSerializer,
+    ReviewSerializer, ReviewCreateSerializer, ReviewImageUploadSerializer,
     NewProductListSerializer, BestProductListSerializer,
-    SellerProductCreateSerializer, ProductImageUploadSerializer, ProductDetailImageUploadSerializer
+    SellerProductCreateSerializer, SellerProductListSerializer,
+    ProductImageUploadSerializer, ProductDetailImageUploadSerializer
 )
 from .services.s3_upload import S3ImageUploader, S3UploadError
 
@@ -171,9 +172,11 @@ class ProductListView(generics.ListAPIView):
         from datetime import timedelta
         from django.db.models import Q
 
-        queryset = Product.objects.filter(status='active').select_related(
-            'category', 'stats', 'inventory'
-        )
+        include_inactive = self.request.query_params.get('include_inactive')
+
+        queryset = Product.objects.select_related('category', 'stats', 'inventory')
+        if not (include_inactive and include_inactive.lower() in ('true', '1', 'yes')):
+            queryset = queryset.filter(status='active')
 
         # 커스텀 필터: is_featured (추천 상품 - quality_score 기준)
         is_featured = self.request.query_params.get('is_featured')
@@ -188,7 +191,10 @@ class ProductListView(generics.ListAPIView):
         if is_best and is_best.lower() in ('true', '1'):
             # 주문 이벤트 또는 조회수가 높은 상품 (주문수 > 0 또는 조회수 > 100)
             queryset = queryset.filter(
-                Q(stats__order_event_count__gt=0) | Q(stats__view_count__gte=100)
+                Q(stats__order_event_count__gt=0)
+                | Q(stats__review_count__gt=0)
+                | Q(stats__average_rating__gt=0)
+                | Q(stats__view_count__gte=100)
             ).order_by('-stats__order_event_count', '-stats__view_count', '-created_at')
 
         # 커스텀 필터: is_new (신상품 - 최근 7일 내 등록)
@@ -365,7 +371,12 @@ class SellerProductViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         """액션별 시리얼라이저 분기"""
         if self.action == 'create':
+            # 상품 생성 시에는 SellerProductCreateSerializer 사용
             return SellerProductCreateSerializer
+        if self.action in ['list', 'retrieve']:
+            # 판매자 상품 목록/상세 조회에는 SellerProductListSerializer 사용
+            return SellerProductListSerializer
+        # 나머지 액션(update/partial_update 등)은 기본 ProductSerializer 사용
         return ProductSerializer
 
     def get_permissions(self):
@@ -470,7 +481,7 @@ class ProductImageUploadView(APIView):
 - images: 이미지 파일 (여러 개 가능, 최대 10개)
 
 ### S3 저장 경로
-- `homeplus/thumbnail/{product_id}_{uuid}.{ext}`
+- `seller_profile/seller_product_thumbnail/{product_id}_{uuid}.{ext}`
 
 ### 이미지 순서
 - 업로드 순서대로 display_order가 자동 할당됩니다.
@@ -577,7 +588,7 @@ class ProductDetailImageUploadView(APIView):
 - images: 이미지 파일 (여러 개 가능, 최대 20개)
 
 ### S3 저장 경로
-- `homeplus/product_detail/{product_id}_{uuid}.{ext}`
+- `seller_profile/seller_product_detail/{product_id}_{uuid}.{ext}`
 
 ### 저장 방식
 - ProductDetail.full_image_description 배열에 URL이 순서대로 추가됩니다.
@@ -654,6 +665,73 @@ class ProductDetailImageUploadView(APIView):
             'image_urls': uploaded_urls,
             'total_images': total_count
         }, status=status.HTTP_201_CREATED)
+
+
+class ReviewImageUploadView(APIView):
+    """리뷰 이미지 업로드 API (파일 업로드 → S3)
+
+    POST /api/reviews/images/upload/
+
+    리뷰 작성 시 이미지 파일을 S3에 업로드하고 URL 목록을 반환한다.
+    DB에는 저장하지 않고 프론트엔드가 반환된 URL을 review.image_urls로 전달한다.
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_permissions(self):
+        """로그인 사용자만 허용"""
+        from rest_framework.permissions import IsAuthenticated
+        return [IsAuthenticated()]
+
+    @extend_schema(
+        tags=['리뷰'],
+        summary='리뷰 이미지 업로드',
+        description='리뷰 작성용 이미지를 S3에 업로드하고 URL 목록을 반환합니다.',
+        request=ReviewImageUploadSerializer,
+        responses={
+            201: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
+            500: OpenApiTypes.OBJECT,
+        },
+    )
+    def post(self, request):
+        serializer = ReviewImageUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        images = serializer.validated_data['images']
+
+        try:
+            uploader = S3ImageUploader()
+        except S3UploadError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        uploaded_urls = []
+        try:
+            for file_obj in images:
+                url = uploader.upload_review_image(file_obj, request.user.id, file_obj.name)
+                uploaded_urls.append(url)
+        except S3UploadError as e:
+            for url in uploaded_urls:
+                try:
+                    uploader.delete_image(url)
+                except Exception:
+                    pass
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        return Response(
+            {
+                'message': f'{len(uploaded_urls)}개의 리뷰 이미지가 업로드되었습니다.',
+                'image_urls': uploaded_urls,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ProductImageManageView(APIView):
