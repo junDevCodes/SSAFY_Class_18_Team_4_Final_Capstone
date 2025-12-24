@@ -122,9 +122,64 @@ docker compose -f docker-compose.prod.yml exec backend \
 
 ---
 
-## 4. 크롤러 / 예측 서버 batch 확인 (선택)
+## 4. 운영 지표(Ops) · CloudWatch 연동 설정 (선택)
 
-### 4-1. 크롤러 메인 엔트리 실행 (로컬)
+운영 지표 페이지(`AdminOperationalPage`)에서 **실제 EC2 인스턴스 리소스 상태를 CloudWatch 기준으로 보고 싶을 때** 사용하는 설정입니다.  
+설정하지 않으면 기존처럼 **mock 데이터**로 동작합니다.
+
+### 4-1. 공통 개념
+
+- 백엔드 코드는 `OPS_METRICS_BACKEND` 에 따라 동작:
+  - `mock` (기본값): 더미 시계열 (로컬 개발용)
+  - `cloudwatch`: AWS CloudWatch 에서 메트릭 조회 시도 → 실패 시 mock 으로 자동 폴백
+- 현재 CloudWatch 연동은 **ALB가 아닌 EC2 인스턴스 자체 지표(AWS/EC2)** 를 사용:
+  - CPU 사용률: `CPUUtilization` (Percent)
+  - 네트워크 트래픽: `NetworkIn` 또는 `NetworkOut` (Bytes)
+
+### 4-2. 운영(EC2)용 .env 예시
+
+```env
+# CloudWatch 연동 활성화
+OPS_METRICS_BACKEND=cloudwatch
+
+# EC2 인스턴스 기준 메트릭 (AWS/EC2 + InstanceId)
+OPS_CW_NAMESPACE=AWS/EC2
+OPS_CW_DIMENSION_NAME=InstanceId
+OPS_CW_DIMENSION_VALUE=i-0123456789abcdef0  # 실제 EC2 인스턴스 ID
+
+# (선택) 메트릭 이름 커스터마이즈 – 기본값 그대로면 생략 가능
+# OPS_CW_METRIC_CPU=CPUUtilization
+# OPS_CW_METRIC_NETWORK=NetworkIn   # 또는 NetworkOut
+
+# 리전 (이미 S3 REGION 을 쓰고 있다면 그 값 사용)
+AWS_REGION=ap-northeast-2
+```
+
+- EC2 인스턴스에 연결된 IAM Role 은 최소한 **CloudWatch 읽기 권한**을 가져야 합니다.
+- 설정 후 `AdminOperationalPage` 에서:
+  - 상단 KPI, 시계열 차트, Alerts/To-do/Incidents 가 **실제 EC2 지표**를 기반으로 동작합니다.
+
+### 4-3. 로컬에서 CloudWatch 테스트 (선택)
+
+로컬에서도 동일한 그래프를 보고 싶다면:
+
+1. 위와 동일한 `.env` CloudWatch 설정을 넣고,
+2. 로컬 환경에 AWS 자격 증명을 설정합니다 (둘 중 하나):
+   - 환경변수:
+     ```bash
+     export AWS_ACCESS_KEY_ID=...
+     export AWS_SECRET_ACCESS_KEY=...
+     export AWS_REGION=ap-northeast-2
+     ```
+   - 또는 `~/.aws/credentials`, `~/.aws/config` + `AWS_PROFILE=...`
+
+자격 증명이 없거나 CloudWatch 호출이 실패하면, 코드가 자동으로 **mock 데이터로 폴백**합니다.
+
+---
+
+## 5. 크롤러 / 예측 서버 batch 확인 (선택)
+
+### 5-1. 크롤러 메인 엔트리 실행 (로컬)
 
 ```bash
 cd crawler
@@ -133,7 +188,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### 4-2. 예측 서버(pred) 단독 기동 (로컬 도커)
+### 5-2. 예측 서버(pred) 단독 기동 (로컬 도커)
 
 ```bash
 docker compose up pred
@@ -144,7 +199,7 @@ docker compose up pred
 
 ---
 
-## 5. Admin 통계 페이지 확인 체크리스트
+## 6. Admin 통계 페이지 확인 체크리스트
 
 1. `http://localhost:8000/admin` 접속 후 Django admin 로그인 (슈퍼유저).
 2. 프론트엔드: `http://localhost:8080/admin` 진입.
