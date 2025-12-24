@@ -166,4 +166,5 @@ class OpsOverviewSerializer(serializers.Serializer):
     incidents = OpsIncidentSerializer(many=True)
     alerts = OpsAlertSerializer(many=True)
     todos = OpsTodoSerializer(many=True)
+    meta = serializers.DictField(child=serializers.JSONField(), required=False)
 

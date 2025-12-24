@@ -19,6 +19,7 @@ from analytics.serializers import (
     BehaviorOverviewSerializer,
     OpsOverviewSerializer,
 )
+from analytics.ops_metrics import get_ops_timeseries
 
 
 def _parse_data_mode(raw: str | None) -> str:
@@ -791,28 +792,58 @@ class AdminOpsOverviewView(APIView):
     """
 
     def get(self, request, *args, **kwargs):
-        # 쿼리 파라미터는 현재 단계에서는 단순히 인터페이스 용도로만 수신
-        _raw_start = request.query_params.get("start_date")
-        _raw_end = request.query_params.get("end_date")
+        # 쿼리 파라미터 (날짜/시스템/범위 필터)
+        raw_start = request.query_params.get("start_date")
+        raw_end = request.query_params.get("end_date")
+        range_key = request.query_params.get("range")
         system_filter = request.query_params.get("system", "all")
 
         now = timezone.now()
-        # 최근 7일 기준 mock 시계열 생성
-        timeseries = []
-        for i in range(7, 0, -1):
-            ts = now - timedelta(days=i)
-            base_success = 97.0 + (i % 3)
-            base_p95 = 260 + (i * 5)
-            base_error = 0.25 + (i * 0.02)
-            base_avail = 99.8 - (i * 0.01)
-            timeseries.append(
-                {
-                    "timestamp": ts,
-                    "crawling_success_rate": float(round(min(base_success, 99.9), 2)),
-                    "api_p95_ms": float(round(base_p95, 2)),
-                    "error_rate": float(round(max(base_error, 0.05), 2)),
-                    "availability": float(round(max(base_avail, 99.0), 2)),
-                }
+
+        # range 파라미터가 있으면 우선 사용 (최근 1시간 / 7일 / 30일)
+        if range_key in {"1h", "7d", "30d"}:
+            if range_key == "1h":
+                start_dt = now - timedelta(hours=1)
+            elif range_key == "7d":
+                start_dt = now - timedelta(days=7)
+            else:  # "30d"
+                start_dt = now - timedelta(days=30)
+            end_dt = now
+        else:
+            # 날짜 파싱 (없으면 최근 7일)
+            try:
+                if raw_start and raw_end:
+                    start_date = datetime.strptime(raw_start, "%Y-%m-%d").date()
+                    end_date = datetime.strptime(raw_end, "%Y-%m-%d").date()
+                else:
+                    today = timezone.localdate()
+                    end_date = today
+                    start_date = today - timedelta(days=6)
+            except ValueError:
+                return Response(
+                    {"detail": "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식을 사용하세요."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if start_date > end_date:
+                return Response(
+                    {"detail": "start_date는 end_date보다 이후일 수 없습니다."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            start_dt = timezone.make_aware(
+                datetime.combine(start_date, datetime.min.time())
+            )
+            end_dt = timezone.make_aware(
+                datetime.combine(end_date, datetime.max.time())
+            )
+
+        # 운영 지표 시계열 (환경 기반: mock / cloudwatch)
+        timeseries, backend_used = get_ops_timeseries(start_dt, end_dt)
+        if not timeseries:
+            return Response(
+                {"detail": "운영 지표를 조회할 수 없습니다."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
         latest = timeseries[-1]
@@ -825,16 +856,16 @@ class AdminOpsOverviewView(APIView):
                 "unit": "%",
             },
             {
-                "label": "API P95 응답시간",
+                "label": "EC2 CPU 사용률",
                 "value": latest["api_p95_ms"],
                 "delta": 0.0,
-                "unit": "ms",
+                "unit": "%",
             },
             {
-                "label": "5xx 에러율",
+                "label": "네트워크 트래픽 (In)",
                 "value": latest["error_rate"],
                 "delta": 0.0,
-                "unit": "%",
+                "unit": "bps",
             },
             {
                 "label": "서비스 가용성",
@@ -880,7 +911,7 @@ class AdminOpsOverviewView(APIView):
             "availability": latest["availability"],
         }
 
-        # 메트릭 기반 알림 규칙 정의
+        # 메트릭 기반 알림 규칙 정의 (EC2 + 크롤링 지표 기준)
         metric_alert_rules: list[dict] = [
             {
                 "id": "crawl-success-low",
@@ -905,25 +936,56 @@ class AdminOpsOverviewView(APIView):
                 },
             },
             {
-                "id": "api-error-rate-high",
-                "code": "ALERT_API_ERROR_RATE_HIGH",
-                "category": "api",
-                "metric_key": "error_rate",
+                "id": "ec2-cpu-high",
+                "code": "ALERT_EC2_CPU_HIGH",
+                "category": "infra",
+                "metric_key": "api_p95_ms",  # EC2 CPUUtilization(%) 으로 매핑됨
                 "metric_unit": "%",
-                "metric_format": "percent_2",
-                "title": "API 5xx 에러율 상승",
-                "description": "백엔드 API에서 5xx 에러 비율이 증가하고 있습니다. 최근 배포/DB 연결 상태를 점검하세요.",
+                "metric_format": "percent_1",
+                "title": "EC2 CPU 사용률 상승",
+                "description": "EC2 인스턴스 CPU 사용률이 높습니다. 스케일 아웃 또는 쿼리/태스크 튜닝을 검토하세요.",
                 "severities": [
-                    {"name": "high", "operator": "gt", "threshold": 2.0},
-                    {"name": "medium", "operator": "gt", "threshold": 1.0},
+                    {"name": "high", "operator": "gt", "threshold": 80.0},
+                    {"name": "medium", "operator": "gt", "threshold": 60.0},
                 ],
                 "todo": {
-                    "id": "todo-api-error",
-                    "code": "TODO_API_ERROR_ANALYSIS",
-                    "title": "API 에러 로그 분석",
-                    "description": "에러 로그를 확인하고, 특정 엔드포인트/시간대에 집중된 에러가 있는지 분석합니다.",
-                    "meta": "담당: 백엔드 · 우선순위: 상",
-                    "priority": "high",
+                    "id": "todo-ec2-cpu-review",
+                    "code": "TODO_EC2_CPU_REVIEW",
+                    "title": "EC2 CPU 부하 분석",
+                    "description": "CPU가 많이 사용되는 시간대와 프로세스를 파악하고, 스케일 아웃 또는 튜닝 방안을 검토합니다.",
+                    "meta": "담당: 백엔드/Infra · 우선순위: 중",
+                    "priority": "medium",
+                },
+            },
+            {
+                "id": "network-traffic-high",
+                "code": "ALERT_NETWORK_IN_HIGH",
+                "category": "infra",
+                "metric_key": "error_rate",  # NetworkIn Bytes 로 매핑됨
+                "metric_unit": "Bytes",
+                "metric_format": "bytes_auto",
+                "title": "네트워크 트래픽 과다",
+                "description": "EC2 인스턴스의 네트워크 In 트래픽이 평소보다 높습니다. 이상 호출 또는 배치 작업 여부를 점검하세요.",
+                "severities": [
+                    # 평균 8MB 이상이면 high, 4MB 이상이면 medium (대략적인 기준)
+                    {
+                        "name": "high",
+                        "operator": "gt",
+                        "threshold": float(8 * 1024 * 1024),
+                    },
+                    {
+                        "name": "medium",
+                        "operator": "gt",
+                        "threshold": float(4 * 1024 * 1024),
+                    },
+                ],
+                "todo": {
+                    "id": "todo-network-traffic-review",
+                    "code": "TODO_NETWORK_TRAFFIC_REVIEW",
+                    "title": "네트워크 트래픽 분석",
+                    "description": "해당 시간대의 트래픽 소스(IP/엔드포인트/배치 작업)를 분석하고, 비정상 패턴 여부를 점검합니다.",
+                    "meta": "담당: 백엔드/Infra · 우선순위: 중",
+                    "priority": "medium",
                 },
             },
             {
@@ -948,27 +1010,6 @@ class AdminOpsOverviewView(APIView):
                     "priority": "medium",
                 },
             },
-            {
-                "id": "api-latency-high",
-                "code": "ALERT_API_LATENCY_HIGH",
-                "category": "api",
-                "metric_key": "api_p95_ms",
-                "metric_unit": "ms",
-                "metric_format": "ms_0",
-                "title": "API 응답시간(P95) 지연",
-                "description": "API 응답 P95가 높아지고 있습니다. 특정 쿼리/엔드포인트를 튜닝할 수 있는지 검토하세요.",
-                "severities": [
-                    {"name": "low", "operator": "gt", "threshold": 500.0},
-                ],
-                "todo": {
-                    "id": "todo-latency-profile",
-                    "code": "TODO_LATENCY_PROFILE",
-                    "title": "지연 쿼리/엔드포인트 프로파일링",
-                    "description": "APM/slow query 로그를 확인해, 병목이 되는 엔드포인트를 파악합니다.",
-                    "meta": "담당: 백엔드 · 우선순위: 중",
-                    "priority": "medium",
-                },
-            },
         ]
 
         def _format_metric(value: float, fmt: str, unit: str) -> str:
@@ -976,8 +1017,19 @@ class AdminOpsOverviewView(APIView):
                 return f"{value:.2f}%"
             if fmt == "percent_3":
                 return f"{value:.3f}%"
+            if fmt == "percent_1":
+                return f"{value:.1f}%"
             if fmt == "ms_0":
                 return f"{value:.0f}ms"
+            if fmt == "bytes_auto":
+                abs_v = abs(value)
+                if abs_v >= 1024 * 1024 * 1024:
+                    return f"{value / (1024 * 1024 * 1024):.2f} GB"
+                if abs_v >= 1024 * 1024:
+                    return f"{value / (1024 * 1024):.2f} MB"
+                if abs_v >= 1024:
+                    return f"{value / 1024:.2f} KB"
+                return f"{value:.0f} B"
             return f"{value}{unit}"
 
         def _evaluate_severity(rule: dict, value: float) -> str | None:
@@ -1075,6 +1127,11 @@ class AdminOpsOverviewView(APIView):
             "incidents": filtered_incidents,
             "alerts": filtered_alerts,
             "todos": filtered_todos,
+            "meta": {
+                "backend": backend_used,
+                "start": start_dt,
+                "end": end_dt,
+            },
         }
         serializer = OpsOverviewSerializer(payload)
         return Response(serializer.data)
