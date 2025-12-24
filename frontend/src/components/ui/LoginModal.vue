@@ -43,12 +43,14 @@
                 v-model="loginForm.email"
                 type="email" 
                 placeholder="이메일을 입력해주세요" 
+                @keyup.enter="handleLogin"
                 class="w-full px-4 py-3 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
               >
               <input 
                 v-model="loginForm.password"
                 type="password" 
                 placeholder="비밀번호를 입력해주세요" 
+                @keyup.enter="handleLogin"
                 class="w-full px-4 py-3 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
               >
             </div>
@@ -101,6 +103,7 @@
                 v-model="signupForm.email"
                 type="email" 
                 placeholder="이메일" 
+                @keyup.enter="handleSignup"
                 class="flex-1 px-4 py-3 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
               >
               <button 
@@ -117,6 +120,7 @@
                 v-model="signupForm.verificationCode"
                 type="text" 
                 placeholder="인증번호 6자리 입력" 
+                @keyup.enter="handleSignup"
                 class="w-full px-4 py-3 mb-1 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
               >
               <p class="text-[11px] text-brand-600 pl-1">이메일로 발송된 인증코드를 입력해주세요.</p>
@@ -126,12 +130,14 @@
               v-model="signupForm.password"
               type="password" 
               placeholder="비밀번호 (영문, 숫자, 특수문자 포함 8자 이상)" 
+              @keyup.enter="handleSignup"
               class="w-full px-4 py-3 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
             >
             <input 
               v-model="signupForm.passwordConfirm"
               type="password" 
               placeholder="비밀번호 확인" 
+              @keyup.enter="handleSignup"
               class="w-full px-4 py-3 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
             >
             
