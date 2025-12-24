@@ -29,6 +29,7 @@ export const adminAnalyticsAPI = {
     granularity: Granularity
     segment?: string
     region?: string
+    data_mode?: 'all' | 'real'
   }) =>
     apiClient.get<AnalyticsOverview>('/api/admin/analytics/overview/', {
       params
@@ -40,6 +41,7 @@ export const adminAnalyticsAPI = {
     granularity: Granularity
     segment?: string
     placement?: string
+    data_mode?: 'all' | 'real'
   }) =>
     apiClient.get<{ series: Array<{
       date: string
@@ -60,6 +62,7 @@ export const adminAnalyticsAPI = {
     end_date: string
     granularity: Granularity
     segment?: string
+    data_mode?: 'all' | 'real'
   }) =>
     apiClient.get<{
       placements: Array<{
@@ -80,6 +83,7 @@ export const adminAnalyticsAPI = {
     start_date: string
     end_date: string
     segment?: string
+    data_mode?: 'all' | 'real'
   }) =>
     apiClient.get<BehaviorOverview>('/api/admin/analytics/behavior/', {
       params

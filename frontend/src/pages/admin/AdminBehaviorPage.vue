@@ -31,6 +31,13 @@
           <option value="seller">판매자</option>
         </select>
       </div>
+      <div class="filter">
+        <span class="label">데이터 범위</span>
+        <select v-model="dataMode">
+          <option value="all">테스트 데이터 + 실데이터</option>
+          <option value="real">실데이터만</option>
+        </select>
+      </div>
       <div class="actions">
         <button class="primary" :disabled="loading" @click="loadData">
           조회
@@ -144,6 +151,7 @@ echarts.use([
 
 const dateRange = ref({ start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) });
 const segment = ref("all");
+const dataMode = ref<"all" | "real">("all");
 
 const appliedFilters = ref({
   start: dateRange.value.start,
@@ -320,6 +328,7 @@ const loadData = async () => {
       start_date: dateRange.value.start,
       end_date: dateRange.value.end,
       segment: segment.value,
+      data_mode: dataMode.value,
     });
     overview.value = data;
     await nextTick();
@@ -339,6 +348,7 @@ const loadData = async () => {
 const resetFilters = () => {
   dateRange.value = { start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) };
   segment.value = "all";
+  dataMode.value = "all";
   loadData();
 };
 

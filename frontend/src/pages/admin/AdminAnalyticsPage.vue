@@ -44,6 +44,13 @@
           <option value="seller">판매자</option>
         </select>
       </div>
+      <div class="filter">
+        <span class="label">데이터 범위</span>
+        <select v-model="dataMode">
+          <option value="all">테스트 데이터 + 실데이터</option>
+          <option value="real">실데이터만</option>
+        </select>
+      </div>
       <div class="actions">
         <button class="primary" :disabled="loading" @click="loadData">
           조회
@@ -228,6 +235,7 @@ const granularity = ref<Granularity>("daily");
 const appliedGranularity = ref<Granularity>("daily");
 const dateRange = ref({ start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) });
 const segment = ref("all");
+const dataMode = ref<"all" | "real">("all");
 
 const appliedFilters = ref({
   start: dateRange.value.start,
@@ -319,6 +327,7 @@ const loadData = async () => {
         end_date: dateRange.value.end,
         granularity: granularity.value,
         segment: segment.value,
+        data_mode: dataMode.value,
       }),
       adminAnalyticsAPI.getOpsOverview({
         start_date: dateRange.value.start,
@@ -349,6 +358,7 @@ const resetFilters = () => {
   appliedGranularity.value = "daily";
   dateRange.value = { start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) };
   segment.value = "all";
+   dataMode.value = "all";
   loadData();
 };
 

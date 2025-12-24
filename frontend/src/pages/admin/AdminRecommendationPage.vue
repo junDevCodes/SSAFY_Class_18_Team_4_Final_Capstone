@@ -53,6 +53,13 @@
           <option value="gapfill">Gap Filling Model</option>
         </select>
       </div>
+      <div class="filter">
+        <span class="label">데이터 범위</span>
+        <select v-model="dataMode">
+          <option value="all">테스트 데이터 + 실데이터</option>
+          <option value="real">실데이터만</option>
+        </select>
+      </div>
       <div class="actions">
         <button class="primary" :disabled="loading" @click="loadData">
           조회
@@ -235,6 +242,7 @@ const segment = ref("all");
 const algorithm = ref<"all" | "price_model" | "personalized" | "gapfill">(
   "all"
 );
+const dataMode = ref<"all" | "real">("all");
 
 const appliedFilters = ref({
   start: dateRange.value.start,
@@ -404,6 +412,7 @@ const loadData = async () => {
         end_date: dateRange.value.end,
         granularity: granularity.value,
         segment: segment.value,
+        data_mode: dataMode.value,
       }),
       adminAnalyticsAPI.getRecommendationTrend({
         start_date: dateRange.value.start,
@@ -411,12 +420,14 @@ const loadData = async () => {
         granularity: granularity.value,
         segment: segment.value,
         placement: algorithm.value === "all" ? "all" : algorithm.value,
+        data_mode: dataMode.value,
       }),
       adminAnalyticsAPI.getRecommendationPlacementSummary({
         start_date: dateRange.value.start,
         end_date: dateRange.value.end,
         granularity: granularity.value,
         segment: segment.value,
+        data_mode: dataMode.value,
       }),
     ]);
 
@@ -592,6 +603,8 @@ const resetFilters = () => {
   granularity.value = "daily";
   dateRange.value = { start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) };
   segment.value = "all";
+  algorithm.value = "all";
+  dataMode.value = "all";
   loadData();
 };
 
