@@ -141,4 +141,10 @@ export interface OpsOverview {
   incidents: OpsIncident[]
   alerts: OpsAlert[]
   todos: OpsTodo[]
+  meta?: {
+    backend?: string
+    start?: string
+    end?: string
+    [key: string]: any
+  }
 }

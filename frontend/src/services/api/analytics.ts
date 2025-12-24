@@ -90,6 +90,7 @@ export const adminAnalyticsAPI = {
     }),
 
   getOpsOverview: (params: {
+    range?: '1h' | '7d' | '30d'
     start_date?: string
     end_date?: string
     system?: string
