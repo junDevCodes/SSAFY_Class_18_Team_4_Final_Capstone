@@ -50,25 +50,55 @@
             </div>
 
             <div class="form-group">
-              <label for="brand_logo_url">브랜드 로고 URL</label>
-              <input
-                id="brand_logo_url"
-                v-model="formData.brand_logo_url"
-                type="url"
-                placeholder="https://example.com/logo.png"
-              />
-              <p class="field-hint">MVP: 이미지 URL을 직접 입력해주세요</p>
+              <div class="label-row">
+                <label for="brand_logo_url">브랜드 로고</label>
+                <span class="pill-note">정사각형 권장 · 5MB 이하</span>
+              </div>
+              <div class="upload-box">
+                <input
+                  class="file-input"
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  @change="(event) => handleImageChange(event, 'logo')"
+                />
+                <div class="upload-copy">
+                  <strong>로고 이미지 선택 또는 드래그</strong>
+                  <span>JPEG/PNG/GIF/WebP</span>
+                </div>
+              </div>
+              <div v-if="logoPreview" class="single-preview">
+                <img :src="logoPreview" alt="브랜드 로고 미리보기" />
+                <div class="preview-meta">
+                  <span class="filename">{{ logoFile?.file.name || '로고 이미지' }}</span>
+                  <button type="button" class="btn-remove-image" @click="clearImage('logo')">삭제</button>
+                </div>
+              </div>
             </div>
 
             <div class="form-group">
-              <label for="brand_banner_url">브랜드 배너 URL</label>
-              <input
-                id="brand_banner_url"
-                v-model="formData.brand_banner_url"
-                type="url"
-                placeholder="https://example.com/banner.png"
-              />
-              <p class="field-hint">브랜드 페이지 상단에 표시될 배너 이미지</p>
+              <div class="label-row">
+                <label for="brand_banner_url">브랜드 배너</label>
+                <span class="pill-note">가로형 권장 · 5MB 이하</span>
+              </div>
+              <div class="upload-box">
+                <input
+                  class="file-input"
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  @change="(event) => handleImageChange(event, 'banner')"
+                />
+                <div class="upload-copy">
+                  <strong>배너 이미지 선택 또는 드래그</strong>
+                  <span>JPEG/PNG/GIF/WebP</span>
+                </div>
+              </div>
+              <div v-if="bannerPreview" class="single-preview">
+                <img :src="bannerPreview" alt="브랜드 배너 미리보기" />
+                <div class="preview-meta">
+                  <span class="filename">{{ bannerFile?.file.name || '배너 이미지' }}</span>
+                  <button type="button" class="btn-remove-image" @click="clearImage('banner')">삭제</button>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -322,10 +352,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { sellersAPI } from '@/services/api'
+
+type UploadItem = { file: File; preview: string }
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -334,6 +366,10 @@ const submitting = ref(false)
 const error = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
 const agreedToTerms = ref(false)
+const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+const maxImageSize = 5 * 1024 * 1024
+const logoFile = ref<UploadItem | null>(null)
+const bannerFile = ref<UploadItem | null>(null)
 
 // Form data
 const formData = reactive({
@@ -355,6 +391,101 @@ const formData = reactive({
   bank_account_number: '',
   account_holder_name: '',
   verification_document_url: ''
+})
+
+const revokePreview = (item: UploadItem | null) => {
+  if (item?.preview) {
+    URL.revokeObjectURL(item.preview)
+  }
+}
+
+const setImageFile = (files: FileList | null, target: 'logo' | 'banner') => {
+  if (!files?.length) return
+  error.value = null
+
+  const file = files[0]
+
+  if (!allowedImageTypes.includes(file.type)) {
+    error.value = '이미지 파일만 업로드할 수 있습니다. (JPEG/PNG/GIF/WebP)'
+    return
+  }
+
+  if (file.size > maxImageSize) {
+    error.value = '이미지 용량은 5MB 이하여야 합니다.'
+    return
+  }
+
+  const next: UploadItem = { file, preview: URL.createObjectURL(file) }
+
+  if (target === 'logo') {
+    revokePreview(logoFile.value)
+    logoFile.value = next
+  } else {
+    revokePreview(bannerFile.value)
+    bannerFile.value = next
+  }
+}
+
+const handleImageChange = (event: Event, target: 'logo' | 'banner') => {
+  const files = (event.target as HTMLInputElement)?.files
+  setImageFile(files, target)
+  if (event.target) {
+    ;(event.target as HTMLInputElement).value = ''
+  }
+}
+
+const clearImage = (target: 'logo' | 'banner') => {
+  if (target === 'logo') {
+    revokePreview(logoFile.value)
+    logoFile.value = null
+  } else {
+    revokePreview(bannerFile.value)
+    bannerFile.value = null
+  }
+}
+
+const logoPreview = computed(() => logoFile.value?.preview || formData.brand_logo_url || '')
+const bannerPreview = computed(() => bannerFile.value?.preview || formData.brand_banner_url || '')
+
+const uploadBrandImagesIfNeeded = async () => {
+  if (!logoFile.value && !bannerFile.value) return
+
+  const uploadSingle = async (item: UploadItem, type: 'logo' | 'banner') => {
+    const res = await sellersAPI.uploadSellerImage(item.file, type)
+    const url =
+      res.data?.image_url ||
+      (type === 'logo' ? res.data?.brand_logo_url : res.data?.brand_banner_url) ||
+      ''
+
+    if (type === 'logo') {
+      formData.brand_logo_url = url
+      clearImage('logo')
+    } else {
+      formData.brand_banner_url = url
+      clearImage('banner')
+    }
+  }
+
+  try {
+    if (logoFile.value) {
+      await uploadSingle(logoFile.value, 'logo')
+    }
+    if (bannerFile.value) {
+      await uploadSingle(bannerFile.value, 'banner')
+    }
+  } catch (err: any) {
+    const msg =
+      err.response?.data?.error ||
+      err.response?.data?.detail ||
+      err.message ||
+      '이미지 업로드에 실패했습니다.'
+    throw new Error(msg)
+  }
+}
+
+onBeforeUnmount(() => {
+  revokePreview(logoFile.value)
+  revokePreview(bannerFile.value)
 })
 
 // Handle form submit
@@ -411,6 +542,9 @@ const handleSubmit = async () => {
     // Reload user to update isSeller status
     await authStore.loadUser()
 
+    // Upload brand images after seller profile creation
+    await uploadBrandImagesIfNeeded()
+
     // Show success message
     successMessage.value = '판매자 등록이 완료되었습니다! 판매자 대시보드로 이동합니다...'
 
@@ -420,7 +554,11 @@ const handleSubmit = async () => {
     }, 2000)
   } catch (err: any) {
     console.error('판매자 등록 실패:', err)
-    error.value = err.response?.data?.message || '판매자 등록에 실패했습니다. 다시 시도해주세요.'
+    error.value =
+      err.response?.data?.message ||
+      err.response?.data?.error ||
+      err.message ||
+      '판매자 등록에 실패했습니다. 다시 시도해주세요.'
   } finally {
     submitting.value = false
   }
@@ -537,6 +675,105 @@ const handleSubmit = async () => {
   font-size: 0.8125rem;
   color: #999;
   margin-top: 0.375rem;
+}
+
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.pill-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.75rem;
+  background: #f3f4f6;
+  color: #4b5563;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.upload-box {
+  position: relative;
+  padding: 1.1rem;
+  border: 1px dashed #d1d5db;
+  border-radius: 10px;
+  background: #f9fafb;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.upload-box:hover {
+  border-color: #00a86b;
+  background: #f4faf6;
+}
+
+.file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.upload-copy {
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: #4b5563;
+}
+
+.upload-copy strong {
+  color: #1f2937;
+}
+
+.single-preview {
+  margin-top: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.single-preview img {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+}
+
+.preview-meta {
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.filename {
+  font-size: 0.85rem;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-remove-image {
+  padding: 0.35rem 0.75rem;
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-remove-image:hover {
+  background: #b91c1c;
 }
 
 /* Messages */

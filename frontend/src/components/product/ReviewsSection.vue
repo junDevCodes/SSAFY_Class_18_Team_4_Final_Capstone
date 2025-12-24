@@ -18,35 +18,43 @@
 
       <article v-for="review in reviews" :key="review.id" class="review-card">
         <header class="review-header">
-          <div class="user">
-            <div class="avatar">
-              {{ getInitial(review) }}
-            </div>
-            <div class="user-meta">
-              <span class="name">
-                {{ getDisplayName(review) }}
-                <small v-if="isMine(review)" class="me-tag">나</small>
-              </span>
-              <span class="date">{{ formatDate(review.created_at) }}</span>
-            </div>
-          </div>
-          <div class="header-right">
-            <div class="badge stars">
+          <div class="rating-block">
+            <div class="stars-line">
               <span v-for="n in 5" :key="n" class="star" :class="{ filled: n <= review.rating }">★</span>
               <span class="rating-num">{{ review.rating }}</span>
+              <span class="rating-label">{{ getRatingLabel(review.rating) }}</span>
             </div>
-            <div v-if="isMine(review)" class="actions-below">
-              <button class="ghost" @click="startEdit(review)" :disabled="ui.isUpdatingId === review.id">
+            <div class="user-row">
+              <div class="avatar">{{ getInitial(review) }}</div>
+              <div class="user-meta">
+                <span class="name">
+                  {{ getDisplayName(review) }}
+                  <small v-if="isMine(review)" class="me-tag">나</small>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="meta-block">
+            <span class="date">{{ formatDateTime(review.created_at) }}</span>
+            <button type="button" class="link-report">신고하기</button>
+            <template v-if="isMine(review)">
+              <button
+                type="button"
+                class="link-action"
+                @click="startEdit(review)"
+                :disabled="ui.isUpdatingId === review.id"
+              >
                 수정
               </button>
               <button
-                class="danger"
+                type="button"
+                class="link-action danger"
                 @click="confirmDelete(review)"
                 :disabled="ui.isDeletingId === review.id"
               >
                 {{ ui.isDeletingId === review.id ? '삭제 중...' : '삭제' }}
               </button>
-            </div>
+            </template>
           </div>
         </header>
 
@@ -63,11 +71,46 @@
             </button>
           </div>
           <textarea v-model="editState.content" rows="3" />
-          <input
-            v-model="editState.imagesInput"
-            type="text"
-            placeholder="https://... , https://..."
-          />
+          <div class="edit-upload">
+            <label class="sub-label">이미지 첨부 (최대 5개)</label>
+            <div class="upload-box">
+              <input
+                class="file-input"
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                multiple
+                @change="handleEditFileChange"
+              />
+              <div class="upload-copy">
+                <strong>클릭하거나 파일을 선택해 업로드</strong>
+                <span>JPEG/PNG/GIF/WebP, 5MB 이하</span>
+              </div>
+            </div>
+            <div v-if="editState.existingUrls.length || editState.files.length" class="preview-grid">
+              <div
+                v-for="(url, idx) in editState.existingUrls"
+                :key="`existing-${idx}`"
+                class="preview-card"
+              >
+                <img :src="url" alt="review image" />
+                <div class="preview-meta">
+                  <span class="filename">기존 이미지</span>
+                  <button type="button" class="remove-btn" @click="removeExistingUrl(idx)">삭제</button>
+                </div>
+              </div>
+              <div
+                v-for="(item, idx) in editState.files"
+                :key="item.preview"
+                class="preview-card"
+              >
+                <img :src="item.preview" :alt="item.file.name" />
+                <div class="preview-meta">
+                  <span class="filename" :title="item.file.name">{{ item.file.name }}</span>
+                  <button type="button" class="remove-btn" @click="removeEditFile(idx)">삭제</button>
+                </div>
+              </div>
+            </div>
+          </div>
           <div class="actions">
             <button
               type="button"
@@ -80,11 +123,12 @@
           </div>
         </div>
         <div v-else class="body">
-          <p class="text">{{ review.content }}</p>
-          <div v-if="review.images?.length" class="thumbs">
+          <div v-if="review.images?.length" class="thumbs large">
             <img v-for="img in review.images" :key="img.id" :src="img.image_url" alt="review" />
           </div>
+          <p class="text">{{ review.content }}</p>
         </div>
+
       </article>
 
       <div v-if="paging.hasNext && !ui.isLoadingList" class="load-more">
@@ -125,11 +169,18 @@ const ui = reactive({
   isDeletingId: 0,
 })
 
+type UploadItem = { file: File; preview: string }
+
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+const MAX_SIZE = 5 * 1024 * 1024
+const MAX_IMAGES = 5
+
 const editState = ref<{
   id: number
   rating: number
   content: string
-  imagesInput: string
+  existingUrls: string[]
+  files: UploadItem[]
 } | null>(null)
 
 const initialEditApplied = ref(false)
@@ -145,17 +196,28 @@ const displayAverage = computed(() => {
   return Number.isFinite(value) ? value.toFixed(1) : '0.0'
 })
 
-const formatDate = (value: string) => {
+const formatDateTime = (value: string) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString()
+  return date.toLocaleString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
-const parseImagesInput = (input: string) =>
-  input
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
+const getRatingLabel = (rating: number) => {
+  const labels: Record<number, string> = {
+    5: '아주 좋아요!',
+    4: '좋아요',
+    3: '보통이에요',
+    2: '별로예요',
+    1: '추천하지 않아요',
+  }
+  return labels[rating] || ''
+}
 
 const getDisplayName = (review: Review) => {
   const raw = (review.user_name || '').trim()
@@ -248,11 +310,13 @@ const startEdit = (review: Review) => {
     id: review.id,
     rating: review.rating,
     content: review.content,
-    imagesInput: review.images?.map((img) => img.image_url).join(', ') || '',
+    existingUrls: review.images?.map((img) => img.image_url) || [],
+    files: [],
   }
 }
 
 const cancelEdit = () => {
+  clearEditFiles()
   editState.value = null
 }
 
@@ -262,16 +326,29 @@ const handleUpdate = async (reviewId: number) => {
   if (!current) return
   ui.isUpdatingId = reviewId
   try {
+    const total = editState.value.existingUrls.length + editState.value.files.length
+    if (total > MAX_IMAGES) {
+      uiStore.showToast(`이미지는 최대 ${MAX_IMAGES}개까지 업로드할 수 있습니다.`)
+      return
+    }
+
+    let uploadedUrls: string[] = []
+    if (editState.value.files.length) {
+      const res = await reviewApi.uploadReviewImages(editState.value.files.map((f) => f.file))
+      uploadedUrls = res.image_urls || []
+    }
+
     const payload = {
       rating: editState.value.rating,
       content: editState.value.content.trim(),
-      image_urls: parseImagesInput(editState.value.imagesInput),
+      image_urls: [...editState.value.existingUrls, ...uploadedUrls],
     }
     const updated = await reviewApi.updateReview(reviewId, payload)
     reviews.value = reviews.value.map((r) => (r.id === updated.id ? updated : r))
     if (updated.rating !== current.rating) {
       updateAverageOnReplace(current.rating, updated.rating)
     }
+    clearEditFiles()
     editState.value = null
     uiStore.showToast('Review updated')
   } catch (error: any) {
@@ -279,6 +356,48 @@ const handleUpdate = async (reviewId: number) => {
   } finally {
     ui.isUpdatingId = 0
   }
+}
+
+const clearEditFiles = () => {
+  if (!editState.value) return
+  editState.value.files.forEach((item) => URL.revokeObjectURL(item.preview))
+  editState.value.files = []
+}
+
+const handleEditFileChange = (event: Event) => {
+  if (!editState.value) return
+  const files = (event.target as HTMLInputElement)?.files
+  if (!files) return
+  const next = [...editState.value.files]
+  for (const file of Array.from(files)) {
+    const currentTotal = editState.value.existingUrls.length + next.length
+    if (currentTotal >= MAX_IMAGES) {
+      uiStore.showToast(`이미지는 최대 ${MAX_IMAGES}개까지 업로드할 수 있습니다.`)
+      break
+    }
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      uiStore.showToast('JPEG, PNG, GIF, WebP 형식만 업로드할 수 있습니다.')
+      continue
+    }
+    if (file.size > MAX_SIZE) {
+      uiStore.showToast('이미지는 5MB 이하 파일만 업로드해 주세요.')
+      continue
+    }
+    next.push({ file, preview: URL.createObjectURL(file) })
+  }
+  editState.value.files = next
+  ;(event.target as HTMLInputElement).value = ''
+}
+
+const removeExistingUrl = (index: number) => {
+  if (!editState.value) return
+  editState.value.existingUrls.splice(index, 1)
+}
+
+const removeEditFile = (index: number) => {
+  if (!editState.value) return
+  const removed = editState.value.files.splice(index, 1)
+  removed.forEach((item) => URL.revokeObjectURL(item.preview))
 }
 
 const confirmDelete = async (review: Review) => {
@@ -304,6 +423,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('review:created', handleReviewCreated as EventListener)
+  clearEditFiles()
 })
 
 watch(
@@ -357,20 +477,42 @@ defineExpose({
 .actions-inline .ghost, .actions-inline .danger { padding: 6px 10px; border-radius: 8px; cursor: pointer; }
 .actions-inline .ghost { border: 1px solid #d1d5db; background: #fff; color: #111827; }
 .actions-inline .danger { border: 1px solid #b91c1c; background: #b91c1c; color: #fff; }
-.actions-below { display: flex; gap: 6px; }
-.actions-below .ghost, .actions-below .danger { padding: 6px 10px; border-radius: 8px; cursor: pointer; }
-.actions-below .ghost { border: 1px solid #d1d5db; background: #fff; color: #111827; }
-.actions-below .danger { border: 1px solid #b91c1c; background: #b91c1c; color: #fff; }
-.actions-below .ghost:disabled,
-.actions-below .danger:disabled { opacity: 0.6; cursor: not-allowed; }
 .actions-inline .ghost:disabled,
 .actions-inline .danger:disabled { opacity: 0.6; cursor: not-allowed; }
 .body { display: flex; flex-direction: column; gap: 8px; }
 .text { color: #111827; font-size: 14px; line-height: 1.5; }
-.thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
+.thumbs { display: flex; gap: 10px; flex-wrap: wrap; }
+.thumbs.large img { width: 120px; height: 120px; }
 .thumbs img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e7eb; }
 .actions-row { display: flex; gap: 8px; }
 .load-more { display: flex; justify-content: center; }
 .error-row { display: flex; gap: 10px; align-items: center; }
 .edit-area { display: flex; flex-direction: column; gap: 10px; }
+.edit-upload { display: flex; flex-direction: column; gap: 8px; }
+.sub-label { font-size: 12px; color: #374151; font-weight: 700; }
+.upload-box { position: relative; padding: 12px; border: 1px dashed #d1d5db; border-radius: 10px; background: #f9fafb; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+.upload-box:hover { border-color: #0f3a2a; background: #f4faf6; }
+.file-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.upload-copy { display: flex; flex-direction: column; gap: 4px; color: #4b5563; text-align: center; }
+.upload-copy strong { color: #111827; }
+.preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 6px; }
+.preview-card { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; }
+.preview-card img { width: 100%; height: 120px; object-fit: cover; }
+.preview-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 6px 8px; }
+.filename { flex: 1; font-size: 12px; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remove-btn { border: none; background: #f3f4f6; color: #111827; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+.remove-btn:hover { background: #e5e7eb; }
+.rating-block { display: flex; flex-direction: column; gap: 8px; }
+.stars-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rating-label { color: #4b5563; font-weight: 600; }
+.user-row { display: flex; align-items: center; gap: 8px; }
+.meta-block { display: flex; align-items: center; gap: 10px; color: #6b7280; }
+.link-report { border: none; background: none; color: #2563eb; cursor: pointer; font-size: 13px; padding: 0; }
+.link-report:hover { text-decoration: underline; }
+.link-action { border: none; background: none; padding: 0; font-size: 13px; color: #9ca3af; cursor: pointer; }
+.link-action:hover { color: #6b7280; text-decoration: underline; }
+.link-action.danger { color: #f87171; }
+.link-action:disabled { color: #d1d5db; cursor: not-allowed; text-decoration: none; }
+.thumbs.large { margin-top: 4px; }
 </style>
+

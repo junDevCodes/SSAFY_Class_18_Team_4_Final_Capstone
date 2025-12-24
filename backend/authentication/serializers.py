@@ -274,3 +274,60 @@ class UserPaymentMethodSerializer(serializers.ModelSerializer):
             if not UserPaymentMethod.objects.filter(user=user).exists():
                 attrs['is_default'] = True
         return attrs
+
+
+class AccountDeleteSerializer(serializers.Serializer):
+    """계정 삭제 요청 시리얼라이저"""
+
+    password = serializers.CharField(write_only=True)
+    confirm = serializers.BooleanField(default=False)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        user: User = self.context["request"].user
+        password = attrs.get("password")
+
+        # 소셜 로그인 사용자는 비밀번호 확인 불필요
+        if hasattr(user, 'email_credential') and user.email_credential:
+            if not check_password(password, user.email_credential.password_hash):
+                raise serializers.ValidationError({"password": _("비밀번호가 일치하지 않습니다.")})
+
+        if not attrs.get("confirm"):
+            raise serializers.ValidationError({"confirm": _("계정 삭제를 확인해주세요.")})
+
+        return attrs
+
+
+class AdminUserListSerializer(serializers.ModelSerializer):
+    """관리자용 유저 목록 시리얼라이저"""
+
+    class Meta:
+        model = User
+        fields = ["id", "email", "username", "role", "is_active", "date_joined"]
+        read_only_fields = fields
+
+
+class AdminUserDetailSerializer(serializers.ModelSerializer):
+    """관리자용 유저 상세/수정 시리얼라이저"""
+
+    class Meta:
+        model = User
+        fields = ["id", "email", "username", "role", "is_active", "date_joined"]
+        read_only_fields = ["id", "email", "date_joined"]
+
+    def validate_role(self, value: str) -> str:
+        """역할 값 검증"""
+        valid_roles = {choice[0] for choice in User._meta.get_field("role").choices}
+        if value not in valid_roles:
+            raise serializers.ValidationError("유효하지 않은 역할입니다.")
+        return value
+
+
+class AdminUserSummarySerializer(serializers.Serializer):
+    """관리자용 유저 요약 KPI 시리얼라이저"""
+
+    total_users = serializers.IntegerField()
+    active_users = serializers.IntegerField()
+    inactive_users = serializers.IntegerField()
+    seller_count = serializers.IntegerField()
+    admin_count = serializers.IntegerField()
+    new_users_last_7d = serializers.IntegerField()

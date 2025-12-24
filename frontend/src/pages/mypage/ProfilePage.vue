@@ -5,6 +5,8 @@
       <p class="page-description">회원 정보를 관리할 수 있습니다</p>
     </div>
 
+    <ResetTasteCard class="mb-6" @reset-tutorial="openTutorialModal" />
+
     <!-- Loading State -->
     <div v-if="loading" class="loading-state">
       <div class="spinner"></div>
@@ -187,22 +189,127 @@
           <p class="card-description">
             계정을 삭제하면 모든 데이터가 영구적으로 삭제됩니다
           </p>
-          <button @click="handleDeleteAccount" class="btn-delete">
+          <button @click="openDeleteModal" class="btn-delete">
             계정 삭제
           </button>
         </div>
       </aside>
     </div>
+
+    <!-- 계정 삭제 모달 -->
+    <div v-if="showDeleteModal" class="modal-overlay" @click.self="closeDeleteModal">
+      <div class="modal-content delete-modal">
+        <h3 class="modal-title">계정 삭제</h3>
+
+        <!-- 로딩 상태 -->
+        <div v-if="deleteCheckLoading" class="modal-loading">
+          <div class="spinner"></div>
+          <p>계정 삭제 가능 여부를 확인하는 중...</p>
+        </div>
+
+        <!-- 삭제 불가 안내 -->
+        <div v-else-if="!deleteCheckResult?.can_delete" class="delete-blockers">
+          <p class="blocker-title">다음 조건을 해결한 후 계정을 삭제할 수 있습니다:</p>
+          <ul class="blocker-list">
+            <li v-for="blocker in deleteCheckResult?.blockers" :key="blocker.type">
+              {{ blocker.message }}
+            </li>
+          </ul>
+          <div class="modal-actions">
+            <button @click="closeDeleteModal" class="btn-modal-cancel">
+              확인
+            </button>
+          </div>
+        </div>
+
+        <!-- 삭제 가능 - 확인 폼 -->
+        <div v-else class="delete-form">
+          <div class="warning-box">
+            <p><strong>⚠️ 주의:</strong> 계정 삭제 시 다음 데이터가 영구적으로 삭제됩니다:</p>
+            <ul>
+              <li>장바구니, 찜 목록</li>
+              <li>배송지, 결제수단 정보</li>
+              <li v-if="deleteCheckResult?.is_seller">판매자 정보 및 상품</li>
+            </ul>
+            <p class="preserve-note">주문 이력은 법적 의무에 따라 보존됩니다.</p>
+          </div>
+
+          <!-- 이메일 로그인 사용자: 비밀번호 확인 -->
+          <div v-if="deleteCheckResult?.auth_method === 'email'" class="form-group">
+            <label for="delete_password">비밀번호 확인</label>
+            <input
+              id="delete_password"
+              v-model="deleteFormData.password"
+              type="password"
+              placeholder="현재 비밀번호를 입력하세요"
+              autocomplete="current-password"
+            />
+          </div>
+
+          <!-- OAuth 사용자: 확인 텍스트 -->
+          <div v-else class="form-group">
+            <label for="confirm_text">삭제 확인</label>
+            <p class="field-hint">계정 삭제를 확인하려면 <strong>'계정삭제'</strong>를 입력하세요</p>
+            <input
+              id="confirm_text"
+              v-model="deleteFormData.confirm_text"
+              type="text"
+              placeholder="계정삭제"
+            />
+          </div>
+
+          <!-- 탈퇴 사유 (선택) -->
+          <div class="form-group">
+            <label for="delete_reason">탈퇴 사유 (선택)</label>
+            <textarea
+              id="delete_reason"
+              v-model="deleteFormData.reason"
+              placeholder="서비스 개선을 위해 탈퇴 사유를 알려주세요"
+              rows="3"
+            ></textarea>
+          </div>
+
+          <!-- 에러 메시지 -->
+          <div v-if="deleteError" class="error-message">
+            {{ deleteError }}
+          </div>
+
+          <div class="modal-actions">
+            <button
+              @click="executeDeleteAccount"
+              class="btn-modal-delete"
+              :disabled="deleteLoading || !isDeleteFormValid"
+            >
+              <span v-if="deleteLoading">삭제 중...</span>
+              <span v-else>계정 영구 삭제</span>
+            </button>
+            <button @click="closeDeleteModal" class="btn-modal-cancel" :disabled="deleteLoading">
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <TutorialModal
+      :open="showTutorialModal"
+      mode="MANUAL"
+      @tutorialCompleted="handleTutorialCompleted"
+      @close="handleTutorialClose"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useAddressesStore } from '@/stores/addresses'
 import { authAPI } from '@/services/api'
 import type { UserAddress } from '@/types/auth'
+import ResetTasteCard from '@/components/mypage/ResetTasteCard.vue'
+import TutorialModal from '@/components/tutorial/TutorialModal.vue'
 
+const router = useRouter()
 const authStore = useAuthStore()
 const addressesStore = useAddressesStore()
 
@@ -228,8 +335,48 @@ const passwordData = reactive({
   new_password_confirm: ''
 })
 
+const showTutorialModal = ref(false)
+const openTutorialModal = () => {
+  showTutorialModal.value = true
+}
+const handleTutorialCompleted = () => {
+  showTutorialModal.value = false
+}
+const handleTutorialClose = () => {
+  showTutorialModal.value = false
+}
+
 const isPasswordChangeAvailable = computed(() => {
   return !authStore.authProvider || authStore.authProvider === 'email'
+})
+
+// 계정 삭제 관련 상태
+const showDeleteModal = ref(false)
+const deleteCheckLoading = ref(false)
+const deleteLoading = ref(false)
+const deleteError = ref<string | null>(null)
+const deleteCheckResult = ref<{
+  can_delete: boolean
+  blockers: Array<{ type: string; count: number; message: string }>
+  auth_method: 'email' | 'google' | 'kakao' | 'unknown'
+  is_seller: boolean
+} | null>(null)
+
+const deleteFormData = reactive({
+  password: '',
+  confirm_text: '',
+  reason: ''
+})
+
+// 삭제 폼 유효성 검사
+const isDeleteFormValid = computed(() => {
+  if (!deleteCheckResult.value?.can_delete) return false
+
+  if (deleteCheckResult.value.auth_method === 'email') {
+    return deleteFormData.password.length > 0
+  } else {
+    return deleteFormData.confirm_text === '계정삭제'
+  }
 })
 
 // Load user data
@@ -341,26 +488,86 @@ const resetForm = () => {
   successMessage.value = null
 }
 
-// Delete account
-const handleDeleteAccount = async () => {
-  const confirmed = confirm(
-    '정말로 계정을 삭제하시겠습니까? 이 작업은 되돌릴 수 없으며, 모든 데이터가 영구적으로 삭제됩니다.'
-  )
+// 계정 삭제 모달 열기
+const openDeleteModal = async () => {
+  showDeleteModal.value = true
+  deleteCheckLoading.value = true
+  deleteError.value = null
+  deleteCheckResult.value = null
 
-  if (!confirmed) return
-
-  const doubleConfirmed = confirm(
-    '마지막 확인입니다. 계정을 삭제하면 주문 내역, 찜 목록, 장바구니 등 모든 정보가 삭제됩니다. 계속하시겠습니까?'
-  )
-
-  if (!doubleConfirmed) return
+  // 폼 초기화
+  deleteFormData.password = ''
+  deleteFormData.confirm_text = ''
+  deleteFormData.reason = ''
 
   try {
-    // MVP: Account deletion not implemented in backend yet
-    alert('계정 삭제 기능은 현재 개발 중입니다.')
+    const response = await authAPI.checkAccountDeletion()
+    deleteCheckResult.value = response.data
+  } catch (err: any) {
+    console.error('계정 삭제 가능 여부 확인 실패:', err)
+    deleteError.value = '계정 삭제 가능 여부를 확인하는데 실패했습니다.'
+  } finally {
+    deleteCheckLoading.value = false
+  }
+}
+
+// 계정 삭제 모달 닫기
+const closeDeleteModal = () => {
+  if (deleteLoading.value) return // 삭제 중에는 닫기 불가
+  showDeleteModal.value = false
+  deleteCheckResult.value = null
+  deleteError.value = null
+}
+
+// 계정 삭제 실행
+const executeDeleteAccount = async () => {
+  if (!isDeleteFormValid.value) return
+
+  deleteLoading.value = true
+  deleteError.value = null
+
+  try {
+    const requestData: { password?: string; confirm_text?: string; reason?: string } = {}
+
+    if (deleteCheckResult.value?.auth_method === 'email') {
+      requestData.password = deleteFormData.password
+    } else {
+      requestData.confirm_text = deleteFormData.confirm_text
+    }
+
+    if (deleteFormData.reason.trim()) {
+      requestData.reason = deleteFormData.reason.trim()
+    }
+
+    await authAPI.deleteAccount(requestData)
+
+    // 삭제 성공 - 로그아웃 처리 및 홈으로 이동
+    closeDeleteModal()
+    authStore.logout()
+    router.push('/')
+
+    // 성공 메시지 표시 (알림 등)
+    alert('계정이 삭제되었습니다. 그동안 이용해 주셔서 감사합니다.')
   } catch (err: any) {
     console.error('계정 삭제 실패:', err)
-    alert('계정 삭제에 실패했습니다.')
+
+    // 에러 메시지 추출
+    const errorData = err.response?.data
+    if (errorData?.detail) {
+      deleteError.value = errorData.detail
+    } else if (errorData?.password) {
+      deleteError.value = Array.isArray(errorData.password)
+        ? errorData.password[0]
+        : errorData.password
+    } else if (errorData?.confirm_text) {
+      deleteError.value = Array.isArray(errorData.confirm_text)
+        ? errorData.confirm_text[0]
+        : errorData.confirm_text
+    } else {
+      deleteError.value = '계정 삭제에 실패했습니다. 다시 시도해주세요.'
+    }
+  } finally {
+    deleteLoading.value = false
   }
 }
 
@@ -862,6 +1069,229 @@ onMounted(() => {
 
   .info-card {
     padding: 1.25rem;
+  }
+}
+
+/* 계정 삭제 모달 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 16px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.delete-modal {
+  padding: 2rem;
+}
+
+.modal-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #dc2626;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.modal-loading {
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.modal-loading .spinner {
+  width: 48px;
+  height: 48px;
+  border-width: 4px;
+  border-top-color: #dc2626;
+}
+
+.modal-loading p {
+  margin-top: 1rem;
+  color: #666;
+}
+
+/* 삭제 불가 안내 */
+.delete-blockers {
+  padding: 1rem 0;
+}
+
+.blocker-title {
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 1rem;
+}
+
+.blocker-list {
+  list-style: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.blocker-list li {
+  color: #dc2626;
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+}
+
+/* 삭제 폼 */
+.delete-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.warning-box {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.warning-box p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: #991b1b;
+}
+
+.warning-box ul {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.warning-box li {
+  font-size: 0.875rem;
+  color: #991b1b;
+  margin-bottom: 0.25rem;
+}
+
+.preserve-note {
+  font-size: 0.8125rem !important;
+  color: #6b7280 !important;
+  margin-top: 0.75rem !important;
+}
+
+.delete-form .form-group {
+  margin-bottom: 0;
+}
+
+.delete-form .form-group label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.delete-form .form-group input,
+.delete-form .form-group textarea {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.delete-form .form-group input:focus,
+.delete-form .form-group textarea:focus {
+  outline: none;
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
+.delete-form .form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.delete-form .field-hint {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+}
+
+.delete-form .field-hint strong {
+  color: #dc2626;
+}
+
+/* 모달 액션 버튼 */
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.btn-modal-delete,
+.btn-modal-cancel {
+  flex: 1;
+  padding: 0.875rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-modal-delete {
+  background: #dc2626;
+  color: white;
+}
+
+.btn-modal-delete:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.btn-modal-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-modal-cancel {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+}
+
+.btn-modal-cancel:hover:not(:disabled) {
+  background: #e5e7eb;
+}
+
+.btn-modal-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 모달 내 에러 메시지 */
+.delete-form .error-message {
+  margin: 0;
+}
+
+@media (max-width: 480px) {
+  .modal-content {
+    max-height: 95vh;
+  }
+
+  .delete-modal {
+    padding: 1.5rem;
+  }
+
+  .modal-actions {
+    flex-direction: column;
   }
 }
 </style>

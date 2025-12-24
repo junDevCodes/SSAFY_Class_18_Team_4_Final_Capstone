@@ -13,84 +13,89 @@
           <ProductGallery :product="product" />
         </div>
 
-        <!-- 우측: 정보/CTA -->
-        <div class="info-wrap sticky-buy-panel">
-          <p class="brand" v-if="product.seller?.brand_name">{{ product.seller.brand_name }}</p>
-          <h1 class="title">{{ product.name }}</h1>
+        <!-- 우측: 정보/CTA + 가격 차트 (함께 sticky) -->
+        <div class="sticky-panel-wrap">
+          <div class="info-wrap">
+            <p class="brand" v-if="product.seller?.brand_name">{{ product.seller.brand_name }}</p>
+            <h1 class="title">{{ product.name }}</h1>
 
-          <div class="price-box">
-            <div class="price-main">
-              <span v-if="product.original_price && discountRate > 0" class="original">
-                {{ formatPrice(product.original_price) }}
-              </span>
-              <div class="current">
-                <span v-if="discountRate > 0" class="discount">{{ discountRate }}%</span>
-                <span class="now">{{ formatPrice(product.price) }}</span>
+            <div class="price-box">
+              <div class="price-main">
+                <span v-if="product.original_price && discountRate > 0" class="original">
+                  {{ formatPrice(product.original_price) }}
+                </span>
+                <div class="current">
+                  <span v-if="discountRate > 0" class="discount">{{ discountRate }}%</span>
+                  <span class="now">{{ formatPrice(product.price) }}</span>
+                </div>
+              </div>
+              <div v-if="stockLeftLabel" class="stock-row">
+                <span
+                  :class="[
+                    'stock-pill',
+                    { low: !isSoldOut && stockQuantity !== null && stockQuantity <= 5, soldout: isSoldOut }
+                  ]"
+                >
+                  {{ stockLeftLabel }}
+                </span>
               </div>
             </div>
-            <div v-if="stockLeftLabel" class="stock-row">
-              <span
-                :class="[
-                  'stock-pill',
-                  { low: !isSoldOut && stockQuantity !== null && stockQuantity <= 5, soldout: isSoldOut }
-                ]"
+
+            <div class="meta-box">
+              <div class="meta-row">
+                <span class="label">배송비</span>
+                <span class="value">
+                  {{ product.shipping_fee > 0 ? formatPrice(product.shipping_fee) : '무료배송' }}
+                </span>
+              </div>
+              <div class="meta-row" v-if="product.free_shipping_threshold">
+                <span class="label">무료배송</span>
+                <span class="value">{{ formatPrice(product.free_shipping_threshold) }} 이상 구매 시</span>
+              </div>
+              <div class="meta-row" v-if="product.unit">
+                <span class="label">판매단위</span>
+                <span class="value">{{ product.unit }}</span>
+              </div>
+            </div>
+
+            <div class="qty-like">
+              <div class="qty-control" :class="{ disabled: isSoldOut }">
+                <button @click="quantity = Math.max(1, quantity - 1)" :disabled="quantity <= 1 || isSoldOut">-</button>
+                <input
+                  type="number"
+                  :value="quantity"
+                  min="1"
+                  :disabled="isSoldOut"
+                  @input="quantity = Math.max(1, Number(($event.target as HTMLInputElement).value) || 1)"
+                />
+                <button @click="quantity = quantity + 1" :disabled="isSoldOut">+</button>
+              </div>
+              <button
+                class="wish"
+                type="button"
+                @click="toggleWishlist"
+                :aria-pressed="product.is_wishlist"
+                :disabled="isTogglingWish"
               >
-                {{ stockLeftLabel }}
-              </span>
+                <span class="heart" :class="{ filled: product.is_wishlist }">
+                  {{ product.is_wishlist ? '♥' : '♡' }}
+                </span>
+                <span v-if="showWishCount" class="wish-count">{{ wishlistCount }}</span>
+              </button>
+            </div>
+
+            <div class="cta-row">
+              <button class="btn-buy" @click="buyNow" :disabled="isSoldOut">
+                {{ isSoldOut ? '품절' : '바로구매' }}
+              </button>
+              <button class="btn-cart" @click="addToCart" :disabled="isSoldOut">
+                {{ isSoldOut ? '품절' : '장바구니 담기' }}
+              </button>
             </div>
           </div>
 
-          <div class="meta-box">
-            <div class="meta-row">
-              <span class="label">배송비</span>
-              <span class="value">
-                {{ product.shipping_fee > 0 ? formatPrice(product.shipping_fee) : '무료배송' }}
-              </span>
-            </div>
-            <div class="meta-row" v-if="product.free_shipping_threshold">
-              <span class="label">무료배송</span>
-              <span class="value">{{ formatPrice(product.free_shipping_threshold) }} 이상 구매 시</span>
-            </div>
-            <div class="meta-row" v-if="product.unit">
-              <span class="label">판매단위</span>
-              <span class="value">{{ product.unit }}</span>
-            </div>
-          </div>
-
-          <div class="qty-like">
-            <div class="qty-control" :class="{ disabled: isSoldOut }">
-              <button @click="quantity = Math.max(1, quantity - 1)" :disabled="quantity <= 1 || isSoldOut">-</button>
-              <input
-                type="number"
-                :value="quantity"
-                min="1"
-                :disabled="isSoldOut"
-                @input="quantity = Math.max(1, Number(($event.target as HTMLInputElement).value) || 1)"
-              />
-              <button @click="quantity = quantity + 1" :disabled="isSoldOut">+</button>
-            </div>
-            <button
-              class="wish"
-              type="button"
-              @click="toggleWishlist"
-              :aria-pressed="product.is_wishlist"
-              :disabled="isTogglingWish"
-            >
-              <span class="heart" :class="{ filled: product.is_wishlist }">
-                {{ product.is_wishlist ? '♥' : '♡' }}
-              </span>
-              <span v-if="showWishCount" class="wish-count">{{ wishlistCount }}</span>
-            </button>
-          </div>
-
-          <div class="cta-row">
-            <button class="btn-buy" @click="buyNow" :disabled="isSoldOut">
-              {{ isSoldOut ? '품절' : '바로구매' }}
-            </button>
-            <button class="btn-cart" @click="addToCart" :disabled="isSoldOut">
-              {{ isSoldOut ? '품절' : '장바구니 담기' }}
-            </button>
-          </div>
+          <!-- 가격 변동 추이 차트 (컴팩트) - info-wrap 아래, 같이 sticky -->
+          <PriceHistoryChart :product-id="product.id" compact />
         </div>
       </div>
 
@@ -115,11 +120,6 @@
           </template>
         </ProductInfoTabs>
       </div>
-
-      <section class="section" id="shipping">
-        <h2>배송/교환/반품</h2>
-        <p>배송·교환·반품 정보는 준비 중입니다.</p>
-      </section>
 
       <section v-if="product?.related_products?.length" class="related section">
         <h2>연관 상품</h2>
@@ -162,6 +162,7 @@ import ProductGallery from '@/components/product/ProductGallery.vue'
 import ProductInfoTabs from '@/components/product/ProductInfoTabs.vue'
 import StickyPurchaseBar from '@/components/product/StickyPurchaseBar.vue'
 import ReviewsSection from '@/components/product/ReviewsSection.vue'
+import PriceHistoryChart from '@/components/product/PriceHistoryChart.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -309,7 +310,7 @@ function buyNow() {
 </script>
 
 <style scoped>
-.sticky-buy-panel { position: sticky; top: calc(var(--app-content-top, 0px) + 16px); }
+.sticky-panel-wrap { position: sticky; top: calc(var(--app-content-top, 0px) + 16px); display: flex; flex-direction: column; gap: 12px; }
 .section { margin-top: 48px; }
 .product-detail-page { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
 .detail-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 32px; align-items: start; margin-bottom: 32px; }
@@ -347,5 +348,5 @@ function buyNow() {
 .stock-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font-weight: 700; font-size: 13px; background: #e8f8ef; color: #0f3a2a; }
 .stock-pill.low { background: #fff5e6; color: #b45309; }
 .stock-pill.soldout { background: #f3f4f6; color: #6b7280; text-decoration: line-through; }
-@media (max-width: 1024px) { .detail-grid { grid-template-columns: 1fr; } .cta-row { grid-template-columns: 1fr; } .sticky-tabs { top: 0; } .sticky-buy-panel { position: static; } }
+@media (max-width: 1024px) { .detail-grid { grid-template-columns: 1fr; } .cta-row { grid-template-columns: 1fr; } .sticky-tabs { top: 0; } .sticky-panel-wrap { position: static; } }
 </style>

@@ -93,19 +93,42 @@ class ShipmentSerializer(serializers.ModelSerializer):
 
 
 class PaymentSerializer(serializers.ModelSerializer):
-    """결제 정보 Serializer (ERD: payments)"""
+    """결제 정보 Serializer (ERD: payments)
+
+    토스페이먼츠 연동 필드 포함.
+    """
+
+    method_type_display = serializers.CharField(source="get_method_type_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
 
     class Meta:
         model = Payment
         fields = [
             "id",
             "method_type",
+            "method_type_display",
             "amount",
             "status",
+            "status_display",
             "is_simulation",
             "simulation_note",
             "pg_provider",
             "pg_tid",
+            "pg_order_id",
+            "expected_amount",
+            # 카드 정보
+            "card_company",
+            "card_number_masked",
+            "card_installment_months",
+            # 가상계좌 정보
+            "virtual_account_number",
+            "virtual_account_bank",
+            "virtual_account_due_date",
+            "virtual_account_holder",
+            # 환불 정보
+            "refund_amount",
+            "refunded_at",
+            # 타임스탬프
             "created_at",
             "processed_at",
             "failure_reason",
@@ -366,3 +389,108 @@ class GuestOrderLookupSerializer(serializers.Serializer):
 
     order_no = serializers.CharField(required=True, help_text="주문번호")
     guest_email = serializers.EmailField(required=True, help_text="비회원 이메일")
+
+
+# =============================================================================
+# 토스페이먼츠 PG 결제 관련 Serializer
+# =============================================================================
+
+
+class PaymentPrepareSerializer(serializers.Serializer):
+    """결제 준비 요청 Serializer
+
+    장바구니 기반 주문 생성 + PG 초기화 데이터 요청.
+    """
+
+    # 장바구니 항목
+    cart_item_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="장바구니 ID 목록 (비어 있으면 전체 장바구니)",
+    )
+
+    # 배송 정보
+    recipient_name = serializers.CharField(max_length=100)
+    recipient_phone = serializers.CharField(max_length=20)
+    shipping_address = serializers.CharField()
+    shipping_memo = serializers.CharField(required=False, allow_blank=True, default="")
+
+    # 새 배송지 저장 여부
+    save_address = serializers.BooleanField(required=False, default=False)
+    address_name = serializers.CharField(max_length=50, required=False, allow_blank=True)
+
+    def validate(self, data):
+        """주문 가능 여부 검증"""
+        user = self.context["request"].user
+        from products.models import Cart
+
+        cart_queryset = Cart.objects.filter(user=user).select_related("product", "product__seller")
+        cart_item_ids = data.get("cart_item_ids")
+
+        if cart_item_ids:
+            cart_queryset = cart_queryset.filter(id__in=cart_item_ids)
+
+        cart_items = list(cart_queryset)
+        if not cart_items:
+            raise serializers.ValidationError("주문할 상품이 없습니다.")
+
+        # 상품 상태 검증
+        for item in cart_items:
+            if item.product.status != "active":
+                raise serializers.ValidationError(f"'{item.product.name}'은(는) 현재 구매할 수 없습니다.")
+
+        data["cart_items"] = cart_items
+        return data
+
+
+class PaymentConfirmSerializer(serializers.Serializer):
+    """결제 승인 요청 Serializer
+
+    토스페이먼츠 SDK 리다이렉트 후 전달받은 파라미터.
+    """
+
+    paymentKey = serializers.CharField(help_text="토스 결제 키")
+    orderId = serializers.CharField(help_text="토스 주문 ID (pg_order_id)")
+    amount = serializers.IntegerField(help_text="결제 금액")
+
+
+class PaymentCancelSerializer(serializers.Serializer):
+    """결제 취소 요청 Serializer"""
+
+    cancel_reason = serializers.CharField(
+        required=True,
+        max_length=200,
+        help_text="취소 사유",
+    )
+
+
+class PaymentPrepareResponseSerializer(serializers.Serializer):
+    """결제 준비 응답 Serializer
+
+    프론트엔드에서 토스 SDK 초기화에 필요한 데이터.
+    """
+
+    order_id = serializers.IntegerField(help_text="내부 주문 ID")
+    order_no = serializers.CharField(help_text="주문번호")
+    payment_id = serializers.IntegerField(help_text="결제 ID")
+    toss_order_id = serializers.CharField(help_text="토스 주문 ID (orderId)")
+    amount = serializers.IntegerField(help_text="결제 금액")
+    client_key = serializers.CharField(help_text="토스 클라이언트 키")
+    order_name = serializers.CharField(help_text="주문명")
+    is_demo = serializers.BooleanField(help_text="데모 모드 여부")
+    customer_email = serializers.CharField(required=False, allow_null=True)
+    customer_name = serializers.CharField(required=False, allow_null=True)
+    success_url = serializers.CharField(required=False, allow_null=True)
+    fail_url = serializers.CharField(required=False, allow_null=True)
+
+
+class PaymentConfirmResponseSerializer(serializers.Serializer):
+    """결제 승인 응답 Serializer"""
+
+    success = serializers.BooleanField()
+    order_id = serializers.IntegerField(required=False)
+    order_no = serializers.CharField(required=False)
+    amount = serializers.IntegerField(required=False)
+    method = serializers.CharField(required=False)
+    error_code = serializers.CharField(required=False, allow_null=True)
+    error_message = serializers.CharField(required=False, allow_null=True)

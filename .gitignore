@@ -424,6 +424,7 @@ data/json/processed/*.json
 data/json/backup/*.json
 data/json/meta/
 data/instacart/
+data/instacart_raw/
 data/recipe/
 data/m5-forecasting-accuracy/
 
@@ -443,3 +444,6 @@ plan/
 storage/
 plan/
 .claude-workspace/
+
+pred/models/AIRScout_model/
+backend/selfdb
