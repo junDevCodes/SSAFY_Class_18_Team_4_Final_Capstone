@@ -9,6 +9,37 @@
       <p v-if="lastUpdated" class="updated">최근 동기화: {{ lastUpdated }}</p>
     </header>
 
+    <section class="summary" v-if="summary">
+      <div class="kpi-grid">
+        <article class="kpi-card">
+          <p class="label">전체 유저</p>
+          <p class="value">{{ summary.total_users.toLocaleString('ko-KR') }}</p>
+          <p class="hint">guest 포함 전체 가입 수</p>
+        </article>
+        <article class="kpi-card">
+          <p class="label">활성 / 비활성</p>
+          <p class="value">
+            {{ summary.active_users.toLocaleString('ko-KR') }}
+            <span class="value-sub"> / {{ summary.inactive_users.toLocaleString('ko-KR') }}</span>
+          </p>
+          <p class="hint">현재 로그인 가능 / 정지 계정</p>
+        </article>
+        <article class="kpi-card">
+          <p class="label">판매자 / 관리자</p>
+          <p class="value">
+            {{ summary.seller_count.toLocaleString('ko-KR') }}
+            <span class="value-sub"> / {{ summary.admin_count.toLocaleString('ko-KR') }}</span>
+          </p>
+          <p class="hint">판매자 / 운영 관리자 수</p>
+        </article>
+        <article class="kpi-card">
+          <p class="label">최근 7일 신규 가입</p>
+          <p class="value">{{ summary.new_users_last_7d.toLocaleString('ko-KR') }}</p>
+          <p class="hint">지난 7일 기준 가입자 수</p>
+        </article>
+      </div>
+    </section>
+
     <section class="filters">
       <div class="filter">
         <span class="label">검색</span>
@@ -69,12 +100,47 @@
           <tbody>
             <tr v-for="user in users" :key="user.id">
               <td>{{ user.email }}</td>
-              <td>{{ user.username }}</td>
-              <td>{{ roleLabel(user.role) }}</td>
               <td>
-                <span :class="['status-chip', user.is_active ? 'active' : 'inactive']">
-                  {{ user.is_active ? '활성' : '비활성' }}
-                </span>
+                <div class="username-cell">
+                  <template v-if="editingUserId === user.id">
+                    <input
+                      v-model="editUsername"
+                      type="text"
+                      class="username-input"
+                      :disabled="saving"
+                    />
+                    <button type="button" class="link" :disabled="saving" @click="saveUsername(user)">저장</button>
+                    <button type="button" class="link ghost" :disabled="saving" @click="cancelEdit">취소</button>
+                  </template>
+                  <template v-else>
+                    <span>{{ user.username }}</span>
+                    <button type="button" class="link" @click="startEdit(user)">편집</button>
+                  </template>
+                </div>
+              </td>
+              <td>
+                <select
+                  v-model="user.role"
+                  class="inline-select"
+                  :disabled="saving"
+                  @change="onRoleChange(user)"
+                >
+                  <option value="user">일반회원</option>
+                  <option value="seller">판매자</option>
+                  <option value="admin">관리자</option>
+                  <option value="guest">비회원</option>
+                </select>
+              </td>
+              <td>
+                <button
+                  type="button"
+                  class="status-toggle"
+                  :class="user.is_active ? 'on' : 'off'"
+                  :disabled="saving"
+                  @click="toggleActive(user)"
+                >
+                  {{ user.is_active ? '활성' : '정지' }}
+                </button>
               </td>
               <td>{{ formatDate(user.date_joined) }}</td>
             </tr>
@@ -89,16 +155,21 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { adminUserAPI } from '@/services/api/admin'
-import type { AdminUser } from '@/types/admin'
+import type { AdminUser, AdminUserSummary } from '@/types/admin'
 
 const search = ref('')
 const role = ref<'all' | 'user' | 'seller' | 'admin'>('all')
 const status = ref<'all' | 'active' | 'inactive'>('all')
 
 const users = ref<AdminUser[]>([])
+const summary = ref<AdminUserSummary | null>(null)
 const loading = ref(false)
+const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const lastUpdated = ref<string | null>(null)
+
+const editingUserId = ref<number | null>(null)
+const editUsername = ref('')
 
 const appliedSummary = computed(() => {
   const parts: string[] = []
@@ -149,7 +220,12 @@ const loadUsers = async () => {
       params.is_active = 'false'
     }
 
-    users.value = await adminUserAPI.list(params)
+    const [userList, summaryData] = await Promise.all([
+      adminUserAPI.list(params),
+      adminUserAPI.summary(),
+    ])
+    users.value = userList
+    summary.value = summaryData
     lastUpdated.value = new Date().toLocaleString()
   } catch (err: any) {
     console.error('관리자 유저 목록 조회 실패', err)
@@ -166,6 +242,74 @@ const resetFilters = () => {
   loadUsers()
 }
 
+const startEdit = (user: AdminUser) => {
+  editingUserId.value = user.id
+  editUsername.value = user.username
+}
+
+const cancelEdit = () => {
+  editingUserId.value = null
+  editUsername.value = ''
+}
+
+const saveUsername = async (user: AdminUser) => {
+  if (!editUsername.value.trim() || saving.value) return
+  saving.value = true
+  errorMessage.value = null
+  try {
+    const updated = await adminUserAPI.update(user.id, { username: editUsername.value.trim() })
+    const idx = users.value.findIndex((u) => u.id === user.id)
+    if (idx !== -1) {
+      users.value[idx] = updated
+    }
+    cancelEdit()
+  } catch (err: any) {
+    console.error('닉네임 업데이트 실패', err)
+    errorMessage.value = err?.response?.data?.detail || '닉네임을 수정하지 못했습니다.'
+  } finally {
+    saving.value = false
+  }
+}
+
+const onRoleChange = async (user: AdminUser) => {
+  if (saving.value) return
+  saving.value = true
+  errorMessage.value = null
+  try {
+    const updated = await adminUserAPI.update(user.id, { role: user.role })
+    const idx = users.value.findIndex((u) => u.id === user.id)
+    if (idx !== -1) {
+      users.value[idx] = updated
+    }
+  } catch (err: any) {
+    console.error('역할 변경 실패', err)
+    errorMessage.value = err?.response?.data?.detail || '역할을 변경하지 못했습니다.'
+    // 실패 시 원래 역할로 롤백
+    await loadUsers()
+  } finally {
+    saving.value = false
+  }
+}
+
+const toggleActive = async (user: AdminUser) => {
+  if (saving.value) return
+  saving.value = true
+  errorMessage.value = null
+  try {
+    const updated = await adminUserAPI.update(user.id, { is_active: !user.is_active })
+    const idx = users.value.findIndex((u) => u.id === user.id)
+    if (idx !== -1) {
+      users.value[idx] = updated
+    }
+  } catch (err: any) {
+    console.error('계정 상태 변경 실패', err)
+    errorMessage.value = err?.response?.data?.detail || '계정 상태를 변경하지 못했습니다.'
+    await loadUsers()
+  } finally {
+    saving.value = false
+  }
+}
+
 onMounted(() => {
   loadUsers()
 })
@@ -174,6 +318,49 @@ onMounted(() => {
 <style scoped>
 .admin-page {
   padding: 28px;
+}
+
+.summary {
+  margin-bottom: 14px;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.kpi-card {
+  padding: 12px 14px;
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.04);
+}
+
+.kpi-card .label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.kpi-card .value {
+  margin-top: 4px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.kpi-card .value-sub {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.kpi-card .hint {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #94a3b8;
 }
 
 .page-header {
@@ -317,6 +504,28 @@ select {
   white-space: nowrap;
 }
 
+.username-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.username-input {
+  min-width: 140px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+
+.inline-select {
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: #f9fafb;
+}
+
 .user-table thead th {
   background: #f8fafc;
   font-weight: 700;
@@ -339,6 +548,51 @@ select {
 .status-chip.inactive {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.status-toggle {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.status-toggle.on {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+
+.status-toggle.off {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.status-toggle:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.link {
+  border: none;
+  background: none;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.link.ghost {
+  color: #64748b;
+}
+
+.link:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .error {
