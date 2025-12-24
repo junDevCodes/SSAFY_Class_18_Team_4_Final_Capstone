@@ -152,10 +152,11 @@ class PersonalizedRecommendationsView(APIView):
 
     GET /api/recommendations/personalized/
 
-    로그인 사용자를 위한 개인화 추천을 제공합니다.
+    회원/비회원 모두를 위한 개인화 추천을 제공합니다.
     메인 페이지 MD's Pick 섹션에서 사용됩니다.
 
-    - **인증 필수**: 로그인 사용자만 사용 가능
+    - **비회원 허용**: 비회원은 AIRScout 100% 기반 추천
+    - **회원**: user_type(cold/lukewarm/warm)에 따라 AIRScout 가중치 적용
     - **장바구니 제외**: 현재 장바구니에 있는 상품은 추천에서 제외
     - **가중치 적용**: order > cart + 시간 감쇠
     - **항상 8개 반환**: 부족하면 인기 상품으로 채움
@@ -171,15 +172,14 @@ class PersonalizedRecommendationsView(APIView):
     Returns:
         200: {
             "products": [...],          # 추천 상품 목록
-            "user_type": "warm",        # 사용자 유형 (cold/lukewarm/warm)
+            "user_type": "warm",        # 사용자 유형 (cold/lukewarm/warm/guest)
             "model_version": "v2",      # 모델 버전
             "total_count": 8,           # 추천 상품 개수
             "metadata": {...}           # 추가 메타데이터
         }
-        401: { "detail": "자격 인증데이터가 제공되지 않았습니다." }
         503: { "error": "추천 서비스 오류" }
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # 비회원도 허용
 
     def get(self, request):
         # 쿼리 파라미터 추출
@@ -202,12 +202,18 @@ class PersonalizedRecommendationsView(APIView):
         else:
             category_id = None
 
-        # 사용자 장바구니 상품 ID 조회 (제외용)
-        cart_product_ids = self._get_user_cart_product_ids(request.user)
+        # 비회원/회원 분기 처리
+        if request.user.is_authenticated:
+            user_id = request.user.id
+            cart_product_ids = self._get_user_cart_product_ids(request.user)
+        else:
+            # 비회원: user_id=0으로 전달 → pred에서 is_guest=True 처리
+            user_id = 0
+            cart_product_ids = []
 
         try:
             result = request_personalized_recommendations(
-                user_id=request.user.id,
+                user_id=user_id,
                 limit=limit,
                 page_type=page_type,
                 category_id=category_id,

@@ -420,8 +420,8 @@ class SelfPersonalizedModel(HybridModel):
         """
         components = self._pickle_model.get("components", {})
 
-        # Cold user: 사전 계산된 인기 상품
-        if context.user_type == "cold":
+        # 비회원(guest) 또는 Cold user: 사전 계산된 인기 상품 + AIRScout 부스트
+        if context.user_type in ("guest", "cold"):
             return await self._recommend_cold_pickle(context, limit, components)
 
         # v2면 ALS 기반 추천 사용
@@ -718,15 +718,48 @@ class SelfPersonalizedModel(HybridModel):
         user_idx = user_id_to_idx.get(context.user_id)
 
         if user_idx is None:
-            logger.debug(f"v2: 사용자 임베딩 없음 (user_id={context.user_id}), cold 추천 사용")
-            return await self._recommend_cold_pickle(context, limit, components)
+            # ALS 임베딩이 없으면 실제 cold 상태 → user_type을 cold로 강제 설정
+            # classify_user()가 warm으로 분류해도, 모델 학습 이후 가입한 사용자는
+            # 임베딩이 없으므로 AIRScout 부스트가 적용되어야 함
+            logger.debug(
+                f"v2: 사용자 임베딩 없음 (user_id={context.user_id}), "
+                f"user_type={context.user_type} → cold로 강제 전환"
+            )
+            cold_context = RecommendationContext(
+                user_id=context.user_id,
+                user_type="cold",  # 강제로 cold 설정 → AIRScout 활성화
+                category_id=context.category_id,
+                cart_product_ids=context.cart_product_ids,
+                page_type=context.page_type,
+                interaction_count=context.interaction_count,
+                time_context=context.time_context,
+                is_weekend=context.is_weekend,
+                day_of_week=context.day_of_week,
+                hour_of_day=context.hour_of_day,
+                metadata=context.metadata,
+            )
+            return await self._recommend_cold_pickle(cold_context, limit, components)
 
         if not isinstance(user_idx, int) or user_idx < 0 or user_idx >= user_embeddings.shape[0]:
+            # 인덱스 범위 오류도 마찬가지로 cold 처리
             logger.warning(
                 "v2 사용자 인덱스 범위 오류, cold 추천으로 폴백",
                 extra={"user_id": context.user_id, "user_idx": user_idx, "n_users": int(user_embeddings.shape[0])},
             )
-            return await self._recommend_cold_pickle(context, limit, components)
+            cold_context = RecommendationContext(
+                user_id=context.user_id,
+                user_type="cold",  # 강제로 cold 설정 → AIRScout 활성화
+                category_id=context.category_id,
+                cart_product_ids=context.cart_product_ids,
+                page_type=context.page_type,
+                interaction_count=context.interaction_count,
+                time_context=context.time_context,
+                is_weekend=context.is_weekend,
+                day_of_week=context.day_of_week,
+                hour_of_day=context.hour_of_day,
+                metadata=context.metadata,
+            )
+            return await self._recommend_cold_pickle(cold_context, limit, components)
 
         # 사용자 임베딩
         user_vec = user_embeddings[user_idx]
