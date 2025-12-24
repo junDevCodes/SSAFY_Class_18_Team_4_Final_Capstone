@@ -47,4 +47,8 @@ urlpatterns = [
     path('api/orders/', include('orders.urls')),
     # 추천 API (REC-005)
     path('api/recommendations/', include('products.recommendations_urls')),
+    # Admin 분석 API
+    path('api/admin/analytics/', include('analytics.urls')),
+    # Admin 유저 관리 API
+    path('api/admin/users/', include('authentication.admin_urls')),
 ]

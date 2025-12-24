@@ -446,3 +446,4 @@ plan/
 .claude-workspace/
 
 pred/models/AIRScout_model/
+backend/selfdb

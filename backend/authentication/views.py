@@ -22,6 +22,7 @@ from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.contrib.auth.hashers import make_password
 from django.core.mail import send_mail
 from django.db import transaction
+from django.db.models import Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.utils import timezone
@@ -44,14 +45,21 @@ from rest_framework_simplejwt.views import TokenRefreshView as SimpleJWTTokenRef
 
 from .config import AUTH_CONFIG
 from .models import PendingRegistration, Provider
-from .permissions import IsAuthenticatedOrCreate
+from .permissions import IsAuthenticatedOrCreate, RoleRequired
 from .providers import (
     build_google_authorize_url,
     build_kakao_authorize_url,
     exchange_google_token,
     exchange_kakao_token,
 )
-from .models import UserAddress, UserPaymentMethod, UserProfile, AuthGoogleAccount, AuthKakaoAccount, AuthEmailCredential
+from .models import (
+    UserAddress,
+    UserPaymentMethod,
+    UserProfile,
+    AuthGoogleAccount,
+    AuthKakaoAccount,
+    AuthEmailCredential,
+)
 from .serializers import (
     LoginSerializer,
     PasswordChangeSerializer,
@@ -63,6 +71,9 @@ from .serializers import (
     UserAddressSerializer,
     UserPaymentMethodSerializer,
     AccountDeleteSerializer,
+    AdminUserListSerializer,
+    AdminUserDetailSerializer,
+    AdminUserSummarySerializer,
 )
 from .services import (
     finalize_pending_registration,
@@ -1006,4 +1017,88 @@ class UserPaymentMethodViewSet(viewsets.ModelViewSet):
         payment_method.save()
 
         serializer = self.get_serializer(payment_method)
+        return Response(serializer.data)
+
+
+# ----- Admin 유저 관리 -----
+
+
+class AdminUserListView(generics.ListAPIView):
+    """관리자용 유저 목록 조회 뷰"""
+
+    permission_classes = [RoleRequired]
+    required_roles = ["admin"]
+    serializer_class = AdminUserListSerializer
+
+    def get_queryset(self):
+        """검색/필터 조건을 적용한 유저 목록 반환"""
+        UserModel = get_user_model()
+        qs = UserModel.objects.all().order_by("-date_joined")
+
+        q = self.request.query_params.get("q", "").strip()
+        if q:
+            qs = qs.filter(Q(email__icontains=q) | Q(username__icontains=q))
+
+        role = self.request.query_params.get("role")
+        if role:
+            qs = qs.filter(role=role)
+
+        is_active = self.request.query_params.get("is_active")
+        if is_active in {"true", "false"}:
+            qs = qs.filter(is_active=(is_active == "true"))
+
+        return qs
+
+
+class AdminUserDetailView(generics.RetrieveUpdateAPIView):
+    """관리자용 유저 상세/수정 뷰"""
+
+    permission_classes = [RoleRequired]
+    required_roles = ["admin"]
+    serializer_class = AdminUserDetailSerializer
+
+    def get_queryset(self):
+        UserModel = get_user_model()
+        return UserModel.objects.all().order_by("-date_joined")
+
+
+class AdminUserSummaryView(APIView):
+    """관리자용 유저 요약 KPI 조회 뷰
+
+    - 총 유저 수 (guest 포함)
+    - 활성/비활성 유저 수
+    - 판매자/관리자 수
+    - 최근 7일 내 신규 가입자 수
+    """
+
+    permission_classes = [RoleRequired]
+    required_roles = ["admin"]
+
+    @extend_schema(
+        tags=["관리자"],
+        summary="유저 요약 KPI 조회",
+        description="관리자 대시보드 상단에 표시할 유저 요약 통계를 반환합니다.",
+    )
+    def get(self, request: Request) -> Response:
+        UserModel = get_user_model()
+
+        qs = UserModel.objects.all()
+        total_users = qs.count()
+        active_users = qs.filter(is_active=True).count()
+        inactive_users = qs.filter(is_active=False).count()
+        seller_count = qs.filter(role="seller").count()
+        admin_count = qs.filter(role="admin").count()
+
+        seven_days_ago = timezone.now() - timezone.timedelta(days=7)
+        new_users_last_7d = qs.filter(date_joined__gte=seven_days_ago).count()
+
+        payload = {
+            "total_users": total_users,
+            "active_users": active_users,
+            "inactive_users": inactive_users,
+            "seller_count": seller_count,
+            "admin_count": admin_count,
+            "new_users_last_7d": new_users_last_7d,
+        }
+        serializer = AdminUserSummarySerializer(payload)
         return Response(serializer.data)
