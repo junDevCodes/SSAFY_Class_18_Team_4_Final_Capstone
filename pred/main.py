@@ -283,16 +283,21 @@ async def classify_user(user_id: int) -> str:
     """사용자 타입 분류
 
     상호작용 이력 기반으로 사용자를 분류합니다.
+    - guest: 비회원 (user_id=0 또는 None)
     - cold: 신규 사용자 (상호작용 거의 없음)
     - lukewarm: 탐색 중인 사용자 (조회 활발, 구매 적음)
     - warm: 활성 사용자 (구매 이력 있음)
 
     Args:
-        user_id: 사용자 ID
+        user_id: 사용자 ID (0 또는 None이면 비회원)
 
     Returns:
-        사용자 타입 ('cold', 'lukewarm', 'warm')
+        사용자 타입 ('guest', 'cold', 'lukewarm', 'warm')
     """
+    # 비회원 처리: user_id=0 또는 None
+    if user_id is None or user_id == 0:
+        return "guest"
+
     try:
         stats = await db.fetch_one(
             """

@@ -155,9 +155,9 @@ class AIRScoutWeightScheduler:
         days_since_signup보다 더 정확한 개인화 상태를 나타냅니다.
 
         Args:
-            user_type: 사용자 타입 ('cold', 'lukewarm', 'warm')
+            user_type: 사용자 타입 ('guest', 'cold', 'lukewarm', 'warm')
             days_since_signup: 가입 후 경과일 (cold일 때 Sigmoid 보조용)
-            is_guest: 비회원 여부 (user_id=0 또는 None)
+            is_guest: 비회원 여부 (user_id=0 또는 None) - deprecated, user_type="guest" 사용 권장
 
         Returns:
             (w_airscout, w_personal) 튜플
@@ -169,14 +169,14 @@ class AIRScoutWeightScheduler:
             - cold: Sigmoid 스케줄 적용 (점진적 전환 준비)
 
         Examples:
-            >>> scheduler.get_weights_by_user_type("cold", is_guest=True)  # (1.0, 0.0)
-            >>> scheduler.get_weights_by_user_type("warm")      # (0.0, 1.0)
-            >>> scheduler.get_weights_by_user_type("lukewarm")  # (0.5, 0.5)
-            >>> scheduler.get_weights_by_user_type("cold", 0)   # (0.985, 0.015)
-            >>> scheduler.get_weights_by_user_type("cold", 21)  # (0.5, 0.5)
+            >>> scheduler.get_weights_by_user_type("guest")      # (1.0, 0.0)
+            >>> scheduler.get_weights_by_user_type("warm")       # (0.0, 1.0)
+            >>> scheduler.get_weights_by_user_type("lukewarm")   # (0.5, 0.5)
+            >>> scheduler.get_weights_by_user_type("cold", 0)    # (0.985, 0.015)
+            >>> scheduler.get_weights_by_user_type("cold", 21)   # (0.5, 0.5)
         """
-        # 비회원은 무조건 AIRScout 100%
-        if is_guest:
+        # 비회원은 무조건 AIRScout 100% (user_type="guest" 또는 is_guest=True)
+        if is_guest or user_type == "guest":
             return (1.0, 0.0)
 
         if user_type == "warm":
@@ -198,14 +198,14 @@ class AIRScoutWeightScheduler:
         """user_type 기반 AIRScout 적용 여부 판단 (Primary 메서드)
 
         Args:
-            user_type: 사용자 타입 ('cold', 'lukewarm', 'warm')
-            is_guest: 비회원 여부 (user_id=0 또는 None)
+            user_type: 사용자 타입 ('guest', 'cold', 'lukewarm', 'warm')
+            is_guest: 비회원 여부 (user_id=0 또는 None) - deprecated, user_type="guest" 사용 권장
 
         Returns:
             AIRScout 적용 여부
         """
         # 비회원은 무조건 AIRScout 적용
-        if is_guest:
+        if is_guest or user_type == "guest":
             return True
 
         # warm 사용자는 AIRScout 스킵

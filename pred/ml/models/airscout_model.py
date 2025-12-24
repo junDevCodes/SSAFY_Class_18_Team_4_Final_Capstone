@@ -206,13 +206,16 @@ class AIRScoutModel(HybridModel):
         if not product_texts:
             return np.array([])
 
-        # 1. 비회원 판단 (user_id=0 또는 None)
-        is_guest = context.user_id is None or context.user_id == 0
+        # 1. 비회원 판단 (user_id=0 또는 None 또는 user_type="guest")
+        user_type = context.user_type or "cold"
+        is_guest = (
+            context.user_id is None or
+            context.user_id == 0 or
+            user_type == "guest"
+        )
 
         # 2. user_type 기반 가중치 계산 (Primary 기준)
-        user_type = context.user_type or "cold"
-
-        # warm 사용자는 즉시 스킵 (ALS 임베딩 존재), 비회원은 무조건 적용
+        # warm 사용자는 즉시 스킵 (ALS 임베딩 존재), 비회원/cold/lukewarm은 적용
         if not self._scheduler.should_apply_airscout_by_type(user_type, is_guest):
             logger.debug(
                 f"AIRScout 스킵 (user_type={user_type})",
@@ -221,7 +224,7 @@ class AIRScoutModel(HybridModel):
             return np.zeros(len(product_texts))
 
         # cold일 때만 days_since_signup 조회 (Sigmoid 보조)
-        # 비회원은 days_since_signup 조회 불필요 (항상 100%)
+        # 비회원(guest)은 days_since_signup 조회 불필요 (항상 100%)
         days_since_signup = 0
         if user_type == "cold" and not is_guest:
             days_since_signup = await self._get_days_since_signup(context.user_id)
