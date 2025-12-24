@@ -22,6 +22,14 @@ import type {
   CategoryListResponse,
   NewProductListResponse,
 } from '@/types/product'
+import type {
+  PaymentPrepareRequest,
+  PaymentPrepareResponse,
+  PaymentConfirmRequest,
+  PaymentConfirmResponse,
+  PaymentCancelResponse,
+  Payment,
+} from '@/types/payment'
 import { analyticsAPI, adminAnalyticsAPI } from './analytics'
 
 // ==================== Auth API ====================
@@ -91,27 +99,27 @@ export const authAPI = {
 export const addressesAPI = {
   // 배송지 목록 조회
   getAddresses: (params?: { page?: number; page_size?: number }) =>
-    apiClient.get<AddressListResponse>('/users/me/addresses/', { params }),
+    apiClient.get<AddressListResponse>('/api/users/me/addresses/', { params }),
 
   // 배송지 상세 조회
   getAddress: (id: number) =>
-    apiClient.get<UserAddress>(`/users/me/addresses/${id}/`),
+    apiClient.get<UserAddress>(`/api/users/me/addresses/${id}/`),
 
   // 배송지 추가
   createAddress: (data: UserAddressRequest) =>
-    apiClient.post<UserAddress>('/users/me/addresses/', data),
+    apiClient.post<UserAddress>('/api/users/me/addresses/', data),
 
   // 배송지 수정
   updateAddress: (id: number, data: Partial<UserAddressRequest>) =>
-    apiClient.patch<UserAddress>(`/users/me/addresses/${id}/`, data),
+    apiClient.patch<UserAddress>(`/api/users/me/addresses/${id}/`, data),
 
   // 배송지 삭제
   deleteAddress: (id: number) =>
-    apiClient.delete(`/users/me/addresses/${id}/`),
+    apiClient.delete(`/api/users/me/addresses/${id}/`),
 
   // 기본 배송지 설정
   setDefaultAddress: (id: number) =>
-    apiClient.post<UserAddress>(`/users/me/addresses/${id}/set-default/`),
+    apiClient.post<UserAddress>(`/api/users/me/addresses/${id}/set-default/`),
 }
 
 // ==================== Products API ====================
@@ -625,6 +633,37 @@ export const sellerOrdersAPI = {
     apiClient.patch(`/api/sellers/orders/${id}/status/`, { status }),
 }
 
+// ==================== Payments API (토스페이먼츠 PG) ====================
+export const paymentsAPI = {
+  /**
+   * 결제 준비 (주문 생성 + PG 초기화)
+   * 장바구니 기반 주문을 생성하고 토스 SDK 초기화 데이터를 반환
+   */
+  prepare: (data: PaymentPrepareRequest) =>
+    apiClient.post<PaymentPrepareResponse>('/api/orders/payments/prepare/', data),
+
+  /**
+   * 결제 승인
+   * 토스 SDK 결제 완료 후 호출 (paymentKey, orderId, amount)
+   */
+  confirm: (data: PaymentConfirmRequest) =>
+    apiClient.post<PaymentConfirmResponse>('/api/orders/payments/confirm/', data),
+
+  /**
+   * 결제 상태 조회
+   */
+  getStatus: (paymentId: number) =>
+    apiClient.get<Payment>(`/api/orders/payments/${paymentId}/`),
+
+  /**
+   * 결제 취소
+   */
+  cancel: (paymentId: number, cancelReason: string) =>
+    apiClient.post<PaymentCancelResponse>(`/api/orders/payments/${paymentId}/cancel/`, {
+      cancel_reason: cancelReason,
+    }),
+}
+
 // 전체 API를 하나의 객체로 export
 export const api = {
   auth: authAPI,
@@ -634,6 +673,7 @@ export const api = {
   cart: cartAPI,
   orders: ordersAPI,
   guestOrders: guestOrdersAPI,
+  payments: paymentsAPI,
   recommendations: recommendationsAPI,
   sellers: sellersAPI,
   sellerProducts: sellerProductsAPI,
