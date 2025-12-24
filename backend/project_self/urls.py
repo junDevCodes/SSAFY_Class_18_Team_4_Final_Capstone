@@ -18,8 +18,18 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
 from django.conf import settings
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+    SpectacularRedocView,
+)
 
 urlpatterns = [
+    # API 문서화 (Swagger/OpenAPI)
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+
     # Django Admin
     path(
         'admin/analytics/',
@@ -30,10 +40,15 @@ urlpatterns = [
         name='admin-analytics-redirect'
     ),
     path('admin/', admin.site.urls),
+    # 인증 모듈 (기본 auth + users 경로)
     path('', include('authentication.urls', namespace='authentication')),
     path('api/', include('products.urls')),
     path('api/sellers/', include('sellers.urls')),
     path('api/orders/', include('orders.urls')),
     # 추천 API (REC-005)
     path('api/recommendations/', include('products.recommendations_urls')),
+    # Admin 분석 API
+    path('api/admin/analytics/', include('analytics.urls')),
+    # Admin 유저 관리 API
+    path('api/admin/users/', include('authentication.admin_urls')),
 ]

@@ -139,6 +139,9 @@ class S3Config:
     """S3 업로드 설정"""
 
     bucket: Optional[str] = None
+    access_key: Optional[str] = None
+    secret_key: Optional[str] = None
+    # 크롤러용 prefix 는 고정 경로를 사용 (homeplus 데이터 파이프라인 전용)
     prefix: str = "homeplus/raw/{YYYY}/{MM}/{batch_id}/"
     thumbnail_prefix: str = "homeplus/thumbnail/{YYYY}/{MM}/{batch_id}/"
     product_detail_prefix: str = "homeplus/product_detail/{YYYY}/{MM}/{batch_id}/"
@@ -152,11 +155,14 @@ class S3Config:
         use_public_env = os.getenv("S3_USE_PUBLIC_URL", "false").lower()
         use_public = use_public_env in ("1", "true", "yes")
         return cls(
-            bucket=os.getenv("S3_BUCKET"),
-            prefix=os.getenv("S3_PREFIX", "homeplus/raw/{YYYY}/{MM}/{batch_id}/"),
-            thumbnail_prefix=os.getenv("S3_THUMBNAIL_PREFIX", "homeplus/thumbnail/{YYYY}/{MM}/{batch_id}/"),
-            product_detail_prefix=os.getenv("S3_PRODUCT_DETAIL_PREFIX", "homeplus/product_detail/{YYYY}/{MM}/{batch_id}/"),
-            region=os.getenv("S3_REGION"),
+            bucket=os.getenv("S3_BUCKET") or os.getenv("AWS_S3_BUCKET"),
+            access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+            secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            # prefix 들은 env 로 덮어쓰지 않고, 고정 값 사용
+            prefix="homeplus/raw/{YYYY}/{MM}/{batch_id}/",
+            thumbnail_prefix="homeplus/thumbnail/{YYYY}/{MM}/{batch_id}/",
+            product_detail_prefix="homeplus/product_detail/{YYYY}/{MM}/{batch_id}/",
+            region=os.getenv("S3_REGION") or os.getenv("AWS_S3_REGION"),
             presign_expires=_get_int_env("S3_PRESIGN_EXPIRES", 3600),
             use_public_url=use_public,
         )

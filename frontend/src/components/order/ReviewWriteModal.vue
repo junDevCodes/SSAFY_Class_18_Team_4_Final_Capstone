@@ -27,8 +27,30 @@
           <textarea v-model="form.content" rows="4" placeholder="리뷰를 입력하세요" />
         </div>
         <div class="field">
-          <label>이미지 URL (콤마구분, 선택)</label>
-          <input v-model="form.imagesInput" type="text" placeholder="https://..., https://..." />
+          <label>이미지 첨부 (최대 5개, 선택)</label>
+          <div class="upload-box">
+            <input
+              ref="fileInput"
+              class="file-input"
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              multiple
+              @change="handleImageChange"
+            />
+            <div class="upload-copy">
+              <strong>클릭하거나 파일을 선택해 업로드</strong>
+              <span>JPEG/PNG/GIF/WebP, 5MB 이하</span>
+            </div>
+          </div>
+          <div v-if="images.length" class="preview-grid">
+            <div v-for="(item, index) in images" :key="item.preview" class="preview-card">
+              <img :src="item.preview" :alt="item.file.name" />
+              <div class="preview-meta">
+                <span class="filename" :title="item.file.name">{{ item.file.name }}</span>
+                <button type="button" class="remove-btn" @click="removeImage(index)">삭제</button>
+              </div>
+            </div>
+          </div>
         </div>
         <p v-if="error" class="error">{{ error }}</p>
       </div>
@@ -43,8 +65,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { reviewApi } from '@/services/api/reviews'
+
+type UploadItem = { file: File; preview: string }
 
 const props = defineProps<{
   open: boolean
@@ -61,11 +85,16 @@ const emit = defineEmits<{
 const form = reactive({
   rating: 0,
   content: '',
-  imagesInput: '',
 })
 
 const submitting = ref(false)
 const error = ref<string | null>(null)
+const images = ref<UploadItem[]>([])
+const fileInput = ref<HTMLInputElement | null>(null)
+
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+const MAX_SIZE = 5 * 1024 * 1024
+const MAX_IMAGES = 5
 
 const canSubmit = computed(() => {
   if (!props.productId || !props.orderItemId) return false
@@ -74,17 +103,11 @@ const canSubmit = computed(() => {
   return true
 })
 
-const parseImages = () =>
-  form.imagesInput
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-
 const resetForm = () => {
   form.rating = 0
   form.content = ''
-  form.imagesInput = ''
   error.value = null
+  clearImages()
 }
 
 watch(
@@ -93,6 +116,50 @@ watch(
     if (!val) resetForm()
   }
 )
+
+const clearImages = () => {
+  images.value.forEach((item) => URL.revokeObjectURL(item.preview))
+  images.value = []
+}
+
+const validateAndAddFiles = (files: File[]) => {
+  const next: UploadItem[] = [...images.value]
+  for (const file of files) {
+    if (next.length >= MAX_IMAGES) {
+      error.value = `이미지는 최대 ${MAX_IMAGES}개까지 업로드할 수 있습니다.`
+      break
+    }
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      error.value = 'JPEG, PNG, GIF, WebP 형식만 업로드할 수 있습니다.'
+      continue
+    }
+    if (file.size > MAX_SIZE) {
+      error.value = '이미지는 5MB 이하 파일만 업로드할 수 있습니다.'
+      continue
+    }
+    next.push({ file, preview: URL.createObjectURL(file) })
+  }
+  images.value = next
+}
+
+const handleImageChange = (event: Event) => {
+  const files = (event.target as HTMLInputElement)?.files
+  if (files) {
+    validateAndAddFiles(Array.from(files))
+    if (event.target) {
+      ;(event.target as HTMLInputElement).value = ''
+    }
+  }
+}
+
+const removeImage = (index: number) => {
+  const removed = images.value.splice(index, 1)
+  removed.forEach((item) => URL.revokeObjectURL(item.preview))
+}
+
+onBeforeUnmount(() => {
+  clearImages()
+})
 
 const handleSubmit = async () => {
   if (!props.productId || !props.orderItemId) {
@@ -106,12 +173,18 @@ const handleSubmit = async () => {
   submitting.value = true
   error.value = null
   try {
+    let uploadedUrls: string[] = []
+    if (images.value.length) {
+      const res = await reviewApi.uploadReviewImages(images.value.map((item) => item.file))
+      uploadedUrls = res.image_urls || []
+    }
+
     await reviewApi.createReview({
       product: props.productId,
       order_item: props.orderItemId,
       rating: form.rating,
       content: form.content.trim(),
-      image_urls: parseImages(),
+      image_urls: uploadedUrls,
     })
     if (props.productId) {
       window.dispatchEvent(
@@ -120,6 +193,7 @@ const handleSubmit = async () => {
     }
     emit('submitted')
     emit('close')
+    clearImages()
   } catch (e: any) {
     const detail =
       e?.response?.data?.detail ||
@@ -245,5 +319,78 @@ input {
 .error {
   color: #b91c1c;
   font-size: 14px;
+}
+.upload-box {
+  position: relative;
+  padding: 12px;
+  border: 1px dashed #d1d5db;
+  border-radius: 10px;
+  background: #f9fafb;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.upload-box:hover {
+  border-color: #0f3a2a;
+  background: #f4faf6;
+}
+.file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.upload-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #4b5563;
+  text-align: center;
+}
+.upload-copy strong {
+  color: #111827;
+}
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.preview-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.preview-card img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+}
+.preview-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+}
+.filename {
+  flex: 1;
+  font-size: 12px;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remove-btn {
+  border: none;
+  background: #f3f4f6;
+  color: #111827;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.remove-btn:hover {
+  background: #e5e7eb;
 }
 </style>

@@ -56,8 +56,10 @@ import { useRouter } from 'vue-router'
 import { RotateCw } from 'lucide-vue-next'
 import { useRecentProducts } from '@/composables/useRecentProducts'
 import { getProductImage } from '@/types/product'
+import { useUIStore } from '@/stores/ui'
 
 const router = useRouter()
+const uiStore = useUIStore()
 const { recentProducts, isLoading, error, refresh } = useRecentProducts(4)
 const props = withDefaults(
   defineProps<{
@@ -110,7 +112,9 @@ const isUnauthorized = computed(() => {
 })
 
 const limitedProducts = computed(() => recentProducts.value.slice(0, 4))
-const shouldShow = computed(() => (isLoading.value || limitedProducts.value.length > 0) && !isUnauthorized.value)
+const shouldShow = computed(
+  () => (isLoading.value || limitedProducts.value.length > 0) && !isUnauthorized.value && !uiStore.isCartOpen && !uiStore.isRecentOpen
+)
 
 const goToDetail = (slug: string) => {
   router.push({ name: 'product-detail', params: { slug } })

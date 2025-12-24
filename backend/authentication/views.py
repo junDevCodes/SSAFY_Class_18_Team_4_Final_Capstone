@@ -8,6 +8,8 @@
 """
 
 from __future__ import annotations
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
+from drf_spectacular.types import OpenApiTypes
 
 import json
 import logging
@@ -20,6 +22,7 @@ from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.contrib.auth.hashers import make_password
 from django.core.mail import send_mail
 from django.db import transaction
+from django.db.models import Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.utils import timezone
@@ -42,14 +45,21 @@ from rest_framework_simplejwt.views import TokenRefreshView as SimpleJWTTokenRef
 
 from .config import AUTH_CONFIG
 from .models import PendingRegistration, Provider
-from .permissions import IsAuthenticatedOrCreate
+from .permissions import IsAuthenticatedOrCreate, RoleRequired
 from .providers import (
     build_google_authorize_url,
     build_kakao_authorize_url,
     exchange_google_token,
     exchange_kakao_token,
 )
-from .models import UserAddress, UserPaymentMethod, UserProfile, AuthGoogleAccount, AuthKakaoAccount, AuthEmailCredential
+from .models import (
+    UserAddress,
+    UserPaymentMethod,
+    UserProfile,
+    AuthGoogleAccount,
+    AuthKakaoAccount,
+    AuthEmailCredential,
+)
 from .serializers import (
     LoginSerializer,
     PasswordChangeSerializer,
@@ -60,6 +70,10 @@ from .serializers import (
     EmailVerificationConfirmSerializer,
     UserAddressSerializer,
     UserPaymentMethodSerializer,
+    AccountDeleteSerializer,
+    AdminUserListSerializer,
+    AdminUserDetailSerializer,
+    AdminUserSummarySerializer,
 )
 from .services import (
     finalize_pending_registration,
@@ -155,9 +169,25 @@ def _oauth_response(request: Request, user, tokens: Dict[str, str], ui_mode: str
 # ----- 기본 인증 -----
 
 
+@extend_schema(
+    tags=['인증'],
+    summary='회원가입',
+    description='''이메일과 비밀번호로 회원가입을 진행합니다.
+
+### 회원가입 플로우
+1. 이메일, 비밀번호, 사용자명 입력
+2. 이메일로 인증 코드 발송
+3. `/auth/register/verify/` 엔드포인트에서 인증 코드 확인
+4. 인증 완료 후 로그인 가능
+
+### 주의사항
+- 이미 가입된 이메일은 사용 불가
+- 비밀번호는 8자 이상 권장
+''',
+)
 class RegisterView(generics.CreateAPIView):
     """POST /auth/register/ - 일반 회원가입
-    
+
     회원가입은 누구나 가능해야 하므로 AllowAny 권한 사용
     """
 
@@ -199,6 +229,11 @@ class EmailVerificationConfirmView(APIView):
 
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['인증'],
+        summary='이메일 인증 확인',
+        description='회원가입 시 발송된 인증 코드를 확인합니다.',
+    )
     def post(self, request: Request):
         serializer = EmailVerificationConfirmSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -265,6 +300,17 @@ class LoginView(APIView):
 
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['인증'],
+        summary='로그인',
+        description='''이메일과 비밀번호로 로그인합니다.
+
+### 응답
+- `access`: JWT 액세스 토큰 (API 요청 시 Authorization 헤더에 사용)
+- `refresh`: JWT 리프레시 토큰 (액세스 토큰 갱신 시 사용)
+- `user`: 사용자 정보
+''',
+    )
     def post(self, request: Request):
         serializer = LoginSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
@@ -292,6 +338,11 @@ class LogoutView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['인증'],
+        summary='로그아웃',
+        description='리프레시 토큰을 블랙리스트에 추가하여 로그아웃 처리합니다.',
+    )
     def post(self, request: Request):
         refresh_token = request.data.get("refresh")
         if not refresh_token:
@@ -304,9 +355,14 @@ class LogoutView(APIView):
         return Response({"detail": "로그아웃되었습니다."}, status=status.HTTP_205_RESET_CONTENT)
 
 
+@extend_schema(
+    tags=['인증'],
+    summary='토큰 갱신',
+    description='리프레시 토큰으로 새로운 액세스 토큰을 발급받습니다.',
+)
 class TokenRefreshView(SimpleJWTTokenRefreshView):
     """POST /auth/token/refresh/ - JWT 토큰 갱신
-    
+
     토큰 갱신 시 User가 존재하지 않을 경우 적절히 처리
     """
 
@@ -336,9 +392,19 @@ class UserMeView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['인증'],
+        summary='내 정보 조회',
+        description='현재 로그인한 사용자의 정보를 조회합니다.',
+    )
     def get(self, request: Request):
         return Response(UserSerializer(request.user).data)
 
+    @extend_schema(
+        tags=['인증'],
+        summary='내 정보 수정',
+        description='현재 로그인한 사용자의 정보를 수정합니다.',
+    )
     def patch(self, request: Request):
         serializer = UserSerializer(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -372,6 +438,218 @@ class PasswordChangeView(APIView):
         except Exception:
             # token_blacklist 미구성 환경에서는 무시
             return Response({"detail": "비밀번호가 변경되었습니다."})
+
+
+class AccountDeleteView(APIView):
+    """DELETE /auth/account/ - 계정 삭제 (Soft Delete)
+
+    계정 삭제 시 처리 순서:
+    1. 본인 확인 (비밀번호 또는 OAuth 확인)
+    2. 판매자인 경우 활성 상품/미완료 주문 검증
+    3. 구매자 미완료 주문 검증
+    4. Soft Delete 처리 (deleted_at 설정, is_active=False)
+    5. 관련 데이터 정리 (장바구니, 찜, 토큰 등)
+    6. 주문 이력은 보존 (Order.user → RESTRICT 정책)
+
+    복구 불가능한 정보:
+    - 장바구니, 찜 목록, 팔로우
+    - 인증 정보 (이메일 자격증명, OAuth 연결)
+    - 배송지, 결제수단
+
+    보존되는 정보:
+    - 주문 이력 (user FK는 유지되나 계정 비활성화)
+    - 리뷰 (작성자 정보는 익명화)
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request: Request):
+        """계정 삭제 처리"""
+        serializer = AccountDeleteSerializer(
+            data=request.data,
+            context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        reason = serializer.validated_data.get("reason", "")
+
+        with transaction.atomic():
+            # 1. 모든 리프레시 토큰 폐기
+            try:
+                revoke_all_refresh_tokens(user)
+            except Exception:
+                pass  # token_blacklist 미구성 환경에서는 무시
+
+            # 2. 장바구니 삭제
+            from products.models import Cart
+            Cart.objects.filter(user=user).delete()
+
+            # 3. 찜 목록 삭제 + ProductStats.wishlist_count 감소
+            from products.models import Wishlist, ProductStats
+            from django.db.models import F
+
+            # 찜한 상품 ID 목록 조회
+            wishlisted_product_ids = list(
+                Wishlist.objects.filter(user=user).values_list('product_id', flat=True)
+            )
+
+            if wishlisted_product_ids:
+                # 각 상품의 wishlist_count 감소 (음수 방지)
+                for product_id in wishlisted_product_ids:
+                    ProductStats.objects.filter(
+                        product_id=product_id,
+                        wishlist_count__gt=0
+                    ).update(wishlist_count=F('wishlist_count') - 1)
+
+            # 찜 목록 삭제
+            Wishlist.objects.filter(user=user).delete()
+
+            # 4. 판매자 팔로우 삭제
+            from products.models import SellerFollow
+            SellerFollow.objects.filter(user=user).delete()
+
+            # 5. 사용자별 상품 통계 삭제
+            from products.models import UserProductStats
+            UserProductStats.objects.filter(user=user).delete()
+
+            # 6. 인증 정보 삭제 (OAuth 연결 해제)
+            AuthGoogleAccount.objects.filter(user=user).delete()
+            AuthKakaoAccount.objects.filter(user=user).delete()
+            AuthEmailCredential.objects.filter(user=user).delete()
+
+            # 7. 배송지, 결제수단 삭제
+            UserAddress.objects.filter(user=user).delete()
+            UserPaymentMethod.objects.filter(user=user).delete()
+
+            # 8. 판매자 프로필 처리 (있는 경우)
+            if hasattr(user, 'seller_profile') and user.seller_profile:
+                seller = user.seller_profile
+                # 상품들을 단종 상태로 변경
+                from products.models import Product, ProductStatus
+                Product.objects.filter(seller=seller).update(
+                    status=ProductStatus.DISCONTINUED
+                )
+                # 판매자 상태를 비활성으로 변경
+                from sellers.models import SellerStatus
+                seller.status = SellerStatus.INACTIVE
+                seller.save(update_fields=['status', 'updated_at'])
+
+            # 9. 리뷰 익명화 처리 (리뷰 자체는 보존)
+            from products.models import Review
+            Review.objects.filter(user=user).update(
+                status='hidden'  # 숨김 처리 (필요시 삭제로 변경 가능)
+            )
+
+            # 10. 사용자 Soft Delete 처리
+            user.is_active = False
+            user.deleted_at = timezone.now()
+            # 이메일/username 충돌 방지를 위해 값 변경
+            deleted_suffix = f"_deleted_{user.id}"
+            user.email = f"{user.email}{deleted_suffix}"
+            user.username = f"{user.username}{deleted_suffix}"
+            user.save(update_fields=[
+                'is_active', 'deleted_at', 'email', 'username'
+            ])
+
+            logger.info(
+                f"계정 삭제 완료: user_id={user.id}, "
+                f"reason={reason[:100] if reason else 'N/A'}"
+            )
+
+        return Response({
+            "detail": "계정이 삭제되었습니다. 그동안 이용해 주셔서 감사합니다.",
+            "deleted_at": user.deleted_at.isoformat()
+        }, status=status.HTTP_200_OK)
+
+    def get(self, request: Request):
+        """DELETE 전 계정 삭제 가능 여부 조회
+
+        프론트엔드에서 삭제 버튼 클릭 전에 호출하여
+        삭제 가능 여부와 필요한 조건을 확인할 수 있습니다.
+        """
+        user = request.user
+        result = {
+            "can_delete": True,
+            "blockers": [],
+            "auth_method": None,
+            "is_seller": False,
+        }
+
+        # 인증 방법 확인
+        has_email_credential = hasattr(user, 'email_credential') and user.email_credential
+        has_google = hasattr(user, 'google_accounts') and user.google_accounts.exists()
+        has_kakao = hasattr(user, 'kakao_accounts') and user.kakao_accounts.exists()
+
+        if has_email_credential:
+            result["auth_method"] = "email"
+        elif has_google:
+            result["auth_method"] = "google"
+        elif has_kakao:
+            result["auth_method"] = "kakao"
+        else:
+            result["auth_method"] = "unknown"
+
+        # 판매자 여부 확인
+        if hasattr(user, 'seller_profile') and user.seller_profile:
+            result["is_seller"] = True
+            seller = user.seller_profile
+
+            # 활성 상품 확인
+            from products.models import Product, ProductStatus
+            active_products = Product.objects.filter(
+                seller=seller,
+                status__in=[ProductStatus.ACTIVE, ProductStatus.OUT_OF_STOCK]
+            ).count()
+
+            if active_products > 0:
+                result["can_delete"] = False
+                result["blockers"].append({
+                    "type": "active_products",
+                    "count": active_products,
+                    "message": f"활성 상품 {active_products}개를 비공개 처리해야 합니다."
+                })
+
+            # 판매자 미완료 주문 확인
+            from orders.models import OrderItem, OrderItemStatus
+            seller_incomplete = OrderItem.objects.filter(
+                seller=seller,
+                status__in=[
+                    OrderItemStatus.PENDING,
+                    OrderItemStatus.PAID,
+                    OrderItemStatus.SHIPPING
+                ]
+            ).count()
+
+            if seller_incomplete > 0:
+                result["can_delete"] = False
+                result["blockers"].append({
+                    "type": "seller_orders",
+                    "count": seller_incomplete,
+                    "message": f"처리 중인 판매 주문 {seller_incomplete}건을 완료해야 합니다."
+                })
+
+        # 구매자 미완료 주문 확인
+        from orders.models import Order, OrderStatus
+        user_incomplete = Order.objects.filter(
+            user=user,
+            status__in=[
+                OrderStatus.PENDING,
+                OrderStatus.PAID,
+                OrderStatus.PROCESSING,
+                OrderStatus.SHIPPED
+            ]
+        ).count()
+
+        if user_incomplete > 0:
+            result["can_delete"] = False
+            result["blockers"].append({
+                "type": "user_orders",
+                "count": user_incomplete,
+                "message": f"처리 중인 주문 {user_incomplete}건의 배송이 완료되어야 합니다."
+            })
+
+        return Response(result)
 
 
 class PasswordResetRequestView(APIView):
@@ -739,4 +1017,88 @@ class UserPaymentMethodViewSet(viewsets.ModelViewSet):
         payment_method.save()
 
         serializer = self.get_serializer(payment_method)
+        return Response(serializer.data)
+
+
+# ----- Admin 유저 관리 -----
+
+
+class AdminUserListView(generics.ListAPIView):
+    """관리자용 유저 목록 조회 뷰"""
+
+    permission_classes = [RoleRequired]
+    required_roles = ["admin"]
+    serializer_class = AdminUserListSerializer
+
+    def get_queryset(self):
+        """검색/필터 조건을 적용한 유저 목록 반환"""
+        UserModel = get_user_model()
+        qs = UserModel.objects.all().order_by("-date_joined")
+
+        q = self.request.query_params.get("q", "").strip()
+        if q:
+            qs = qs.filter(Q(email__icontains=q) | Q(username__icontains=q))
+
+        role = self.request.query_params.get("role")
+        if role:
+            qs = qs.filter(role=role)
+
+        is_active = self.request.query_params.get("is_active")
+        if is_active in {"true", "false"}:
+            qs = qs.filter(is_active=(is_active == "true"))
+
+        return qs
+
+
+class AdminUserDetailView(generics.RetrieveUpdateAPIView):
+    """관리자용 유저 상세/수정 뷰"""
+
+    permission_classes = [RoleRequired]
+    required_roles = ["admin"]
+    serializer_class = AdminUserDetailSerializer
+
+    def get_queryset(self):
+        UserModel = get_user_model()
+        return UserModel.objects.all().order_by("-date_joined")
+
+
+class AdminUserSummaryView(APIView):
+    """관리자용 유저 요약 KPI 조회 뷰
+
+    - 총 유저 수 (guest 포함)
+    - 활성/비활성 유저 수
+    - 판매자/관리자 수
+    - 최근 7일 내 신규 가입자 수
+    """
+
+    permission_classes = [RoleRequired]
+    required_roles = ["admin"]
+
+    @extend_schema(
+        tags=["관리자"],
+        summary="유저 요약 KPI 조회",
+        description="관리자 대시보드 상단에 표시할 유저 요약 통계를 반환합니다.",
+    )
+    def get(self, request: Request) -> Response:
+        UserModel = get_user_model()
+
+        qs = UserModel.objects.all()
+        total_users = qs.count()
+        active_users = qs.filter(is_active=True).count()
+        inactive_users = qs.filter(is_active=False).count()
+        seller_count = qs.filter(role="seller").count()
+        admin_count = qs.filter(role="admin").count()
+
+        seven_days_ago = timezone.now() - timezone.timedelta(days=7)
+        new_users_last_7d = qs.filter(date_joined__gte=seven_days_ago).count()
+
+        payload = {
+            "total_users": total_users,
+            "active_users": active_users,
+            "inactive_users": inactive_users,
+            "seller_count": seller_count,
+            "admin_count": admin_count,
+            "new_users_last_7d": new_users_last_7d,
+        }
+        serializer = AdminUserSummarySerializer(payload)
         return Response(serializer.data)

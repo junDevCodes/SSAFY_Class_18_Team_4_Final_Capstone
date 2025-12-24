@@ -110,27 +110,34 @@
                       </svg>
                     </router-link>
                     <button
-                      v-if="product.status === 'active'"
-                      @click="handleUnpublish(product.id)"
-                      class="btn-unpublish"
-                      title="판매중지"
+                      @click="togglePublish(product)"
+                      class="btn-status-toggle"
+                      :class="product.status === 'active' ? 'btn-unpublish' : 'btn-publish'"
+                      :title="product.status === 'active' ? '판매 일시정지' : '판매 시작'"
                       :disabled="updating === product.id"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg
+                        v-if="product.status === 'active'"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                    </button>
-                    <button
-                      v-else
-                      @click="handlePublish(product.id)"
-                      class="btn-publish"
-                      title="판매시작"
-                      :disabled="updating === product.id"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg
+                        v-else
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
+                      <span class="btn-status-label">
+                        {{ product.status === 'active' ? '판매 일시정지' : '판매 시작' }}
+                      </span>
                     </button>
                     <button
                       @click="handleDelete(product.id)"
@@ -246,6 +253,14 @@ const goToPage = (page: number) => {
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
+// Toggle publish/unpublish
+const togglePublish = (product: any) => {
+  if (product.status === 'active') {
+    return handleUnpublish(product.id)
+  }
+  return handlePublish(product.id)
+}
+
 // Publish product
 const handlePublish = async (productId: number) => {
   const confirmed = confirm('이 상품을 판매 시작하시겠습니까?')
@@ -259,7 +274,11 @@ const handlePublish = async (productId: number) => {
     await loadProducts()
   } catch (err: any) {
     console.error('상품 판매 시작 실패:', err)
-    const errorMsg = err.response?.data?.detail || err.response?.data?.message || '상품 판매 시작에 실패했습니다.'
+    const errorMsg =
+      err.response?.data?.detail ||
+      err.response?.data?.message ||
+      err.response?.data?.error ||
+      '상품 판매 시작에 실패했습니다.'
     alert(errorMsg)
   } finally {
     updating.value = null
@@ -308,9 +327,10 @@ const handleDelete = async (productId: number) => {
 const getStatusText = (status: string): string => {
   const statusMap: Record<string, string> = {
     active: '판매중',
-    inactive: '판매중지',
-    draft: '초안',
-    out_of_stock: '품절'
+    inactive: '판매 일시정지',
+    draft: '판매 준비중',
+    out_of_stock: '품절',
+    discontinued: '단종'
   }
   return statusMap[status] || status
 }
@@ -627,7 +647,7 @@ td {
 }
 
 .actions-cell {
-  min-width: 150px;
+  min-width: 220px;
 }
 
 .action-buttons {
@@ -658,6 +678,24 @@ td {
 .btn-delete svg {
   width: 18px;
   height: 18px;
+}
+
+.btn-status-toggle {
+  width: auto;
+  height: 38px;
+  padding: 0.4rem 0.75rem;
+  gap: 0.4rem;
+  font-weight: 700;
+  justify-content: center;
+}
+
+.btn-status-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.btn-status-label {
+  line-height: 1;
 }
 
 .btn-edit {

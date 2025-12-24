@@ -188,3 +188,49 @@ class OAuthCallbackViewTest(APITestCase):
         self.assertEqual(response.data["user"]["email"], "oauth-api@example.com")
         self.assertIn("access", response.data)
         self.assertIn("refresh", response.data)
+
+
+class AdminUserApiTests(APITestCase):
+    """관리자용 유저 목록/상세 API 테스트"""
+
+    def setUp(self) -> None:
+        """관리자와 일반 사용자 생성"""
+        User = get_user_model()
+        self.admin = User.objects.create_user(
+            email="admin-api@example.com",
+            password="AdminPassw0rd!",
+            username="admin-api",
+            role="admin",
+            is_staff=True,
+        )
+        self.user1 = User.objects.create_user(
+            email="user1@example.com",
+            password="UserPassw0rd1!",
+            username="user1",
+            role="user",
+        )
+        self.user2 = User.objects.create_user(
+            email="user2@example.com",
+            password="UserPassw0rd2!",
+            username="user2",
+            role="user",
+            is_active=False,
+        )
+
+    def test_admin_can_list_users(self):
+        """관리자는 유저 목록을 조회할 수 있어야 한다"""
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.get("/api/admin/users/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(res.data), 3)
+        first = res.data[0]
+        self.assertIn("email", first)
+        self.assertIn("username", first)
+        self.assertIn("role", first)
+        self.assertIn("is_active", first)
+
+    def test_non_admin_forbidden(self):
+        """일반 사용자는 Admin 유저 API에 접근할 수 없어야 한다"""
+        self.client.force_authenticate(user=self.user1)
+        res = self.client.get("/api/admin/users/")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)

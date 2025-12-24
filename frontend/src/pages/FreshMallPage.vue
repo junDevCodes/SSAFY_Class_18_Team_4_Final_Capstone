@@ -20,53 +20,65 @@
             </button>
           </div>
         </div>
-
-        <div class="space-y-3">
-          <div class="flex flex-wrap gap-2">
-            <button v-for="opt in deliveryOptions" :key="opt" class="chip" :class="chipDelivery(opt)" @click="toggleDelivery(opt)">
-              {{ opt }}
-            </button>
-            <button v-for="opt in tempOptions" :key="opt" class="chip" :class="chipTemp(opt)" @click="toggleTemp(opt)">
-              {{ opt }}
-            </button>
-            <button v-for="opt in originOptions" :key="opt" class="chip" :class="chipOrigin(opt)" @click="toggleOrigin(opt)">
-              {{ opt }}
-            </button>
-            <button v-for="opt in sellerTypeOptions" :key="opt" class="chip" :class="chipSellerType(opt)" @click="toggleSellerType(opt)">
-              {{ opt }}
-            </button>
-          </div>
-        </div>
       </header>
 
       <section class="space-y-4">
         <div class="flex items-center justify-between">
           <h2 class="text-xl font-bold text-gray-900">셀러 스토리</h2>
-          <button class="text-sm font-semibold text-brand-700 hover:text-brand-800">모두 보기</button>
+          <button class="text-sm font-semibold text-brand-700 hover:text-brand-800" @click="goToAllSellerProducts">모두 보기</button>
         </div>
-        <div class="story-row">
+        <div v-if="sellerStoriesLoading" class="story-state">브랜드 제휴 스토리를 불러오는 중입니다.</div>
+        <div v-else-if="sellerStoriesError" class="story-state error">{{ sellerStoriesError }}</div>
+        <div v-else-if="!sellerStories.length" class="story-state">등록된 브랜드 제휴 스토리가 없습니다.</div>
+        <div v-else class="story-row">
           <article
             v-for="story in sellerStories"
             :key="story.id"
             class="story-card"
           >
-            <img :src="story.cover" :alt="story.name" class="w-full h-28 object-cover rounded-lg mb-3">
-            <p class="text-sm font-semibold text-gray-900">{{ story.name }}</p>
-            <p class="text-xs text-gray-600 line-clamp-2">{{ story.desc }}</p>
-            <button class="mt-3 text-xs font-semibold text-brand-700 hover:text-brand-800">스토어 보기</button>
+            <div class="story-cover">
+              <img
+                :src="story.banner || DEFAULT_STORY_BANNER"
+                :alt="story.name"
+                @error="handleStoryBannerError"
+              >
+              <div class="story-logo">
+                <img
+                  :src="story.logo || DEFAULT_STORY_LOGO"
+                  :alt="`${story.name} 로고`"
+                  @error="handleStoryLogoError"
+                >
+              </div>
+            </div>
+            <div class="story-body">
+              <p class="story-name">{{ story.name }}</p>
+              <p class="story-desc line-clamp-2">{{ story.desc }}</p>
+              <div class="story-actions">
+                <button
+                  class="story-link"
+                  type="button"
+                  :disabled="!story.slug"
+                  @click="goToBrandStory(story.slug)"
+                >
+                  스토어 보기
+                </button>
+              </div>
+            </div>
           </article>
         </div>
       </section>
 
-      <div class="grid gap-6 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+      <div v-if="loading" class="flex items-center justify-center py-16 text-gray-500">로딩 중...</div>
+      <div v-else-if="fetchError" class="flex items-center justify-center py-16 text-red-500">{{ fetchError }}</div>
+      <div v-else-if="!visibleProducts.length" class="flex items-center justify-center py-16 text-gray-500">
+        등록된 상품이 없습니다.
+      </div>
+      <div v-else class="grid gap-6 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         <ProductCard
-          v-for="product in filteredFreshProducts"
+          v-for="product in visibleProducts"
           :key="product.id"
           :product="product"
           label="FRESH"
-          :meta="product.deliveryTag"
-          :badges="[product.tempTag, product.originTag].filter((t): t is string => Boolean(t))"
-          :seller="product.seller"
         />
       </div>
     </section>
@@ -74,146 +86,147 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, type Ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import type { Product } from '@/types/product'
 import ProductCard from '@/components/ui/ProductCard.vue'
-import { createMockProduct, type SellerBadge } from './mallMock'
+import { productsAPI, sellersAPI } from '@/services/api'
 
-type FreshProduct = Product & {
-  deliveryTag?: string
-  tempTag?: string
-  originTag?: string
-  seller?: SellerBadge
-  sellerType?: string
-  distanceKm?: number
+const router = useRouter()
+
+type FreshProduct = Product
+type SellerStory = {
+  id: string
+  name: string
+  desc: string
+  logo: string
+  banner: string
+  slug: string
 }
 
-const sortOptions = ['신규 셀러', '판매순', '리뷰순', '거리순']
-const deliveryOptions = ['새벽배송', '당일배송', '택배']
-const tempOptions = ['냉장', '냉동', '상온']
-const originOptions = ['국내산', '수입산']
-const sellerTypeOptions = ['로컬 농가', '수산 셀러', '정육 셀러', '수제 식품']
-
+const sortOptions = ['신규 셀러', '판매순', '리뷰순']
 const sortOption = ref('신규 셀러')
-const deliveryFilters = ref<string[]>([])
-const tempFilters = ref<string[]>([])
-const originFilters = ref<string[]>([])
-const sellerTypeFilters = ref<string[]>([])
 
-const sellerStories = ref([
-  { id: 's1', name: '완주 로컬 농가', desc: '새벽에 수확한 채소를 바로 포장합니다.', cover: 'https://images.unsplash.com/photo-1582719478248-54e9f2b2d1c5' },
-  { id: 's2', name: '통영 수산 셀러', desc: '산지 직송 해산물을 빠르게 배송.', cover: 'https://images.unsplash.com/photo-1526379879527-8559ecfcaec0' },
-  { id: 's3', name: '정육 셀렉션', desc: '초신선 숙성 한우를 소량으로 준비.', cover: 'https://images.unsplash.com/photo-1604908177453-7462950a6a0d' },
-  { id: 's4', name: '비건 수제식품', desc: '첨가물 없이 수제로 만드는 비건 간식.', cover: 'https://images.unsplash.com/photo-1499636136210-6f4ee915583e' }
-])
+const DEFAULT_STORY_BANNER =
+  'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&q=80'
+const DEFAULT_STORY_LOGO = '/images/default-brand.svg'
 
-const freshProducts = ref<FreshProduct[]>([
-  {
-    ...createMockProduct({ id: 301, slug: 'lettuce', name: '아침 수확 상추', price: 4900, category_name: '신선', main_image: 'https://images.unsplash.com/photo-1505253758473-96b7015fcd40', review_count: 52, average_rating: 4.8 }),
-    deliveryTag: '새벽배송',
-    tempTag: '냉장',
-    originTag: '국내산',
-    sellerType: '로컬 농가',
-    distanceKm: 6,
-    seller: { name: '로컬 농가 김씨', avatar: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12', rating: 4.8, type: '로컬 농가' }
-  },
-  {
-    ...createMockProduct({ id: 302, slug: 'salmon', name: '노르웨이 연어 필렛', price: 18900, category_name: '수산', main_image: 'https://images.unsplash.com/photo-1467003909585-2f8a72700288', review_count: 71, average_rating: 4.7 }),
-    deliveryTag: '당일배송',
-    tempTag: '냉장',
-    originTag: '수입산',
-    sellerType: '수산 셀러',
-    distanceKm: 18,
-    seller: { name: '해류 셀러', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e', rating: 4.6, type: '수산 셀러' }
-  },
-  {
-    ...createMockProduct({ id: 303, slug: 'pork-belly', name: '도톰한 삼겹살 600g', price: 15900, category_name: '정육', main_image: 'https://images.unsplash.com/photo-1604908177453-7462950a6a0d', review_count: 89, average_rating: 4.5 }),
-    deliveryTag: '택배',
-    tempTag: '냉동',
-    originTag: '국내산',
-    sellerType: '정육 셀러',
-    distanceKm: 24,
-    seller: { name: '한우길 정육', avatar: 'https://images.unsplash.com/photo-1523475472560-d2df97ec485c', rating: 4.7, type: '정육 셀러' }
-  },
-  {
-    ...createMockProduct({ id: 304, slug: 'kimchi', name: '수제 백김치 1kg', price: 11900, category_name: '반찬', main_image: 'https://images.unsplash.com/photo-1592910459359-911943b6aa56', review_count: 38, average_rating: 4.6 }),
-    deliveryTag: '당일배송',
-    tempTag: '냉장',
-    originTag: '국내산',
-    sellerType: '수제 식품',
-    distanceKm: 8,
-    seller: { name: '어머님 수제방', avatar: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518', rating: 4.9, type: '수제 식품' }
-  },
-  {
-    ...createMockProduct({ id: 305, slug: 'frozen-dumpling', name: '새우 가득 만두', price: 9900, category_name: '간편식', main_image: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836', review_count: 64, average_rating: 4.4 }),
-    deliveryTag: '택배',
-    tempTag: '냉동',
-    originTag: '국내산',
-    sellerType: '수제 식품',
-    distanceKm: 12,
-    seller: { name: '만두 공방', avatar: 'https://images.unsplash.com/photo-1523475472560-d2df97ec485c', rating: 4.5, type: '수제 식품' }
-  },
-  {
-    ...createMockProduct({ id: 306, slug: 'fruit-box', name: '오늘 수확 과일 박스', price: 13900, category_name: '신선', main_image: 'https://images.unsplash.com/photo-1506801310323-534be5e7f004', review_count: 57, average_rating: 4.8 }),
-    deliveryTag: '새벽배송',
-    tempTag: '상온',
-    originTag: '국내산',
-    sellerType: '로컬 농가',
-    distanceKm: 5,
-    seller: { name: '산들 농원', avatar: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12', rating: 4.9, type: '로컬 농가' }
+const sellerStories = ref<SellerStory[]>([])
+const sellerStoriesLoading = ref(false)
+const sellerStoriesError = ref<string | null>(null)
+
+const freshProducts = ref<FreshProduct[]>([])
+const loading = ref(false)
+const fetchError = ref<string | null>(null)
+
+const sortedProducts = computed(() => {
+  const recentFirst = (a: FreshProduct, b: FreshProduct) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  const oneMonthAgo = (() => {
+    const base = new Date()
+    base.setMonth(base.getMonth() - 1)
+    return base.getTime()
+  })()
+
+  if (sortOption.value === '신규 셀러') {
+    return freshProducts.value
+      .filter((p) => {
+        const created = new Date(p.created_at).getTime()
+        return !Number.isNaN(created) && created >= oneMonthAgo
+      })
+      .sort(recentFirst)
   }
-])
 
-const toggleRef = (listRef: Ref<string[]>, value: string) => {
-  const next = new Set(listRef.value)
-  if (next.has(value)) {
-    next.delete(value)
-  } else {
-    next.add(value)
-  }
-  listRef.value = Array.from(next)
-}
-
-const chipRef = (listRef: Ref<string[]>, value: string) => {
-  const isActive = listRef.value.includes(value)
-  return isActive
-    ? 'bg-brand-50 text-brand-700 border-brand-200'
-    : 'bg-white text-gray-700 border-gray-200 hover:border-brand-200 hover:text-brand-600'
-}
-
-const toggleDelivery = (value: string) => toggleRef(deliveryFilters, value)
-const toggleTemp = (value: string) => toggleRef(tempFilters, value)
-const toggleOrigin = (value: string) => toggleRef(originFilters, value)
-const toggleSellerType = (value: string) => toggleRef(sellerTypeFilters, value)
-
-const chipDelivery = (value: string) => chipRef(deliveryFilters, value)
-const chipTemp = (value: string) => chipRef(tempFilters, value)
-const chipOrigin = (value: string) => chipRef(originFilters, value)
-const chipSellerType = (value: string) => chipRef(sellerTypeFilters, value)
-
-const filteredFreshProducts = computed(() => {
-  const matchesFilter = (value: string | undefined, filters: string[]) =>
-    filters.length === 0 || (value && filters.includes(value))
-
-  const filtered = freshProducts.value.filter(
-    (p) =>
-      matchesFilter(p.deliveryTag, deliveryFilters.value) &&
-      matchesFilter(p.tempTag, tempFilters.value) &&
-      matchesFilter(p.originTag, originFilters.value) &&
-      matchesFilter(p.sellerType, sellerTypeFilters.value)
-  )
-
-  const sorted = [...filtered]
   if (sortOption.value === '판매순') {
-    return sorted.sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
+    return [...freshProducts.value].sort((a, b) => {
+      const salesDiff = (b.view_count || 0) - (a.view_count || 0)
+      if (salesDiff !== 0) return salesDiff
+      return recentFirst(a, b)
+    })
   }
   if (sortOption.value === '리뷰순') {
-    return sorted.sort((a, b) => (b.review_count || 0) - (a.review_count || 0))
+    return [...freshProducts.value].sort((a, b) => {
+      const reviewDiff = (b.review_count || 0) - (a.review_count || 0)
+      if (reviewDiff !== 0) return reviewDiff
+      return recentFirst(a, b)
+    })
   }
-  if (sortOption.value === '거리순') {
-    return sorted.sort((a, b) => (a.distanceKm || 0) - (b.distanceKm || 0))
+  // 신규 셀러: 최근 등록 순
+  return [...freshProducts.value].sort(recentFirst)
+})
+
+const visibleProducts = computed(() => sortedProducts.value.slice(0, 8))
+
+const goToBrandStory = (slug: string) => {
+  if (!slug) return
+  router.push(`/brands/${slug}`)
+}
+
+const goToAllSellerProducts = () => {
+  router.push({ name: 'products', query: { product_type: 'seller' } })
+}
+
+const handleStoryLogoError = (event: Event) => {
+  const target = event.target as HTMLImageElement
+  target.src = DEFAULT_STORY_LOGO
+}
+
+const handleStoryBannerError = (event: Event) => {
+  const target = event.target as HTMLImageElement
+  target.src = DEFAULT_STORY_BANNER
+}
+
+const loadSellerStories = async () => {
+  sellerStoriesLoading.value = true
+  sellerStoriesError.value = null
+  try {
+    const { data } = await sellersAPI.getSellers()
+    const list = (data.results || data || []) as any[]
+
+    sellerStories.value = list
+      .filter(
+        (seller: any) =>
+          !!seller?.brand_name && !!seller?.brand_description && !!(seller?.brand_slug || seller?.slug)
+      )
+      .map((seller: any, index: number) => ({
+        id: String(seller.id ?? seller.brand_slug ?? index),
+        name: seller.brand_name,
+        desc: seller.brand_description,
+        logo: seller.brand_logo_url || DEFAULT_STORY_LOGO,
+        banner: seller.brand_banner_url || seller.brand_logo_url || DEFAULT_STORY_BANNER,
+        slug: seller.brand_slug || seller.slug || '',
+      }))
+  } catch (error) {
+    console.error('Failed to load seller stories:', error)
+    sellerStoriesError.value = '셀러 스토리를 불러오지 못했습니다.'
+    sellerStories.value = []
+  } finally {
+    sellerStoriesLoading.value = false
   }
-  return sorted
+}
+
+const fetchFreshProducts = async () => {
+  loading.value = true
+  fetchError.value = null
+  try {
+    const { data } = await productsAPI.getProducts({
+      product_type: 'seller',
+      page_size: 24,
+      ordering: '-created_at',
+    })
+    freshProducts.value = data.results
+  } catch (error) {
+    console.error('Failed to load seller products:', error)
+    fetchError.value = '상품을 불러오는 데 실패했습니다.'
+    freshProducts.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchFreshProducts()
+  loadSellerStories()
 })
 </script>
 
@@ -223,14 +236,116 @@ const filteredFreshProducts = computed(() => {
 }
 .story-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
 }
 .story-card {
   background: white;
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 12px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  overflow: hidden;
+}
+.story-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08);
+  border-color: #c7ead8;
+}
+.story-cover {
+  position: relative;
+  height: 148px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+}
+.story-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.story-cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(17, 24, 39, 0.15) 0%, rgba(17, 24, 39, 0.45) 100%);
+  pointer-events: none;
+}
+.story-logo {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: white;
+  border: 3px solid #fff;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.story-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.story-body {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.story-name {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #111827;
+}
+.story-desc {
+  font-size: 0.9rem;
+  color: #4b5563;
+  min-height: 44px;
+}
+.story-actions {
+  margin-top: 4px;
+}
+.story-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid #c7ead8;
+  background: #e6f4ec;
+  color: #0f5132;
+  font-weight: 700;
+  font-size: 0.85rem;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.story-link:hover {
+  background: #d7f0e3;
+  transform: translateY(-1px);
+}
+.story-link:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+.story-state {
+  padding: 1rem 1.25rem;
+  background: #f8fafc;
+  border: 1px dashed #d1d5db;
+  border-radius: 12px;
+  color: #4b5563;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.story-state.error {
+  background: #fff5f5;
+  border-color: #fecdd3;
+  color: #b91c1c;
 }
 </style>
