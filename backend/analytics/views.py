@@ -20,6 +20,7 @@ from analytics.serializers import (
     OpsOverviewSerializer,
 )
 from analytics.ops_metrics import get_ops_timeseries
+from drf_spectacular.utils import extend_schema
 
 
 def _parse_data_mode(raw: str | None) -> str:
@@ -1222,5 +1223,496 @@ class AdminOpsOverviewView(APIView):
         }
         serializer = OpsOverviewSerializer(payload)
         return Response(serializer.data)
+
+
+@extend_schema(
+    tags=['판매자'],
+    summary='판매자 통계 분석',
+    description='판매자의 주문/상품 통계 데이터를 기반으로 분석 지표를 반환합니다.',
+)
+class SellerAnalyticsOverviewView(APIView):
+    """
+    판매자용 통합 지표 조회 API
+
+    - 경로: /api/seller/analytics/overview/
+    - 기능: 판매자의 주문/상품 통계 데이터를 기반으로 분석 지표를 반환
+    """
+
+    permission_classes = []  # IsSeller는 아래에서 체크
+
+    def get(self, request, *args, **kwargs):
+        """쿼리 파라미터를 해석하고 집계 결과를 반환"""
+        from sellers.permissions import IsSeller
+
+        # 판매자 권한 체크
+        if not IsSeller().has_permission(request, self):
+            return Response(
+                {"detail": "판매자 권한이 필요합니다."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        seller = request.user.seller_profile
+
+        params = request.query_params
+        raw_start = params.get("start_date")
+        raw_end = params.get("end_date")
+        _granularity = params.get("granularity", "daily")
+        _tab = params.get("tab", "source")
+        _device = params.get("device", "all")
+        _region = params.get("region", "all")
+
+        if not raw_start or not raw_end:
+            return Response(
+                {"detail": "start_date와 end_date를 모두 지정해야 합니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            start_date = datetime.strptime(raw_start, "%Y-%m-%d").date()
+            end_date = datetime.strptime(raw_end, "%Y-%m-%d").date()
+        except ValueError:
+            return Response(
+                {"detail": "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식을 사용하세요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if start_date > end_date:
+            return Response(
+                {"detail": "start_date는 end_date보다 이후일 수 없습니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        overview_data = self._build_overview(
+            seller, start_date, end_date, _granularity, _tab
+        )
+        serializer = AnalyticsOverviewSerializer(overview_data)
+        return Response(serializer.data)
+
+    def _build_overview(
+        self, seller, start_date, end_date, granularity: str, tab: str
+    ) -> dict:
+        """
+        판매자의 OrderItem/ProductStats 데이터를 기반으로 AnalyticsOverview 응답을 구성
+        """
+        from products.models import Product, ProductStats
+        from orders.models import OrderItem, OrderItemStatus, OrderStatus, Shipment
+        from django.db.models import Sum, Avg, F, IntegerField, Count, Q
+        from django.db.models.functions import ExtractHour
+        from django.utils import timezone
+        from collections import defaultdict
+
+        # 판매자 상품 조회
+        products = Product.objects.filter(seller=seller)
+        product_ids = list(products.values_list("id", flat=True))
+
+        # 유효한 주문 상태
+        valid_order_statuses = [
+            OrderStatus.PAID,
+            OrderStatus.PROCESSING,
+            OrderStatus.SHIPPED,
+            OrderStatus.DELIVERED,
+        ]
+
+        # 기간 내 주문 아이템 필터링
+        order_items_base = OrderItem.objects.filter(
+            seller=seller,
+            order__status__in=valid_order_statuses,
+            created_at__date__range=(start_date, end_date),
+        ).exclude(status__in=[OrderItemStatus.CANCELLED, OrderItemStatus.REFUNDED])
+
+        # 이전 기간 데이터 (delta 계산용)
+        prev_start = start_date - (end_date - start_date) - timedelta(days=1)
+        prev_end = start_date - timedelta(days=1)
+        prev_order_items = OrderItem.objects.filter(
+            seller=seller,
+            order__status__in=valid_order_statuses,
+            created_at__date__range=(prev_start, prev_end),
+        ).exclude(status__in=[OrderItemStatus.CANCELLED, OrderItemStatus.REFUNDED])
+
+        # ----- KPI 계산 -----
+        # 현재 기간 통계
+        revenue_expr = F("unit_price_snapshot") * F("quantity") - F("discount_amount")
+        current_revenue = (
+            order_items_base.aggregate(total=Sum(revenue_expr, output_field=IntegerField()))[
+                "total"
+            ]
+            or 0
+        )
+        current_orders = order_items_base.count()
+
+        # 세션 수는 ProductStats의 view_count 합으로 근사
+        # 실제로는 세션 로그가 있어야 정확하지만, 현재는 view_count로 근사
+        stats_qs = ProductStats.objects.filter(product_id__in=product_ids)
+        current_sessions = stats_qs.aggregate(total=Sum("view_count"))["total"] or 0
+        # 세션이 없으면 주문 수 * 10으로 근사 (전환율 10% 가정)
+        if current_sessions == 0:
+            current_sessions = current_orders * 10
+
+        # 전환율 계산
+        current_conversion = (
+            (current_orders / current_sessions * 100) if current_sessions > 0 else 0.0
+        )
+
+        # 객단가 (AOV)
+        current_aov = (current_revenue / current_orders) if current_orders > 0 else 0
+
+        # 재방문율 (고유 구매자 수 기반 근사)
+        unique_buyers = (
+            order_items_base.values("order__user")
+            .distinct()
+            .exclude(order__user__isnull=True)
+            .count()
+        )
+        # 단순화: 재방문율은 전체 구매자 대비 2회 이상 구매자 비율로 근사
+        repeat_buyers = (
+            order_items_base.values("order__user")
+            .annotate(order_count=Count("order", distinct=True))
+            .filter(order_count__gt=1)
+            .exclude(order__user__isnull=True)
+            .count()
+        )
+        current_return_rate = (
+            (repeat_buyers / unique_buyers * 100) if unique_buyers > 0 else 0.0
+        )
+
+        # 이전 기간 통계 (delta 계산용)
+        prev_revenue = (
+            prev_order_items.aggregate(
+                total=Sum(revenue_expr, output_field=IntegerField())
+            )["total"]
+            or 0
+        )
+        prev_orders = prev_order_items.count()
+        # 이전 기간 세션도 동일하게 계산
+        prev_sessions = prev_orders * 10 if prev_orders > 0 else 0
+        prev_conversion = (
+            (prev_orders / prev_sessions * 100) if prev_sessions > 0 else 0.0
+        )
+        prev_aov = (prev_revenue / prev_orders) if prev_orders > 0 else 0
+
+        # Delta 계산
+        def calc_delta(current, prev):
+            if prev == 0:
+                return 0.0 if current == 0 else 100.0
+            return ((current - prev) / prev) * 100.0
+
+        kpis = [
+            {
+                "label": "세션수",
+                "value": float(current_sessions),
+                "delta": calc_delta(current_sessions, prev_sessions),
+                "unit": None,
+            },
+            {
+                "label": "주문수",
+                "value": float(current_orders),
+                "delta": calc_delta(current_orders, prev_orders),
+                "unit": None,
+            },
+            {
+                "label": "전환율",
+                "value": round(current_conversion, 1),
+                "delta": round(current_conversion - prev_conversion, 1),
+                "unit": "%",
+            },
+            {
+                "label": "매출",
+                "value": float(current_revenue),
+                "delta": calc_delta(current_revenue, prev_revenue),
+                "unit": "원",
+            },
+            {
+                "label": "객단가",
+                "value": float(round(current_aov)),
+                "delta": calc_delta(current_aov, prev_aov),
+                "unit": "원",
+            },
+            {
+                "label": "재방문율",
+                "value": round(current_return_rate, 1),
+                "delta": 0.0,  # 재방문율 delta는 복잡하므로 0으로 설정
+                "unit": "%",
+            },
+        ]
+
+        # ----- Trend 데이터 (일별 추이) -----
+        trend_data = []
+        current_date = start_date
+        while current_date <= end_date:
+            day_items = order_items_base.filter(created_at__date=current_date)
+            day_revenue = (
+                day_items.aggregate(total=Sum(revenue_expr, output_field=IntegerField()))[
+                    "total"
+                ]
+                or 0
+            )
+            day_orders = day_items.count()
+            # 일별 세션은 일별 주문 수에 비례하여 계산 (전환율 기준)
+            day_sessions = (
+                day_orders * 10 if day_orders > 0 else 0
+            )  # 전환율 10% 가정
+            day_conversion = (day_orders / day_sessions * 100) if day_sessions > 0 else 0.0
+
+            trend_data.append(
+                {
+                    "date": current_date.strftime("%m-%d"),
+                    "sessions": day_sessions,
+                    "orders": day_orders,
+                    "conversion": round(day_conversion, 1),
+                    "revenue": float(day_revenue),
+                }
+            )
+            current_date += timedelta(days=1)
+
+        # ----- Breakdown 데이터 (상품별) -----
+        product_breakdown = []
+        product_stats = (
+            order_items_base.values("product_id", "product__name")
+            .annotate(
+                orders=Count("id"),
+                revenue=Sum(revenue_expr, output_field=IntegerField()),
+            )
+            .order_by("-revenue")[:10]
+        )
+
+        for item in product_stats:
+            prod_id = item["product_id"]
+            prod_stats = ProductStats.objects.filter(product_id=prod_id).first()
+            prod_sessions = prod_stats.view_count if prod_stats else 0
+            prod_conversion = (
+                (item["orders"] / prod_sessions * 100) if prod_sessions > 0 else 0.0
+            )
+
+            product_breakdown.append(
+                {
+                    "name": item["product__name"] or f"상품 {prod_id}",
+                    "sessions": prod_sessions,
+                    "orders": item["orders"],
+                    "conversion": round(prod_conversion, 1),
+                    "revenue": float(item["revenue"] or 0),
+                }
+            )
+
+        # ----- Breakdown 데이터 (시간대별) -----
+        time_breakdown = []
+        time_stats = (
+            order_items_base.annotate(hour=ExtractHour("created_at"))
+            .values("hour")
+            .annotate(
+                orders=Count("id"),
+                revenue=Sum(revenue_expr, output_field=IntegerField()),
+            )
+            .order_by("hour")
+        )
+
+        for item in time_stats:
+            hour = item["hour"]
+            hour_orders = item["orders"]
+            hour_revenue = item["revenue"] or 0
+            # 시간대별 세션은 주문 수 기반으로 근사
+            hour_sessions = hour_orders * 10 if hour_orders > 0 else 0
+            hour_conversion = (
+                (hour_orders / hour_sessions * 100) if hour_sessions > 0 else 0.0
+            )
+
+            time_breakdown.append(
+                {
+                    "name": f"{hour}시",
+                    "sessions": hour_sessions,
+                    "orders": hour_orders,
+                    "conversion": round(hour_conversion, 1),
+                    "revenue": float(hour_revenue),
+                }
+            )
+
+        # ----- Breakdown 데이터 (지역별) -----
+        region_breakdown = []
+        # Shipment를 통해 지역 추출
+        order_ids = order_items_base.values_list("order_id", flat=True).distinct()
+        shipments = Shipment.objects.filter(order_id__in=order_ids).select_related("order")
+
+        # 주소에서 지역 추출 (간단히 첫 번째 단어나 시/도 추출)
+        region_map = defaultdict(lambda: {"orders": 0, "revenue": 0, "order_ids": set()})
+        for shipment in shipments:
+            address = shipment.address_full
+            # 주소에서 지역명 추출 (예: "서울시", "경기도" 등)
+            region_name = "기타"
+            if address:
+                # 시/도 추출 시도
+                if "서울" in address:
+                    region_name = "서울"
+                elif "경기" in address:
+                    region_name = "경기"
+                elif "부산" in address:
+                    region_name = "부산"
+                elif "인천" in address:
+                    region_name = "인천"
+                elif "대구" in address:
+                    region_name = "대구"
+                elif "광주" in address:
+                    region_name = "광주"
+                elif "대전" in address:
+                    region_name = "대전"
+                elif "울산" in address:
+                    region_name = "울산"
+                elif "세종" in address:
+                    region_name = "세종"
+                elif "강원" in address:
+                    region_name = "강원"
+                elif "충북" in address or "충청북도" in address:
+                    region_name = "충북"
+                elif "충남" in address or "충청남도" in address:
+                    region_name = "충남"
+                elif "전북" in address or "전라북도" in address:
+                    region_name = "전북"
+                elif "전남" in address or "전라남도" in address:
+                    region_name = "전남"
+                elif "경북" in address or "경상북도" in address:
+                    region_name = "경북"
+                elif "경남" in address or "경상남도" in address:
+                    region_name = "경남"
+                elif "제주" in address:
+                    region_name = "제주"
+
+            region_map[region_name]["order_ids"].add(shipment.order_id)
+
+        # OrderItem과 매칭하여 매출 계산
+        for region_name, region_data in region_map.items():
+            region_order_ids = region_data["order_ids"]
+            region_order_items = order_items_base.filter(order_id__in=region_order_ids)
+            region_orders = region_order_items.count()
+            region_revenue = (
+                region_order_items.aggregate(
+                    total=Sum(revenue_expr, output_field=IntegerField())
+                )["total"]
+                or 0
+            )
+            region_sessions = region_orders * 10 if region_orders > 0 else 0
+            region_conversion = (
+                (region_orders / region_sessions * 100) if region_sessions > 0 else 0.0
+            )
+
+            region_breakdown.append(
+                {
+                    "name": region_name,
+                    "sessions": region_sessions,
+                    "orders": region_orders,
+                    "conversion": round(region_conversion, 1),
+                    "revenue": float(region_revenue),
+                }
+            )
+
+        region_breakdown.sort(key=lambda x: x["revenue"], reverse=True)
+
+        # ----- Breakdown 데이터 (신규/재방문) -----
+        retention_breakdown = []
+        # 고유 구매자별 주문 횟수 집계
+        user_order_counts = (
+            order_items_base.values("order__user_id")
+            .annotate(order_count=Count("order_id", distinct=True))
+            .exclude(order__user_id__isnull=True)
+        )
+
+        new_buyers = user_order_counts.filter(order_count=1).count()
+        returning_buyers = user_order_counts.filter(order_count__gt=1).count()
+
+        # 신규 구매자 데이터
+        new_buyer_order_items = order_items_base.filter(
+            order__user_id__in=user_order_counts.filter(order_count=1).values_list(
+                "order__user_id", flat=True
+            )
+        )
+        new_revenue = (
+            new_buyer_order_items.aggregate(
+                total=Sum(revenue_expr, output_field=IntegerField())
+            )["total"]
+            or 0
+        )
+        new_orders = new_buyer_order_items.count()
+        new_sessions = new_orders * 10 if new_orders > 0 else 0
+        new_conversion = (
+            (new_orders / new_sessions * 100) if new_sessions > 0 else 0.0
+        )
+
+        retention_breakdown.append(
+            {
+                "name": "신규",
+                "sessions": new_sessions,
+                "orders": new_orders,
+                "conversion": round(new_conversion, 1),
+                "revenue": float(new_revenue),
+            }
+        )
+
+        # 재방문 구매자 데이터
+        returning_buyer_order_items = order_items_base.filter(
+            order__user_id__in=user_order_counts.filter(order_count__gt=1).values_list(
+                "order__user_id", flat=True
+            )
+        )
+        returning_revenue = (
+            returning_buyer_order_items.aggregate(
+                total=Sum(revenue_expr, output_field=IntegerField())
+            )["total"]
+            or 0
+        )
+        returning_orders = returning_buyer_order_items.count()
+        returning_sessions = returning_orders * 10 if returning_orders > 0 else 0
+        returning_conversion = (
+            (returning_orders / returning_sessions * 100)
+            if returning_sessions > 0
+            else 0.0
+        )
+
+        retention_breakdown.append(
+            {
+                "name": "재방문",
+                "sessions": returning_sessions,
+                "orders": returning_orders,
+                "conversion": round(returning_conversion, 1),
+                "revenue": float(returning_revenue),
+            }
+        )
+
+        # ----- Breakdown 데이터 (디바이스별) -----
+        # 실제 디바이스 데이터가 없으므로 빈 배열 반환
+        # 향후 User-Agent 분석 또는 별도 로그가 있다면 추가 가능
+        device_breakdown = []
+
+        # 기본 breakdown 데이터
+        breakdown = {
+            "source": [],  # 유입경로별은 데이터가 없으므로 빈 리스트
+            "product": product_breakdown,
+            "keyword": [],  # 검색어 데이터 없음
+            "time": time_breakdown,
+            "device": device_breakdown,
+            "region": region_breakdown,
+            "retention": retention_breakdown,
+        }
+
+        # Trend 데이터 (모든 탭에 대해 동일하게)
+        trend = {
+            "source": trend_data,
+            "product": trend_data,
+            "keyword": trend_data,
+            "time": trend_data,
+            "device": trend_data,
+            "region": trend_data,
+            "retention": trend_data,
+        }
+
+        # Heatmap (시간대별 유입) - 간단한 mock 데이터 구조
+        heatmap = []
+
+        # Keywords (빈 리스트)
+        keywords = []
+
+        return {
+            "kpis": kpis,
+            "breakdown": breakdown,
+            "trend": trend,
+            "heatmap": heatmap,
+            "keywords": keywords,
+        }
 
 

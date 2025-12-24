@@ -49,6 +49,8 @@ urlpatterns = [
     path('api/recommendations/', include('products.recommendations_urls')),
     # Admin 분석 API
     path('api/admin/analytics/', include('analytics.urls')),
+    # 판매자 분석 API
+    path('api/seller/analytics/', include('analytics.seller_urls')),
     # Admin 유저 관리 API
     path('api/admin/users/', include('authentication.admin_urls')),
 ]

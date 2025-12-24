@@ -13,7 +13,6 @@ export const analyticsAPI = {
     start_date: string
     end_date: string
     granularity: Granularity
-    store?: string
     device?: string
     region?: string
   }) =>
