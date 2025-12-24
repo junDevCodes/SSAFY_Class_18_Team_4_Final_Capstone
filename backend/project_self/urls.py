@@ -40,6 +40,7 @@ urlpatterns = [
         name='admin-analytics-redirect'
     ),
     path('admin/', admin.site.urls),
+    # 인증 모듈 (기본 auth + users 경로)
     path('', include('authentication.urls', namespace='authentication')),
     path('api/', include('products.urls')),
     path('api/sellers/', include('sellers.urls')),

@@ -57,8 +57,8 @@ urlpatterns = [
     # OAuth2 - Kakao
     path("auth/kakao/", KakaoLoginRedirectView.as_view(), name="kakao_login"),
     path("auth/kakao/callback/", KakaoCallbackView.as_view(), name="kakao_callback"),
-    # 사용자 리소스 (배송지, 결제수단 등)
+    # 사용자 리소스 (배송지, 결제수단 등) - Nginx에서 /api 프록시 활용
     # URL: /api/users/me/addresses/, /api/users/me/payment-methods/
-    path("users/me/", include(user_router.urls)),
+    path("api/users/me/", include(user_router.urls)),
 ]
 

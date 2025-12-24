@@ -423,3 +423,24 @@ CELERY_RESULT_EXPIRES = 60 * 60 * 24
 GMS_EXTRACTION_BATCH_SIZE = int(os.getenv('GMS_EXTRACTION_BATCH_SIZE', 100))
 GMS_EXTRACTION_MIN_CONFIDENCE = float(os.getenv('GMS_EXTRACTION_MIN_CONFIDENCE', 0.7))
 GMS_EXTRACTION_USE_FALLBACK = os.getenv('GMS_EXTRACTION_USE_FALLBACK', 'True').lower() == 'true'
+
+# ========================= 토스페이먼츠 PG 설정 =========================
+# 결제 모드: 'demo' (데모 모드) 또는 'production' (실제 PG)
+PAYMENT_MODE = os.getenv('PAYMENT_MODE', 'demo')
+
+# 토스페이먼츠 API 키
+# 테스트 키: test_ck_..., test_sk_...
+# 라이브 키: live_ck_..., live_sk_...
+TOSS_CLIENT_KEY = os.getenv('TOSS_CLIENT_KEY', 'test_ck_demo_key')
+TOSS_SECRET_KEY = os.getenv('TOSS_SECRET_KEY', 'test_sk_demo_key')
+
+# 토스페이먼츠 API URL
+TOSS_API_URL = os.getenv('TOSS_API_URL', 'https://api.tosspayments.com/v1')
+
+# 웹훅 시그니처 검증 키 (토스 대시보드에서 발급)
+TOSS_WEBHOOK_SECRET = os.getenv('TOSS_WEBHOOK_SECRET', '')
+
+# 프론트엔드 URL (토스 결제 후 리다이렉트)
+FRONTEND_ORIGIN = os.getenv('FRONTEND_ORIGIN', 'http://localhost:5173')
+PAYMENT_SUCCESS_URL = os.getenv('PAYMENT_SUCCESS_URL', f'{FRONTEND_ORIGIN}/checkout/success')
+PAYMENT_FAIL_URL = os.getenv('PAYMENT_FAIL_URL', f'{FRONTEND_ORIGIN}/checkout/fail')
