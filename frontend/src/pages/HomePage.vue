@@ -7,7 +7,7 @@
     <TimeDeal />
     <ProductList />
     <RecentProductsBar
-      placement-class="fixed"
+      placement-class="fixed right-10 top-44"
       :placement-style="{
         right: 'calc((100vw - min(1280px, 100vw)) / 2 - 100px)'
       }"
