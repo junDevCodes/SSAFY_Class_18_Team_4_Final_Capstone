@@ -16,7 +16,7 @@
           :key="tab.key"
           class="tab"
           :class="{ active: activeTab === tab.key }"
-          @click="activeTab = tab.key"
+          @click="handleTabClick(tab.key)"
         >
           {{ tab.label }}
         </button>
@@ -44,15 +44,6 @@
             <span class="tilde">~</span>
             <input type="date" v-model="dateRange.end" />
           </div>
-        </div>
-
-        <div class="filter-group">
-          <span class="label">스토어</span>
-          <select v-model="filters.store">
-            <option value="all">전체</option>
-            <option value="flagship">플래그십</option>
-            <option value="smartstore">스마트스토어</option>
-          </select>
         </div>
 
         <div class="filter-group">
@@ -93,7 +84,7 @@
       </article>
     </section>
 
-    <section class="chart-grid">
+    <section ref="chartsSectionRef" class="chart-grid">
       <article class="card">
         <header>
           <div>
@@ -113,7 +104,7 @@
         <header>
           <div>
             <p class="eyebrow">상위 {{ breakdownData.length }}개</p>
-            <h3>{{ activeTabLabel }}별 성과</h3>
+            <h3>{{ displayTabLabel }} 성과</h3>
           </div>
           <span class="hint">막대: 세션·주문, 선: 전환율</span>
         </header>
@@ -149,15 +140,6 @@
         </table>
       </article>
 
-      <article class="card">
-        <header>
-          <div>
-            <p class="eyebrow">시간대</p>
-            <h3>시간대별 유입/전환</h3>
-          </div>
-        </header>
-        <div ref="heatmapChartRef" class="chart tall"></div>
-      </article>
     </section>
   </div>
 </template>
@@ -165,8 +147,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
-import { BarChart, LineChart, HeatmapChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, VisualMapComponent, TitleComponent } from 'echarts/components'
+import { BarChart, LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent, TitleComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { analyticsAPI } from '@/services/api/analytics'
 import type {
@@ -174,18 +156,15 @@ import type {
   AnalyticsOverview,
   ChannelBreakdown,
   TimeBucket,
-  HeatmapPoint,
   Granularity
 } from '@/types/analytics'
 
 echarts.use([
   BarChart,
   LineChart,
-  HeatmapChart,
   GridComponent,
   TooltipComponent,
   LegendComponent,
-  VisualMapComponent,
   TitleComponent,
   CanvasRenderer
 ])
@@ -193,10 +172,9 @@ echarts.use([
 const tabs = [
   { key: 'source', label: '유입경로별' },
   { key: 'product', label: '상품별' },
-  { key: 'campaign', label: '캠페인/프로모션' },
   { key: 'keyword', label: '검색어' },
   { key: 'time', label: '시간대별' },
-  { key: 'device', label: '디바이스/브라우저' },
+  { key: 'device', label: '디바이스별' },
   { key: 'region', label: '지역별' },
   { key: 'retention', label: '신규/재방문' }
 ] as const
@@ -205,7 +183,7 @@ const activeTab = ref<AnalyticsTab>('source')
 const granularityOptions: Granularity[] = ['daily', 'weekly', 'monthly']
 const granularity = ref<Granularity>('daily')
 const dateRange = ref({ start: getDateNDaysAgo(6), end: getDateNDaysAgo(0) })
-const filters = ref({ store: 'all', device: 'all', region: 'all' })
+const filters = ref({ device: 'all', region: 'all' })
 const lastUpdated = computed(() => new Date().toLocaleString())
 
 const overview = ref<AnalyticsOverview | null>(null)
@@ -213,21 +191,24 @@ const loading = ref(false)
 
 const trendChartRef = ref<HTMLDivElement | null>(null)
 const breakdownChartRef = ref<HTMLDivElement | null>(null)
-const heatmapChartRef = ref<HTMLDivElement | null>(null)
+const chartsSectionRef = ref<HTMLElement | null>(null)
 const chartInstances: Record<string, echarts.ECharts | null> = {
   trend: null,
-  breakdown: null,
-  heatmap: null
+  breakdown: null
 }
 
 const mockOverview = buildMockOverview()
 
 const activeTabLabel = computed(() => tabs.find(t => t.key === activeTab.value)?.label || '')
+const displayTabLabel = computed(() => {
+  const label = activeTabLabel.value
+  // "별별"이 연속으로 있으면 "별" 하나로 변경 (예: "지역별별" -> "지역별")
+  return label.replace(/별별+/g, '별')
+})
 const kpiCards = computed(() => overview.value?.kpis ?? mockOverview.kpis)
 const breakdownData = computed(() => overview.value?.breakdown[activeTab.value] ?? mockOverview.breakdown[activeTab.value])
 const trendData = computed(() => formatTrend(overview.value?.trend[activeTab.value] ?? mockOverview.trend[activeTab.value], granularity.value))
 const keywords = computed(() => overview.value?.keywords ?? mockOverview.keywords)
-const heatmapData = computed(() => overview.value?.heatmap ?? mockOverview.heatmap)
 
 const loadData = async () => {
   loading.value = true
@@ -237,7 +218,6 @@ const loadData = async () => {
       start_date: dateRange.value.start,
       end_date: dateRange.value.end,
       granularity: granularity.value,
-      store: filters.value.store,
       device: filters.value.device,
       region: filters.value.region
     })
@@ -252,8 +232,20 @@ const loadData = async () => {
   }
 }
 
+const handleTabClick = (tabKey: AnalyticsTab) => {
+  activeTab.value = tabKey
+  // 탭 변경 시 그래프만 업데이트 (데이터는 이미 로드되어 있음)
+  nextTick(() => {
+    renderAllCharts()
+    // 그래프 섹션으로 스크롤
+    if (chartsSectionRef.value) {
+      chartsSectionRef.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  })
+}
+
 const resetFilters = () => {
-  filters.value = { store: 'all', device: 'all', region: 'all' }
+  filters.value = { device: 'all', region: 'all' }
   dateRange.value = { start: getDateNDaysAgo(6), end: getDateNDaysAgo(0) }
   granularity.value = 'daily'
   loadData()
@@ -269,10 +261,9 @@ const formatNumber = (value: number, unit?: string) => {
 const renderAllCharts = () => {
   renderTrendChart()
   renderBreakdownChart()
-  renderHeatmapChart()
 }
 
-const getChart = (key: 'trend' | 'breakdown' | 'heatmap', el: HTMLDivElement | null) => {
+const getChart = (key: 'trend' | 'breakdown', el: HTMLDivElement | null) => {
   if (!el) return null
   if (!chartInstances[key]) {
     chartInstances[key] = echarts.init(el)
@@ -322,42 +313,15 @@ const renderBreakdownChart = () => {
   })
 }
 
-const renderHeatmapChart = () => {
-  const chart = getChart('heatmap', heatmapChartRef.value)
-  if (!chart) return
-  const days = ['월', '화', '수', '목', '금', '토', '일']
-  const hours = Array.from({ length: 24 }, (_v, i) => `${i}시`)
-  const values = heatmapData.value.map(v => [v.hour, v.day, v.value])
-  chart.setOption({
-    tooltip: { position: 'top' },
-    grid: { top: 10, left: 80, right: 20, bottom: 20 },
-    xAxis: { type: 'category', data: hours, splitArea: { show: true } },
-    yAxis: { type: 'category', data: days, splitArea: { show: true } },
-    visualMap: {
-      min: 0,
-      max: 80,
-      calculable: true,
-      orient: 'horizontal',
-      left: 'center',
-      bottom: 0,
-      inRange: { color: ['#e3fafc', '#99e9f2', '#0c8599'] }
-    },
-    series: [
-      {
-        type: 'heatmap',
-        data: values,
-        label: { show: false },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0, 0, 0, 0.35)' } }
-      }
-    ]
-  })
-}
-
 const handleResize = () => {
   Object.values(chartInstances).forEach(c => c?.resize())
 }
 
-watch([activeTab, granularity], () => nextTick(renderAllCharts))
+watch(granularity, () => {
+  nextTick(() => {
+    renderAllCharts()
+  })
+})
 watch(
   () => [dateRange.value.start, dateRange.value.end, filters.value],
   () => {},
@@ -400,20 +364,6 @@ function formatTrend(data: TimeBucket[], unit: Granularity): TimeBucket[] {
   return buckets
 }
 
-function buildHeatmap(): HeatmapPoint[] {
-  const result: HeatmapPoint[] = []
-  for (let day = 0; day < 7; day++) {
-    for (let hour = 0; hour < 24; hour++) {
-      const base = Math.max(0, 32 - Math.abs(hour - 14) * 2)
-      const weekendBoost = day >= 5 ? 10 : 0
-      const morning = hour >= 8 && hour <= 10 ? 6 : 0
-      const evening = hour >= 19 && hour <= 21 ? 8 : 0
-      const value = Math.round(base + weekendBoost + morning + evening + day * 1.5)
-      result.push({ hour, day, value, label: `${day}-${hour}` })
-    }
-  }
-  return result
-}
 
 function buildMockOverview(): AnalyticsOverview {
   const baseTrend: TimeBucket[] = [
@@ -449,26 +399,12 @@ function buildMockOverview(): AnalyticsOverview {
     { name: '번들: 잼 세트', sessions: 540, orders: 45, revenue: 2300000, conversion: 8.3 }
   ]
 
-  const campaignBreakdown: ChannelBreakdown[] = [
-    { name: '신제품 런칭', sessions: 1300, orders: 120, revenue: 6400000, conversion: 9.2 },
-    { name: '타임세일', sessions: 1100, orders: 125, revenue: 5800000, conversion: 11.3 },
-    { name: '리타게팅', sessions: 900, orders: 84, revenue: 4100000, conversion: 9.3 },
-    { name: '구독 리인게이지', sessions: 600, orders: 70, revenue: 3600000, conversion: 11.7 },
-    { name: '검색 상단', sessions: 750, orders: 68, revenue: 3200000, conversion: 9.1 }
-  ]
-
   const keywordBreakdown: ChannelBreakdown[] = [
     { name: '제주 감귤', sessions: 800, orders: 76, revenue: 4200000, conversion: 9.5 },
     { name: '제주 레몬', sessions: 620, orders: 58, revenue: 3300000, conversion: 9.4 },
     { name: '감귤 선물세트', sessions: 540, orders: 52, revenue: 2900000, conversion: 9.6 },
     { name: '감귤 구독', sessions: 420, orders: 46, revenue: 3100000, conversion: 11.0 },
     { name: '친환경 과일', sessions: 380, orders: 30, revenue: 1800000, conversion: 7.9 }
-  ]
-
-  const deviceBreakdown: ChannelBreakdown[] = [
-    { name: '모바일', sessions: 5200, orders: 410, revenue: 18600000, conversion: 7.9 },
-    { name: '데스크톱', sessions: 1900, orders: 170, revenue: 9300000, conversion: 9.0 },
-    { name: '태블릿', sessions: 600, orders: 44, revenue: 2100000, conversion: 7.3 }
   ]
 
   const regionBreakdown: ChannelBreakdown[] = [
@@ -505,24 +441,22 @@ function buildMockOverview(): AnalyticsOverview {
     breakdown: {
       source: channelBreakdown,
       product: productBreakdown,
-      campaign: campaignBreakdown,
       keyword: keywordBreakdown,
       time: channelBreakdown,
-      device: deviceBreakdown,
+      device: channelBreakdown,
       region: regionBreakdown,
       retention: retentionBreakdown
     },
     trend: {
       source: baseTrend,
       product: baseTrend,
-      campaign: baseTrend,
       keyword: baseTrend,
       time: baseTrend,
       device: baseTrend,
       region: baseTrend,
       retention: baseTrend
     },
-    heatmap: buildHeatmap(),
+    heatmap: [],
     keywords
   }
 }
