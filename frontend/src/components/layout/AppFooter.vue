@@ -36,7 +36,7 @@
             <ul class="space-y-3 text-gray-500">
               <li><a href="#" class="hover:text-brand-600">회사소개</a></li>
               <li><a href="#" class="hover:text-brand-600">인재채용</a></li>
-              <li><a href="#" class="hover:text-brand-600">이용약관</a></li>
+              <li><router-link to="/terms-of-service" class="hover:text-brand-600">이용약관</router-link></li>
             </ul>
           </div>
         </div>
@@ -44,8 +44,8 @@
       <div class="border-t border-gray-200 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-gray-400">
         <p>&copy; 2024 SelF Corp. All rights reserved.</p>
         <div class="flex gap-6">
-          <span>개인정보처리방침</span>
-          <span>이용약관</span>
+          <router-link to="/privacy-policy" class="hover:text-brand-600 transition-colors cursor-pointer">개인정보처리방침</router-link>
+          <router-link to="/terms-of-service" class="hover:text-brand-600 transition-colors cursor-pointer">이용약관</router-link>
         </div>
       </div>
     </div>

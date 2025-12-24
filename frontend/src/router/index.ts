@@ -42,6 +42,10 @@ const BrandMallPage = () => import('@/pages/brand/BrandMallPage.vue')
 const BrandDetailPage = () => import('@/pages/brand/BrandDetailPage.vue')
 const BrandStoryPage = () => import('@/pages/BrandStoryPage.vue')
 
+// Policy
+const PrivacyPolicyPage = () => import('@/pages/PrivacyPolicyPage.vue')
+const TermsOfServicePage = () => import('@/pages/TermsOfServicePage.vue')
+
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
@@ -227,6 +231,18 @@ const routes: RouteRecordRaw[] = [
     name: 'brand-story',
     component: BrandStoryPage,
     meta: { title: '브랜드 스토리' }
+  },
+  {
+    path: '/privacy-policy',
+    name: 'privacy-policy',
+    component: PrivacyPolicyPage,
+    meta: { title: '개인정보 처리방침' }
+  },
+  {
+    path: '/terms-of-service',
+    name: 'terms-of-service',
+    component: TermsOfServicePage,
+    meta: { title: '이용약관' }
   }
 ]
 
