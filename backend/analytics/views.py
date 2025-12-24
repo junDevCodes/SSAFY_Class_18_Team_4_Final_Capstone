@@ -875,30 +875,117 @@ class AdminOpsOverviewView(APIView):
             },
         ]
 
-        incidents = [
-            {
-                "id": "INC-20250301-001",
-                "severity": "high",
-                "category": "crawler",
-                "code": "INC_CRAWLER_FAILURE_SPIKE",
-                "service": "crawler_homeplus",
-                "title": "Homeplus 크롤링 실패율 급증",
-                "description": "외부 사이트 응답 지연으로 인해 Homeplus 카테고리 크롤링 실패율이 10%를 초과했습니다.",
-                "started_at": now - timedelta(hours=26),
-                "resolved_at": now - timedelta(hours=20),
-            },
-            {
-                "id": "INC-20250227-002",
-                "severity": "medium",
-                "category": "api",
-                "code": "INC_API_5XX_SPIKE",
-                "service": "api_backend",
-                "title": "백엔드 API 5xx 스파이크",
-                "description": "DB 커넥션 풀 이슈로 인해 짧은 시간 동안 5xx 비율이 상승했습니다.",
-                "started_at": now - timedelta(days=3, hours=5),
-                "resolved_at": now - timedelta(days=3, hours=3),
-            },
-        ]
+        # 메트릭 기반 Incident 동적 생성 (EC2 모니터링 기준)
+        incidents: list[dict] = []
+
+        # 시계열 데이터에서 이상 패턴 탐지 (최근 7일 이상의 데이터가 있을 경우)
+        if len(timeseries) >= 7:
+            # 평균값 계산 (전체 기간)
+            avg_cpu = sum(p["api_p95_ms"] for p in timeseries) / len(timeseries)
+            avg_network = sum(p["error_rate"] for p in timeseries) / len(timeseries)
+            avg_crawl = sum(p["crawling_success_rate"] for p in timeseries) / len(timeseries)
+            avg_avail = sum(p["availability"] for p in timeseries) / len(timeseries)
+
+            # 1. CPU 과부하 장애 (90% 이상 지속 구간 탐지)
+            cpu_high_windows = []
+            for i, point in enumerate(timeseries):
+                if point["api_p95_ms"] >= 90.0:
+                    cpu_high_windows.append((i, point))
+
+            if len(cpu_high_windows) >= 2:  # 2포인트 이상 연속 고부하
+                first_idx, first_point = cpu_high_windows[0]
+                last_idx, last_point = cpu_high_windows[-1]
+
+                # 연속된 구간인지 확인 (인덱스 차이가 윈도우 크기 이내)
+                if last_idx - first_idx <= len(cpu_high_windows):
+                    inc_id = f"INC-CPU-{int(first_point['timestamp'].timestamp())}"
+                    incidents.append({
+                        "id": inc_id,
+                        "severity": "high",
+                        "category": "infra",
+                        "code": "INC_EC2_CPU_OVERLOAD",
+                        "service": "ec2_instance",
+                        "title": "EC2 CPU 과부하 장애",
+                        "description": f"EC2 인스턴스 CPU 사용률이 90% 이상으로 {len(cpu_high_windows)}개 구간 동안 지속되었습니다. 트래픽 급증 또는 배치 작업 이슈로 추정됩니다.",
+                        "started_at": first_point["timestamp"],
+                        "resolved_at": last_point["timestamp"] if last_point["api_p95_ms"] < 80.0 else None,
+                    })
+
+            # 2. 네트워크 트래픽 급증 (평균 대비 3배 이상)
+            if avg_network > 0:
+                network_spike_windows = []
+                for i, point in enumerate(timeseries):
+                    if point["error_rate"] >= avg_network * 3.0:
+                        network_spike_windows.append((i, point))
+
+                if len(network_spike_windows) >= 1:
+                    first_idx, first_point = network_spike_windows[0]
+                    last_idx, last_point = network_spike_windows[-1]
+
+                    inc_id = f"INC-NET-{int(first_point['timestamp'].timestamp())}"
+
+                    # bps -> MB/s 변환
+                    spike_mbps = last_point["error_rate"] / (8.0 * 1024 * 1024)
+
+                    incidents.append({
+                        "id": inc_id,
+                        "severity": "medium",
+                        "category": "infra",
+                        "code": "INC_NETWORK_TRAFFIC_SPIKE",
+                        "service": "ec2_network",
+                        "title": "네트워크 트래픽 급증",
+                        "description": f"EC2 네트워크 In 트래픽이 평균 대비 {(last_point['error_rate'] / avg_network):.1f}배 급증했습니다 (최대: {spike_mbps:.1f} MB/s). DDoS 공격, 크롤러 배치 작업, 또는 대용량 파일 전송 등을 점검하세요.",
+                        "started_at": first_point["timestamp"],
+                        "resolved_at": last_point["timestamp"] if last_point["error_rate"] < avg_network * 2.0 else None,
+                    })
+
+            # 3. 크롤링 성공률 저하 (95% 미만 지속)
+            crawl_low_windows = []
+            for i, point in enumerate(timeseries):
+                if point["crawling_success_rate"] < 95.0:
+                    crawl_low_windows.append((i, point))
+
+            if len(crawl_low_windows) >= 2:
+                first_idx, first_point = crawl_low_windows[0]
+                last_idx, last_point = crawl_low_windows[-1]
+
+                inc_id = f"INC-CRAWL-{int(first_point['timestamp'].timestamp())}"
+                incidents.append({
+                    "id": inc_id,
+                    "severity": "high",
+                    "category": "crawler",
+                    "code": "INC_CRAWLER_SUCCESS_LOW",
+                    "service": "crawler_service",
+                    "title": "크롤링 성공률 저하",
+                    "description": f"크롤링 성공률이 {last_point['crawling_success_rate']:.1f}%로 하락했습니다. 외부 사이트 차단, 응답 지연, 또는 크롤러 로직 오류가 발생했을 가능성이 있습니다.",
+                    "started_at": first_point["timestamp"],
+                    "resolved_at": last_point["timestamp"] if last_point["crawling_success_rate"] >= 97.0 else None,
+                })
+
+            # 4. 서비스 가용성 저하 (98% 미만)
+            avail_low_windows = []
+            for i, point in enumerate(timeseries):
+                if point["availability"] < 98.0:
+                    avail_low_windows.append((i, point))
+
+            if len(avail_low_windows) >= 1:
+                first_idx, first_point = avail_low_windows[0]
+                last_idx, last_point = avail_low_windows[-1]
+
+                inc_id = f"INC-AVAIL-{int(first_point['timestamp'].timestamp())}"
+                incidents.append({
+                    "id": inc_id,
+                    "severity": "high",
+                    "category": "infra",
+                    "code": "INC_AVAILABILITY_DEGRADED",
+                    "service": "platform",
+                    "title": "서비스 가용성 저하",
+                    "description": f"서비스 가용성이 {last_point['availability']:.2f}%로 하락했습니다. 배포, 인프라 장애, 또는 외부 의존성 이슈를 점검하세요.",
+                    "started_at": first_point["timestamp"],
+                    "resolved_at": last_point["timestamp"] if last_point["availability"] >= 99.5 else None,
+                })
+
+        # 데이터가 부족하거나 이상 패턴이 없는 경우 빈 리스트 유지
 
         # 리스크 알림 및 To-do 규칙 구성 (metric/incident 기반 정규화 로직)
         alerts: list[dict] = []
