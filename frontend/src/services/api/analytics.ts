@@ -1,5 +1,11 @@
 import apiClient from './client'
-import type { AnalyticsOverview, Granularity, AnalyticsTab } from '@/types/analytics'
+import type {
+  AnalyticsOverview,
+  Granularity,
+  AnalyticsTab,
+  BehaviorOverview,
+  OpsOverview
+} from '@/types/analytics'
 
 export const analyticsAPI = {
   getOverview: (params: {
@@ -67,6 +73,24 @@ export const adminAnalyticsAPI = {
         gmv_share: number
       }>
     }>('/api/admin/analytics/recommendation/placement-summary/', {
+      params
+    }),
+
+  getBehaviorOverview: (params: {
+    start_date: string
+    end_date: string
+    segment?: string
+  }) =>
+    apiClient.get<BehaviorOverview>('/api/admin/analytics/behavior/', {
+      params
+    }),
+
+  getOpsOverview: (params: {
+    start_date?: string
+    end_date?: string
+    system?: string
+  }) =>
+    apiClient.get<OpsOverview>('/api/admin/analytics/ops/', {
       params
     })
 }

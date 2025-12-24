@@ -65,6 +65,10 @@
           <h2>비즈니스 성과 지표</h2>
           <p class="section-sub">CEO/PM이 가장 먼저 보는 핵심 KPI</p>
         </div>
+        <p class="section-meta">
+          집계: {{ appliedFilters.start }} ~ {{ appliedFilters.end }} ·
+          {{ appliedSegmentLabel }}
+        </p>
       </header>
 
       <div class="kpi-grid">
@@ -109,39 +113,75 @@
           <div ref="breakdownChartRef" class="chart"></div>
         </article>
       </div>
+    </section>
 
-      <article class="card summary-card">
-        <header class="card-head">
-          <div>
-            <p class="eyebrow">요약</p>
-            <h3>집계 개요</h3>
-          </div>
-        </header>
-        <div class="summary-grid">
-          <div class="summary-item">
-            <p class="summary-label">집계 기간</p>
-            <p class="summary-value">
-              {{ appliedFilters.start }} ~ {{ appliedFilters.end }}
-            </p>
-          </div>
-          <div class="summary-item">
-            <p class="summary-label">유저 구분</p>
-            <p class="summary-value">{{ appliedSegmentLabel }}</p>
-          </div>
-          <div class="summary-item">
-            <p class="summary-label">총 주문 수</p>
-            <p class="summary-value">
-              {{ toplineSummary.orders.toLocaleString("ko-KR") }}건
-            </p>
-          </div>
-          <div class="summary-item">
-            <p class="summary-label">총 매출(GMV)</p>
-            <p class="summary-value">
-              {{ formatNumber(toplineSummary.revenue, "원") }}
-            </p>
-          </div>
+    <section class="dashboard-section">
+      <header class="section-head">
+        <div>
+          <p class="eyebrow">Risk & Actions</p>
+          <h2>리스크 알림 · 운영 To-do</h2>
+          <p class="section-sub">
+            주요 지표의 이상 징후와 권장 후속 액션을 한눈에 확인합니다.
+          </p>
         </div>
-      </article>
+      </header>
+
+      <div class="grid">
+        <article class="card">
+          <header class="card-head">
+            <div>
+              <p class="eyebrow">Alert</p>
+              <h3>리스크 알림</h3>
+            </div>
+          </header>
+
+          <ul v-if="riskAlerts.length" class="alert-list">
+            <li v-for="alert in riskAlerts" :key="alert.id">
+              <span class="pill" :class="alert.level">
+                {{
+                  alert.level === "high"
+                    ? "High"
+                    : alert.level === "medium"
+                    ? "Medium"
+                    : "Low"
+                }}
+              </span>
+              <div>
+                <p class="alert-title">{{ alert.title }}</p>
+                <p class="alert-desc">{{ alert.description }}</p>
+                <p class="alert-meta">{{ alert.meta }}</p>
+              </div>
+              <span class="alert-meta">{{ alert.metric }}</span>
+            </li>
+          </ul>
+          <p v-else class="hint">
+            현재 설정된 임계값을 초과한 리스크가 없습니다.
+          </p>
+        </article>
+
+        <article class="card">
+          <header class="card-head">
+            <div>
+              <p class="eyebrow">Action</p>
+              <h3>운영 To-do</h3>
+            </div>
+          </header>
+
+          <ul v-if="actionTodos.length" class="todo-list">
+            <li v-for="todo in actionTodos" :key="todo.id">
+              <input type="checkbox" :checked="todo.done" disabled />
+              <div>
+                <p class="todo-title">{{ todo.title }}</p>
+                <p class="todo-desc">{{ todo.description }}</p>
+                <p class="todo-meta">{{ todo.meta }}</p>
+              </div>
+            </li>
+          </ul>
+          <p v-else class="hint">
+            처리해야 할 우선순위 To-do가 없습니다.
+          </p>
+        </article>
+      </div>
     </section>
   </div>
 </template>
@@ -163,6 +203,9 @@ import type {
   Granularity,
   TimeBucket,
   ChannelBreakdown,
+  OpsOverview,
+  OpsAlert,
+  OpsTodo,
 } from "@/types/analytics";
 
 echarts.use([
@@ -193,6 +236,7 @@ const appliedFilters = ref({
 });
 
 const overview = ref<AnalyticsOverview | null>(null);
+const opsOverview = ref<OpsOverview | null>(null);
 const loading = ref(false);
 const errorMessage = ref<string | null>(null);
 const lastUpdated = ref(new Date().toLocaleString());
@@ -225,6 +269,25 @@ type DashboardKpiCard = {
   delta: number;
 };
 
+type RiskLevel = "high" | "medium" | "low";
+
+type RiskAlert = {
+  id: string;
+  level: RiskLevel;
+  title: string;
+  description: string;
+  metric: string;
+  meta: string;
+};
+
+type TodoItem = {
+  id: string;
+  title: string;
+  description: string;
+  meta: string;
+  done: boolean;
+};
+
 const segmentLabel = (value: string) => {
   if (value === "consumer") return "일반회원";
   if (value === "seller") return "판매자";
@@ -250,17 +313,26 @@ const loadData = async () => {
   };
 
   try {
-    const { data } = await adminAnalyticsAPI.getOverview({
-      start_date: dateRange.value.start,
-      end_date: dateRange.value.end,
-      granularity: granularity.value,
-      segment: segment.value,
-    });
-    overview.value = data;
+    const [overviewResp, opsResp] = await Promise.all([
+      adminAnalyticsAPI.getOverview({
+        start_date: dateRange.value.start,
+        end_date: dateRange.value.end,
+        granularity: granularity.value,
+        segment: segment.value,
+      }),
+      adminAnalyticsAPI.getOpsOverview({
+        start_date: dateRange.value.start,
+        end_date: dateRange.value.end,
+        system: "all",
+      }),
+    ]);
+    overview.value = overviewResp.data;
+    opsOverview.value = opsResp.data;
     appliedGranularity.value = granularity.value;
   } catch (err: any) {
     console.warn("adminAnalyticsAPI 실패, mock 데이터 사용", err);
     overview.value = mockOverview;
+    opsOverview.value = null;
     errorMessage.value =
       err?.response?.data?.detail ||
       "실시간 데이터를 불러오지 못해 샘플 데이터를 표시합니다.";
@@ -344,8 +416,13 @@ const topLineKpiCards = computed<DashboardKpiCard[]>(() => {
     return orders ? revenue / orders : 0;
   };
 
+  const toplineKpis = overview.value?.kpis ?? [];
+  const findKpi = (prefix: string) =>
+    toplineKpis.find((k) => k.label.startsWith(prefix));
+
+  const cartConvKpi = findKpi("장바구니→구매 전환율");
+
   const repeatPurchaseRate = 38.7;
-  const cartAbandonmentRate = 62.4;
 
   return [
     {
@@ -388,14 +465,76 @@ const topLineKpiCards = computed<DashboardKpiCard[]>(() => {
       delta: 1.2,
     },
     {
-      key: "cart_abandon",
-      label: "장바구니 포기율",
-      value: cartAbandonmentRate,
-      unit: "%",
+      key: "cart_conversion",
+      label: cartConvKpi?.label ?? "장바구니→구매 전환율",
+      value: cartConvKpi?.value ?? 0,
+      unit: cartConvKpi?.unit ?? "%",
       decimals: 1,
-      delta: -0.8,
+      delta: cartConvKpi?.delta ?? 0,
     },
   ];
+});
+
+const opsAlerts = computed<OpsAlert[]>(() => opsOverview.value?.alerts ?? []);
+const opsTodos = computed<OpsTodo[]>(() => opsOverview.value?.todos ?? []);
+
+const topRiskAlert = computed<OpsAlert | null>(() => {
+  const alerts = opsAlerts.value;
+  if (!alerts.length) return null;
+  const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
+  return [...alerts].sort(
+    (a, b) => (order[a.severity as string] ?? 3) - (order[b.severity as string] ?? 3)
+  )[0];
+});
+
+const riskAlerts = computed<RiskAlert[]>(() => {
+  const alert = topRiskAlert.value;
+  if (!alert) return [];
+
+  return [
+    {
+      id: alert.id,
+      level: (alert.severity as RiskLevel) ?? "low",
+      title: alert.title,
+      description: alert.description,
+      metric: alert.metric,
+      meta: `집계: ${appliedFilters.value.start} ~ ${appliedFilters.value.end}`,
+    },
+  ];
+});
+
+const actionTodos = computed<TodoItem[]>(() => {
+  const alert = topRiskAlert.value;
+  const todos: TodoItem[] = [];
+  const sourceTodos = opsTodos.value;
+
+  if (alert) {
+    const related =
+      sourceTodos.find((t) => t.related_alert_id === alert.id) ?? sourceTodos[0];
+    if (related) {
+      todos.push({
+        id: related.id,
+        title: related.title,
+        description: related.description,
+        meta: related.meta,
+        done: false,
+      });
+      return todos;
+    }
+  }
+
+  if (sourceTodos.length) {
+    const t = sourceTodos[0];
+    todos.push({
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      meta: t.meta,
+      done: false,
+    });
+  }
+
+  return todos;
 });
 
 const getChart = (key: "trend" | "breakdown", el: HTMLDivElement | null) => {
@@ -723,7 +862,7 @@ function buildMockOverview(): AnalyticsOverview {
 
 <style scoped>
 .admin-analytics {
-  padding: 40px 28px 80px;
+  padding: 24px 22px 48px;
   background: #f6f7fb;
   min-height: 100vh;
   color: #0f172a;
@@ -734,7 +873,7 @@ function buildMockOverview(): AnalyticsOverview {
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: 28px;
+  margin-bottom: 16px;
 }
 
 .page-header h1 {
@@ -836,7 +975,7 @@ function buildMockOverview(): AnalyticsOverview {
 }
 
 .dashboard-section {
-  margin-top: 26px;
+  margin-top: 16px;
 }
 
 .section-head {
@@ -860,17 +999,22 @@ function buildMockOverview(): AnalyticsOverview {
   font-weight: 700;
 }
 
+.section-meta {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 .filters {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
+  gap: 10px;
   align-items: end;
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
-  padding: 16px;
+  padding: 10px 12px;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
-  margin-bottom: 22px;
+  margin-bottom: 16px;
 }
 
 .filter {
@@ -941,7 +1085,7 @@ function buildMockOverview(): AnalyticsOverview {
   color: #fff;
   border: none;
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: 9px 13px;
   font-weight: 800;
 }
 
@@ -950,7 +1094,7 @@ function buildMockOverview(): AnalyticsOverview {
   background: #fff;
   color: #334155;
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: 9px 13px;
   font-weight: 700;
 }
 
@@ -958,14 +1102,14 @@ function buildMockOverview(): AnalyticsOverview {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
-  margin: 14px 0;
+  margin: 10px 0 8px 0;
 }
 
 .kpi-card {
   background: linear-gradient(135deg, #f8fafc, #eef2ff);
   border: 1px solid #e2e8f0;
   border-radius: 14px;
-  padding: 14px;
+  padding: 12px;
 }
 
 .kpi-card .label {
@@ -1015,7 +1159,7 @@ function buildMockOverview(): AnalyticsOverview {
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
-  padding: 18px;
+  padding: 14px 14px 16px;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
 }
 
@@ -1034,7 +1178,7 @@ function buildMockOverview(): AnalyticsOverview {
 
 .chart {
   width: 100%;
-  height: 380px;
+  height: 320px;
 }
 
 .summary-card {

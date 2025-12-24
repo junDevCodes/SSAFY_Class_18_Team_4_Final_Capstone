@@ -123,6 +123,75 @@
         </section>
       </section>
     </section>
+
+    <section class="dashboard-section">
+      <header class="section-head">
+        <div>
+          <p class="eyebrow">Placement Summary</p>
+          <h2>알고리즘 · 위치별 성과 요약</h2>
+          <p class="section-sub">
+            추천 위치/알고리즘별 CTR, 구매 전환율, 기여 GMV 비율을 비교합니다.
+          </p>
+        </div>
+      </header>
+
+      <div class="placement-summary-grid">
+        <article class="placement-card">
+          <header class="section-head">
+            <div>
+              <p class="eyebrow">Performance</p>
+              <h3>Placement별 요약 테이블</h3>
+            </div>
+          </header>
+
+          <div class="table-wrapper">
+            <table v-if="sortedPlacementSummary.length" class="placement-table">
+              <thead>
+                <tr>
+                  <th>Placement</th>
+                  <th>노출</th>
+                  <th>클릭</th>
+                  <th>CTR</th>
+                  <th>구매 전환율</th>
+                  <th>기여 GMV 비율</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in sortedPlacementSummary" :key="row.placement">
+                  <td>{{ placementDisplayLabel(row.placement) }}</td>
+                  <td>{{ row.impressions.toLocaleString("ko-KR") }}</td>
+                  <td>{{ row.clicks.toLocaleString("ko-KR") }}</td>
+                  <td>{{ row.ctr.toFixed(2) }}%</td>
+                  <td>{{ row.purchase_conversion.toFixed(2) }}%</td>
+                  <td>{{ row.gmv_share.toFixed(2) }}%</td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-else class="hint">
+              아직 집계된 placement 성과 데이터가 없습니다.
+            </p>
+          </div>
+        </article>
+
+        <article class="placement-card">
+          <header class="section-head">
+            <div>
+              <p class="eyebrow">Insight</p>
+              <h3>추천 인사이트</h3>
+            </div>
+          </header>
+
+          <ul v-if="placementInsights.length" class="insight-list">
+            <li v-for="(item, idx) in placementInsights" :key="idx">
+              {{ item }}
+            </li>
+          </ul>
+          <p v-else class="hint">
+            추천 성과가 전반적으로 안정적인 수준입니다.
+          </p>
+        </article>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -185,6 +254,17 @@ const charts: Record<"ctr" | "gmv", echarts.ECharts | null> = {
   gmv: null,
 };
 
+type PlacementSummaryRow = {
+  placement: string;
+  impressions: number;
+  clicks: number;
+  attributed_orders: number;
+  attributed_gmv: number;
+  ctr: number;
+  purchase_conversion: number;
+  gmv_share: number;
+};
+
 type DashboardKpiCard = {
   key: string;
   label: string;
@@ -237,6 +317,8 @@ const recoKpiCards = computed<DashboardKpiCard[]>(() => {
     },
   ];
 });
+
+const placementSummary = ref<PlacementSummaryRow[]>([]);
 
 type RecoPoint = {
   date: string;
@@ -312,7 +394,11 @@ const loadData = async () => {
   };
 
   try {
-    const [{ data: overviewData }, trendResponse] = await Promise.all([
+    const [
+      { data: overviewData },
+      trendResponse,
+      placementResponse,
+    ] = await Promise.all([
       adminAnalyticsAPI.getOverview({
         start_date: dateRange.value.start,
         end_date: dateRange.value.end,
@@ -326,6 +412,12 @@ const loadData = async () => {
         segment: segment.value,
         placement: algorithm.value === "all" ? "all" : algorithm.value,
       }),
+      adminAnalyticsAPI.getRecommendationPlacementSummary({
+        start_date: dateRange.value.start,
+        end_date: dateRange.value.end,
+        granularity: granularity.value,
+        segment: segment.value,
+      }),
     ]);
 
     overview.value = overviewData;
@@ -333,6 +425,7 @@ const loadData = async () => {
     const series = formatRecoSeries(rawSeries, granularity.value);
     updateCtrChart(series);
     updateGmvChart(series);
+    placementSummary.value = placementResponse.data.placements ?? [];
   } catch (err: any) {
     // 조회 실패 시 에러 메시지와 함께 값 0으로 표시
     errorMessage.value =
@@ -341,6 +434,7 @@ const loadData = async () => {
     overview.value = null;
     updateCtrChart([]);
     updateGmvChart([]);
+    placementSummary.value = [];
   } finally {
     loading.value = false;
     lastUpdated.value = new Date().toLocaleString();
@@ -386,7 +480,7 @@ const updateCtrChart = (
       grid: { top: 96, left: 40, right: 36, bottom: 40 },
       tooltip: {
         trigger: "axis",
-        valueFormatter: (value) =>
+        valueFormatter: (value: number | string) =>
           typeof value === "number" ? `${value.toFixed(2)}%` : `${value}`,
       },
       legend: {
@@ -456,7 +550,7 @@ const updateGmvChart = (
       grid: { top: 80, left: 40, right: 36, bottom: 40 },
       tooltip: {
         trigger: "axis",
-        valueFormatter: (value) =>
+        valueFormatter: (value: number | string) =>
           typeof value === "number" ? `${value.toFixed(2)}%` : `${value}`,
       },
       legend: {
@@ -518,6 +612,56 @@ const formatNumber = (value: number, unit?: string, decimals?: number) => {
   });
   return unit ? `${formatted}${unit}` : formatted;
 };
+
+const placementDisplayLabel = (placement: string) => {
+  if (placement === "price_model") return "Price Log Model";
+  if (placement === "personalized") return "Personalized Model";
+  if (placement === "gapfill") return "Gap Filling Model";
+  if (placement === "home") return "Home Recommendation";
+  if (placement === "all") return "전체 Placement";
+  return placement;
+};
+
+const sortedPlacementSummary = computed(() =>
+  [...placementSummary.value].sort((a, b) => b.gmv_share - a.gmv_share)
+);
+
+const placementInsights = computed(() => {
+  const rows = sortedPlacementSummary.value;
+  if (!rows.length) return [] as string[];
+
+  const insights: string[] = [];
+  const topByGmv = rows[0];
+
+  insights.push(
+    `기여 GMV 비율 기준으로 가장 효율적인 placement는 "${placementDisplayLabel(
+      topByGmv.placement
+    )}" (기여 비중 ${topByGmv.gmv_share.toFixed(1)}%) 입니다.`
+  );
+
+  const sortedByCtr = [...rows].sort((a, b) => b.ctr - a.ctr);
+  const topByCtr = sortedByCtr[0];
+  if (topByCtr && topByCtr.placement !== topByGmv.placement) {
+    insights.push(
+      `"${placementDisplayLabel(
+        topByCtr.placement
+      )}" placement는 CTR(${topByCtr.ctr.toFixed(
+        1
+      )}%)이 높지만, 기여 GMV 비율은 상대적으로 낮을 수 있습니다.`
+    );
+  }
+
+  const homeRow = rows.find((r) => r.placement === "home");
+  if (homeRow) {
+    insights.push(
+      `홈 추천(Home)은 전체 매출 중 약 ${homeRow.gmv_share.toFixed(
+        1
+      )}%를 기여하고 있습니다.`
+    );
+  }
+
+  return insights;
+});
 
 function getDateNDaysAgo(n: number) {
   const d = new Date();
@@ -797,5 +941,56 @@ onBeforeUnmount(() => {
   padding: 10px;
   border: 1px solid #e2e8f0;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+
+.placement-summary-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.1fr);
+  gap: 12px;
+}
+
+.placement-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 16px 16px 18px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 8px;
+}
+
+.placement-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.placement-table th,
+.placement-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.placement-table thead th {
+  background: #f8fafc;
+  font-weight: 700;
+  color: #475569;
+}
+
+.insight-list {
+  margin: 10px 0 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #475569;
 }
 </style>
