@@ -94,6 +94,8 @@ export type OpsIncidentSeverity = 'low' | 'medium' | 'high'
 export interface OpsIncident {
   id: string
   severity: OpsIncidentSeverity | string
+  category?: string
+  code?: string
   service: string
   title: string
   description: string
@@ -106,12 +108,16 @@ export type AlertSeverity = 'low' | 'medium' | 'high'
 export interface OpsAlert {
   id: string
   severity: AlertSeverity | string
+  category?: string
+  code?: string
   title: string
   description: string
   metric: string
   metric_value?: number | null
   metric_unit?: string | null
   related_metric_key?: string | null
+  source_type?: string | null
+  source_id?: string | null
 }
 
 export type TodoPriority = 'low' | 'medium' | 'high'
@@ -123,6 +129,10 @@ export interface OpsTodo {
   meta: string
   related_alert_id?: string | null
   priority: TodoPriority | string
+  category?: string | null
+  source_type?: string | null
+  source_id?: string | null
+  code?: string | null
 }
 
 export interface OpsOverview {

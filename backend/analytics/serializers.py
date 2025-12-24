@@ -103,6 +103,10 @@ class OpsIncidentSerializer(serializers.Serializer):
 
     id = serializers.CharField()
     severity = serializers.CharField()
+    # 시스템/도메인 분류 (crawler/api/model/infra 등)
+    category = serializers.CharField(allow_null=True, required=False)
+    # 사전 정의된 인시던트 코드 (검색/집계용)
+    code = serializers.CharField(allow_null=True, required=False)
     service = serializers.CharField()
     title = serializers.CharField()
     description = serializers.CharField()
@@ -115,12 +119,19 @@ class OpsAlertSerializer(serializers.Serializer):
 
     id = serializers.CharField()
     severity = serializers.CharField()
+    # 시스템/도메인 분류 (crawler/api/model/infra 등)
+    category = serializers.CharField(allow_null=True, required=False)
+    # 사전 정의된 알림 코드 (검색/집계용)
+    code = serializers.CharField(allow_null=True, required=False)
     title = serializers.CharField()
     description = serializers.CharField()
     metric = serializers.CharField()
     metric_value = serializers.FloatField(allow_null=True, required=False)
     metric_unit = serializers.CharField(allow_null=True, required=False)
     related_metric_key = serializers.CharField(allow_null=True, required=False)
+    # 어떤 소스에서 파생된 알림인지 (metric / incident 등)
+    source_type = serializers.CharField(allow_null=True, required=False)
+    source_id = serializers.CharField(allow_null=True, required=False)
 
 
 class OpsTodoSerializer(serializers.Serializer):
@@ -132,6 +143,11 @@ class OpsTodoSerializer(serializers.Serializer):
     meta = serializers.CharField()
     related_alert_id = serializers.CharField(allow_null=True, required=False)
     priority = serializers.CharField()
+    # 시스템/도메인 분류 및 소스 정보 (alert / incident)
+    category = serializers.CharField(allow_null=True, required=False)
+    source_type = serializers.CharField(allow_null=True, required=False)
+    source_id = serializers.CharField(allow_null=True, required=False)
+    code = serializers.CharField(allow_null=True, required=False)
 
 
 class OpsOverviewSerializer(serializers.Serializer):

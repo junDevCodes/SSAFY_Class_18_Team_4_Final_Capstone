@@ -848,6 +848,8 @@ class AdminOpsOverviewView(APIView):
             {
                 "id": "INC-20250301-001",
                 "severity": "high",
+                "category": "crawler",
+                "code": "INC_CRAWLER_FAILURE_SPIKE",
                 "service": "crawler_homeplus",
                 "title": "Homeplus 크롤링 실패율 급증",
                 "description": "외부 사이트 응답 지연으로 인해 Homeplus 카테고리 크롤링 실패율이 10%를 초과했습니다.",
@@ -857,6 +859,8 @@ class AdminOpsOverviewView(APIView):
             {
                 "id": "INC-20250227-002",
                 "severity": "medium",
+                "category": "api",
+                "code": "INC_API_5XX_SPIKE",
                 "service": "api_backend",
                 "title": "백엔드 API 5xx 스파이크",
                 "description": "DB 커넥션 풀 이슈로 인해 짧은 시간 동안 5xx 비율이 상승했습니다.",
@@ -865,128 +869,212 @@ class AdminOpsOverviewView(APIView):
             },
         ]
 
-        # 리스크 알림 및 To-do 규칙 구성 (mock 기반)
+        # 리스크 알림 및 To-do 규칙 구성 (metric/incident 기반 정규화 로직)
         alerts: list[dict] = []
         todos: list[dict] = []
 
-        crawl_rate = latest["crawling_success_rate"]
-        api_p95 = latest["api_p95_ms"]
-        error_rate = latest["error_rate"]
-        availability = latest["availability"]
+        metric_snapshot = {
+            "crawling_success_rate": latest["crawling_success_rate"],
+            "api_p95_ms": latest["api_p95_ms"],
+            "error_rate": latest["error_rate"],
+            "availability": latest["availability"],
+        }
 
-        # 1) 크롤링 성공률 저하
-        if crawl_rate < 98.0:
-            severity = "high" if crawl_rate < 97.0 else "medium"
-            alert_id = "crawl-success-low"
-            alerts.append(
-                {
-                    "id": alert_id,
-                    "severity": severity,
-                    "title": "크롤링 성공률 저하",
-                    "description": "크롤링 실패율이 증가하고 있습니다. 크롤러 로그와 외부 사이트 상태를 점검하세요.",
-                    "metric": f"{crawl_rate:.2f}%",
-                    "metric_value": crawl_rate,
-                    "metric_unit": "%",
-                    "related_metric_key": "crawling_success_rate",
-                }
-            )
-            todos.append(
-                {
+        # 메트릭 기반 알림 규칙 정의
+        metric_alert_rules: list[dict] = [
+            {
+                "id": "crawl-success-low",
+                "code": "ALERT_CRAWLER_SUCCESS_LOW",
+                "category": "crawler",
+                "metric_key": "crawling_success_rate",
+                "metric_unit": "%",
+                "metric_format": "percent_2",
+                "title": "크롤링 성공률 저하",
+                "description": "크롤링 실패율이 증가하고 있습니다. 크롤러 로그와 외부 사이트 상태를 점검하세요.",
+                "severities": [
+                    {"name": "high", "operator": "lt", "threshold": 97.0},
+                    {"name": "medium", "operator": "lt", "threshold": 98.0},
+                ],
+                "todo": {
                     "id": "todo-crawl-check",
+                    "code": "TODO_CRAWLER_CHECK",
                     "title": "크롤러 실패 구간 점검",
                     "description": "실패율이 높은 소스/카테고리를 확인하고, 차단/응답 지연 여부를 점검합니다.",
                     "meta": "담당: 데이터 엔지니어 · 우선순위: 상",
-                    "related_alert_id": alert_id,
                     "priority": "high",
-                }
-            )
-
-        # 2) 5xx 에러율 상승
-        if error_rate > 1.0:
-            severity = "high" if error_rate > 2.0 else "medium"
-            alert_id = "api-error-rate-high"
-            alerts.append(
-                {
-                    "id": alert_id,
-                    "severity": severity,
-                    "title": "API 5xx 에러율 상승",
-                    "description": "백엔드 API에서 5xx 에러 비율이 증가하고 있습니다. 최근 배포/DB 연결 상태를 점검하세요.",
-                    "metric": f"{error_rate:.2f}%",
-                    "metric_value": error_rate,
-                    "metric_unit": "%",
-                    "related_metric_key": "error_rate",
-                }
-            )
-            todos.append(
-                {
+                },
+            },
+            {
+                "id": "api-error-rate-high",
+                "code": "ALERT_API_ERROR_RATE_HIGH",
+                "category": "api",
+                "metric_key": "error_rate",
+                "metric_unit": "%",
+                "metric_format": "percent_2",
+                "title": "API 5xx 에러율 상승",
+                "description": "백엔드 API에서 5xx 에러 비율이 증가하고 있습니다. 최근 배포/DB 연결 상태를 점검하세요.",
+                "severities": [
+                    {"name": "high", "operator": "gt", "threshold": 2.0},
+                    {"name": "medium", "operator": "gt", "threshold": 1.0},
+                ],
+                "todo": {
                     "id": "todo-api-error",
+                    "code": "TODO_API_ERROR_ANALYSIS",
                     "title": "API 에러 로그 분석",
                     "description": "에러 로그를 확인하고, 특정 엔드포인트/시간대에 집중된 에러가 있는지 분석합니다.",
                     "meta": "담당: 백엔드 · 우선순위: 상",
-                    "related_alert_id": alert_id,
                     "priority": "high",
-                }
-            )
+                },
+            },
+            {
+                "id": "availability-low",
+                "code": "ALERT_AVAILABILITY_LOW",
+                "category": "infra",
+                "metric_key": "availability",
+                "metric_unit": "%",
+                "metric_format": "percent_3",
+                "title": "서비스 가용성 경고",
+                "description": "최근 서비스 가용성이 낮아지고 있습니다. 장애 이력과 배포 일정을 점검하세요.",
+                "severities": [
+                    {"name": "high", "operator": "lt", "threshold": 99.0},
+                    {"name": "medium", "operator": "lt", "threshold": 99.5},
+                ],
+                "todo": {
+                    "id": "todo-availability-review",
+                    "code": "TODO_AVAILABILITY_REVIEW",
+                    "title": "가용성 저하 원인 분석",
+                    "description": "장애 구간과 영향 범위를 정리하고 재발 방지 대책을 수립합니다.",
+                    "meta": "담당: SRE/Infra · 우선순위: 중",
+                    "priority": "medium",
+                },
+            },
+            {
+                "id": "api-latency-high",
+                "code": "ALERT_API_LATENCY_HIGH",
+                "category": "api",
+                "metric_key": "api_p95_ms",
+                "metric_unit": "ms",
+                "metric_format": "ms_0",
+                "title": "API 응답시간(P95) 지연",
+                "description": "API 응답 P95가 높아지고 있습니다. 특정 쿼리/엔드포인트를 튜닝할 수 있는지 검토하세요.",
+                "severities": [
+                    {"name": "low", "operator": "gt", "threshold": 500.0},
+                ],
+                "todo": {
+                    "id": "todo-latency-profile",
+                    "code": "TODO_LATENCY_PROFILE",
+                    "title": "지연 쿼리/엔드포인트 프로파일링",
+                    "description": "APM/slow query 로그를 확인해, 병목이 되는 엔드포인트를 파악합니다.",
+                    "meta": "담당: 백엔드 · 우선순위: 중",
+                    "priority": "medium",
+                },
+            },
+        ]
 
-        # 3) 서비스 가용성 경고
-        if availability < 99.5:
-            severity = "medium" if availability >= 99.0 else "high"
-            alert_id = "availability-low"
+        def _format_metric(value: float, fmt: str, unit: str) -> str:
+            if fmt == "percent_2":
+                return f"{value:.2f}%"
+            if fmt == "percent_3":
+                return f"{value:.3f}%"
+            if fmt == "ms_0":
+                return f"{value:.0f}ms"
+            return f"{value}{unit}"
+
+        def _evaluate_severity(rule: dict, value: float) -> str | None:
+            for spec in rule.get("severities", []):
+                name = spec.get("name")
+                op = spec.get("operator")
+                threshold = spec.get("threshold")
+                if name is None or op not in {"lt", "gt"} or threshold is None:
+                    continue
+                if op == "lt" and value < threshold:
+                    return name
+                if op == "gt" and value > threshold:
+                    return name
+            return None
+
+        # 메트릭 스냅샷 기반으로 공통 규칙 평가
+        for rule in metric_alert_rules:
+            metric_key = rule["metric_key"]
+            value = metric_snapshot.get(metric_key)
+            if value is None:
+                continue
+
+            severity = _evaluate_severity(rule, float(value))
+            if not severity:
+                continue
+
+            alert_id = rule["id"]
+            metric_unit = rule.get("metric_unit") or ""
+            metric_format = rule.get("metric_format", "")
             alerts.append(
                 {
                     "id": alert_id,
                     "severity": severity,
-                    "title": "서비스 가용성 경고",
-                    "description": "최근 서비스 가용성이 낮아지고 있습니다. 장애 이력과 배포 일정을 점검하세요.",
-                    "metric": f"{availability:.3f}%",
-                    "metric_value": availability,
-                    "metric_unit": "%",
-                    "related_metric_key": "availability",
-                }
-            )
-            todos.append(
-                {
-                    "id": "todo-availability-review",
-                    "title": "가용성 저하 원인 분석",
-                    "description": "장애 구간과 영향 범위를 정리하고 재발 방지 대책을 수립합니다.",
-                    "meta": "담당: SRE/Infra · 우선순위: 중",
-                    "related_alert_id": alert_id,
-                    "priority": "medium",
+                    "category": rule.get("category"),
+                    "code": rule.get("code"),
+                    "title": rule["title"],
+                    "description": rule["description"],
+                    "metric": _format_metric(float(value), metric_format, metric_unit),
+                    "metric_value": float(value),
+                    "metric_unit": metric_unit or None,
+                    "related_metric_key": metric_key,
+                    "source_type": "metric",
+                    "source_id": metric_key,
                 }
             )
 
-        # 4) 응답시간 지연 경고 (보조적인 알림)
-        if api_p95 > 500:
-            alert_id = "api-latency-high"
-            alerts.append(
-                {
-                    "id": alert_id,
-                    "severity": "low",
-                    "title": "API 응답시간(P95) 지연",
-                    "description": "API 응답 P95가 높아지고 있습니다. 특정 쿼리/엔드포인트를 튜닝할 수 있는지 검토하세요.",
-                    "metric": f"{api_p95:.0f}ms",
-                    "metric_value": api_p95,
-                    "metric_unit": "ms",
-                    "related_metric_key": "api_p95_ms",
-                }
-            )
+            todo_cfg = rule.get("todo")
+            if todo_cfg:
+                todos.append(
+                    {
+                        "id": todo_cfg["id"],
+                        "title": todo_cfg["title"],
+                        "description": todo_cfg["description"],
+                        "meta": todo_cfg["meta"],
+                        "related_alert_id": alert_id,
+                        "priority": todo_cfg["priority"],
+                        "category": rule.get("category"),
+                        "source_type": "alert",
+                        "source_id": alert_id,
+                        "code": todo_cfg.get("code"),
+                    }
+                )
+
+        # 인시던트 기반 공통 To-do 생성 (사건 회고/원인 분석용)
+        for inc in incidents:
             todos.append(
                 {
-                    "id": "todo-latency-profile",
-                    "title": "지연 쿼리/엔드포인트 프로파일링",
-                    "description": "APM/slow query 로그를 확인해, 병목이 되는 엔드포인트를 파악합니다.",
-                    "meta": "담당: 백엔드 · 우선순위: 중",
-                    "related_alert_id": alert_id,
-                    "priority": "medium",
+                    "id": f"todo-postmortem-{inc['id']}",
+                    "title": f"{inc['title']} 회고",
+                    "description": "장애 원인, 영향 범위, 재발 방지 대책을 정리하는 포스트모텀을 작성합니다.",
+                    "meta": f"사건 ID: {inc['id']} · 담당: SRE/Owner · 우선순위: 중",
+                    "related_alert_id": None,
+                    "priority": "medium"
+                    if inc.get("severity") in {"medium", "low"}
+                    else "high",
+                    "category": inc.get("category"),
+                    "source_type": "incident",
+                    "source_id": inc["id"],
+                    "code": "TODO_INCIDENT_POSTMORTEM",
                 }
             )
+
+        def _filter_by_system(items: list[dict], system: str) -> list[dict]:
+            if system == "all":
+                return items
+            return [i for i in items if i.get("category") == system]
+
+        filtered_incidents = _filter_by_system(incidents, system_filter)
+        filtered_alerts = _filter_by_system(alerts, system_filter)
+        filtered_todos = _filter_by_system(todos, system_filter)
 
         payload = {
             "kpis": kpis,
             "timeseries": timeseries,
-            "incidents": incidents,
-            "alerts": alerts,
-            "todos": todos,
+            "incidents": filtered_incidents,
+            "alerts": filtered_alerts,
+            "todos": filtered_todos,
         }
         serializer = OpsOverviewSerializer(payload)
         return Response(serializer.data)
