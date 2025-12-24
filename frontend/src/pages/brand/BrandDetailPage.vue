@@ -31,7 +31,7 @@
                 <div class="brand-stats">
                   <div class="stat">
                     <span class="label">상품</span>
-                    <span class="value">{{ brand.total_products || 0 }}</span>
+                    <span class="value">{{ productCount }}</span>
                   </div>
                   <div v-if="brand.average_rating > 0" class="stat">
                     <span class="label">평점</span>
@@ -109,6 +109,14 @@ const error = ref<string | null>(null)
 const brand = ref<any>(null)
 const products = ref<any[]>([])
 
+// 상품 수 표시: 로딩 시 브랜드 정보의 total_products, 이후에는 실제 로드된 상품 수 우선
+const productCount = computed(() => {
+  if (productsLoading.value) {
+    return brand.value?.total_products ?? 0
+  }
+  return products.value.length || brand.value?.total_products || 0
+})
+
 const bannerStyle = computed(() => {
   if (brand.value?.brand_banner_url) {
     return {
@@ -144,13 +152,13 @@ const loadProducts = async () => {
   productsLoading.value = true
 
   try {
-    // MVP: Load all products and filter by seller (or use backend filter if available)
+    const brandSlug = brand.value.brand_slug || brand.value.slug || (route.params.slug as string)
     const response = await productsAPI.getProducts({
-      page_size: 100
+      product_type: 'seller',
+      brand_slug: brandSlug,
+      page_size: 100,
+      ordering: '-created_at',
     })
-
-    // Filter products by this seller if needed
-    // For now, show all products (backend should implement seller filter)
     products.value = response.data.results || []
   } catch (err: any) {
     console.error('상품 로드 실패:', err)
