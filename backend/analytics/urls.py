@@ -8,10 +8,16 @@ from analytics.views import (
     AdminAnalyticsOverviewView,
     AdminRecommendationTrendView,
     AdminRecommendationPlacementSummaryView,
+    AdminBehaviorOverviewView,
+    AdminOpsOverviewView,
 )
 
 urlpatterns = [
-    path("overview/", AdminAnalyticsOverviewView.as_view(), name="admin-analytics-overview"),
+    path(
+        "overview/",
+        AdminAnalyticsOverviewView.as_view(),
+        name="admin-analytics-overview",
+    ),
     path(
         "recommendation/trend/",
         AdminRecommendationTrendView.as_view(),
@@ -21,6 +27,16 @@ urlpatterns = [
         "recommendation/placement-summary/",
         AdminRecommendationPlacementSummaryView.as_view(),
         name="admin-recommendation-placement-summary",
+    ),
+    path(
+        "behavior/",
+        AdminBehaviorOverviewView.as_view(),
+        name="admin-analytics-behavior-overview",
+    ),
+    path(
+        "ops/",
+        AdminOpsOverviewView.as_view(),
+        name="admin-analytics-ops-overview",
     ),
 ]
 
