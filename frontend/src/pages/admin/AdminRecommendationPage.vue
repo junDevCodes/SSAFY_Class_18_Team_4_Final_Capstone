@@ -53,15 +53,6 @@
           <option value="seller">판매자</option>
         </select>
       </div>
-      <div class="filter">
-        <span class="label">알고리즘</span>
-        <select v-model="algorithm">
-          <option value="all">전체</option>
-          <option value="price_model">Price log Model</option>
-          <option value="personalized">Personalized Model</option>
-          <option value="gapfill">Gap Filling Model</option>
-        </select>
-      </div>
       <div class="actions">
         <button class="primary" :disabled="loading" @click="loadData">
           조회
@@ -103,29 +94,33 @@
       </div>
 
       <section class="charts-row">
-        <section class="trend-section">
-          <header class="trend-head">
+        <section class="chart-container half-width">
+          <header class="card-head">
             <div>
-              <p class="eyebrow">CTR & Conversion</p>
-              <h3>추천 CTR · 구매 전환율 추이</h3>
-              <p class="section-sub">
-                선택한 기간 동안 추천 영역의 CTR과 구매 전환율 변화를
-                확인합니다.
-              </p>
+              <p class="eyebrow">CTR</p>
+              <h3>추천 CTR 추이</h3>
             </div>
           </header>
           <div ref="ctrChartRef" class="trend-chart"></div>
         </section>
 
-        <section class="gmv-section">
-          <header class="trend-head">
+        <section class="chart-container half-width">
+          <header class="card-head">
             <div>
-              <p class="eyebrow">Revenue Contribution</p>
+              <p class="eyebrow">Conversion</p>
+              <h3>추천 구매 전환율 추이</h3>
+            </div>
+          </header>
+          <div ref="conversionChartRef" class="trend-chart"></div>
+        </section>
+      </section>
+
+      <section class="charts-row">
+        <section class="chart-container full-width">
+          <header class="card-head">
+            <div>
+              <p class="eyebrow">GMV Contribution</p>
               <h3>추천 기여 GMV 비율 추이</h3>
-              <p class="section-sub">
-                추천을 통해 발생한 매출이 전체 매출에서 차지하는 비율 변화를
-                확인합니다.
-              </p>
             </div>
           </header>
           <div ref="gmvChartRef" class="placement-chart"></div>
@@ -195,9 +190,7 @@
               {{ item }}
             </li>
           </ul>
-          <p v-else class="hint">
-            추천 성과가 전반적으로 안정적인 수준입니다.
-          </p>
+          <p v-else class="hint">추천 성과가 전반적으로 안정적인 수준입니다.</p>
         </article>
       </div>
     </section>
@@ -205,20 +198,14 @@
 </template>
 
 <script setup lang="ts">
-import {
-  ref,
-  computed,
-  watch,
-  onMounted,
-  onBeforeUnmount,
-  nextTick,
-} from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from "vue";
 import * as echarts from "echarts/core";
 import { LineChart } from "echarts/charts";
 import {
   GridComponent,
   TooltipComponent,
   LegendComponent,
+  TitleComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import { adminAnalyticsAPI } from "@/services/api/analytics";
@@ -229,6 +216,7 @@ echarts.use([
   GridComponent,
   TooltipComponent,
   LegendComponent,
+  TitleComponent,
   CanvasRenderer,
 ]);
 
@@ -241,9 +229,6 @@ const granularityOptions: Granularity[] = [
 const granularity = ref<Granularity>("daily");
 const dateRange = ref({ start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) });
 const segment = ref("all");
-const algorithm = ref<"all" | "price_model" | "personalized" | "gapfill">(
-  "all"
-);
 const dataMode = ref<"all" | "real">("all");
 const includeTestData = ref(true);
 
@@ -259,11 +244,20 @@ const errorMessage = ref<string | null>(null);
 const lastUpdated = ref(new Date().toLocaleString());
 
 const ctrChartRef = ref<HTMLDivElement | null>(null);
+const conversionChartRef = ref<HTMLDivElement | null>(null);
 const gmvChartRef = ref<HTMLDivElement | null>(null);
-const charts: Record<"ctr" | "gmv", echarts.ECharts | null> = {
+const charts: Record<"ctr" | "conversion" | "gmv", echarts.ECharts | null> = {
   ctr: null,
+  conversion: null,
   gmv: null,
 };
+
+const recoTrendsData = ref<Record<string, RecoPoint[]>>({
+  all: [],
+  price_model: [],
+  personalized: [],
+  gapfill: [],
+});
 
 type PlacementSummaryRow = {
   placement: string;
@@ -410,40 +404,64 @@ const loadData = async () => {
   };
 
   try {
+    const baseParams = {
+      start_date: dateRange.value.start,
+      end_date: dateRange.value.end,
+      granularity: granularity.value,
+      segment: segment.value,
+      data_mode: dataMode.value,
+    };
+
     const [
       { data: overviewData },
-      trendResponse,
+      trendAll,
+      trendPriceModel,
+      trendPersonalized,
+      trendGapfill,
       placementResponse,
     ] = await Promise.all([
-      adminAnalyticsAPI.getOverview({
-        start_date: dateRange.value.start,
-        end_date: dateRange.value.end,
-        granularity: granularity.value,
-        segment: segment.value,
-        data_mode: dataMode.value,
+      adminAnalyticsAPI.getOverview(baseParams),
+      adminAnalyticsAPI.getRecommendationTrend({
+        ...baseParams,
+        placement: "all",
       }),
       adminAnalyticsAPI.getRecommendationTrend({
-        start_date: dateRange.value.start,
-        end_date: dateRange.value.end,
-        granularity: granularity.value,
-        segment: segment.value,
-        placement: algorithm.value === "all" ? "all" : algorithm.value,
-        data_mode: dataMode.value,
+        ...baseParams,
+        placement: "price_model",
       }),
-      adminAnalyticsAPI.getRecommendationPlacementSummary({
-        start_date: dateRange.value.start,
-        end_date: dateRange.value.end,
-        granularity: granularity.value,
-        segment: segment.value,
-        data_mode: dataMode.value,
+      adminAnalyticsAPI.getRecommendationTrend({
+        ...baseParams,
+        placement: "personalized",
       }),
+      adminAnalyticsAPI.getRecommendationTrend({
+        ...baseParams,
+        placement: "gapfill",
+      }),
+      adminAnalyticsAPI.getRecommendationPlacementSummary(baseParams),
     ]);
 
     overview.value = overviewData;
-    const rawSeries = (trendResponse.data.series ?? []) as RecoPoint[];
-    const series = formatRecoSeries(rawSeries, granularity.value);
-    updateCtrChart(series);
-    updateGmvChart(series);
+
+    // 모든 트렌드 데이터 저장
+    recoTrendsData.value = {
+      all: formatRecoSeries(trendAll.data.series ?? [], granularity.value),
+      price_model: formatRecoSeries(
+        trendPriceModel.data.series ?? [],
+        granularity.value
+      ),
+      personalized: formatRecoSeries(
+        trendPersonalized.data.series ?? [],
+        granularity.value
+      ),
+      gapfill: formatRecoSeries(
+        trendGapfill.data.series ?? [],
+        granularity.value
+      ),
+    };
+
+    updateCtrChart(recoTrendsData.value);
+    updateConversionChart(recoTrendsData.value);
+    updateGmvChart(recoTrendsData.value);
     placementSummary.value = placementResponse.data.placements ?? [];
   } catch (err: any) {
     // 조회 실패 시 에러 메시지와 함께 값 0으로 표시
@@ -451,8 +469,15 @@ const loadData = async () => {
       err?.response?.data?.detail ||
       "추천 지표를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.";
     overview.value = null;
-    updateCtrChart([]);
-    updateGmvChart([]);
+    recoTrendsData.value = {
+      all: [],
+      price_model: [],
+      personalized: [],
+      gapfill: [],
+    };
+    updateCtrChart(recoTrendsData.value);
+    updateConversionChart(recoTrendsData.value);
+    updateGmvChart(recoTrendsData.value);
     placementSummary.value = [];
   } finally {
     loading.value = false;
@@ -460,7 +485,10 @@ const loadData = async () => {
   }
 };
 
-const getChart = (key: "ctr" | "gmv", el: HTMLDivElement | null) => {
+const getChart = (
+  key: "ctr" | "conversion" | "gmv",
+  el: HTMLDivElement | null
+) => {
   if (!el) return null;
   if (!charts[key]) {
     charts[key] = echarts.init(el);
@@ -468,44 +496,29 @@ const getChart = (key: "ctr" | "gmv", el: HTMLDivElement | null) => {
   return charts[key];
 };
 
-const updateCtrChart = (
-  placements: Array<{
-    date: string;
-    impressions: number;
-    clicks: number;
-    attributed_orders: number;
-    attributed_gmv: number;
-    ctr: number;
-    purchase_conversion: number;
-    gmv_share: number;
-  }>
-) => {
+const updateCtrChart = (trendsData: Record<string, RecoPoint[]>) => {
   nextTick(() => {
     const chart = getChart("ctr", ctrChartRef.value);
     if (!chart) return;
 
-    const dates = placements.map((p) => p.date);
+    const dates = trendsData.all.map((p) => p.date);
 
     const option: echarts.EChartsCoreOption = {
-      title: {
-        text: "CTR & Conversion",
-        subtext:
-          "추천 CTR · 구매 전환율 추이\n선택한 기간 동안 추천 영역의 CTR과 구매 전환율 변화를 확인합니다.",
-        left: 20,
-        top: 10,
-        textStyle: { fontSize: 16, fontWeight: 800, color: "#111827" },
-        subtextStyle: { fontSize: 11, color: "#6b7280", lineHeight: 16 },
-      },
-      grid: { top: 96, left: 40, right: 36, bottom: 40 },
+      grid: { top: 32, left: 50, right: 50, bottom: 60 },
       tooltip: {
         trigger: "axis",
         valueFormatter: (value: number | string) =>
           typeof value === "number" ? `${value.toFixed(2)}%` : `${value}`,
       },
       legend: {
-        data: ["CTR", "구매 전환율"],
+        data: [
+          "전체 CTR",
+          "Price Model CTR",
+          "Personalized CTR",
+          "GapFill CTR",
+        ],
         bottom: 0,
-        textStyle: { color: "#1f2933" },
+        textStyle: { color: "#1f2933", fontSize: 11 },
       },
       xAxis: {
         type: "category",
@@ -520,16 +533,36 @@ const updateCtrChart = (
       },
       series: [
         {
-          name: "CTR",
+          name: "전체 CTR",
           type: "line",
           smooth: true,
-          data: placements.map((p) => p.ctr),
+          data: trendsData.all.map((p) => p.ctr),
+          lineStyle: { width: 3, color: "#2563eb" },
+          itemStyle: { color: "#2563eb" },
         },
         {
-          name: "구매 전환율",
+          name: "Price Model CTR",
           type: "line",
           smooth: true,
-          data: placements.map((p) => p.purchase_conversion),
+          data: trendsData.price_model.map((p) => p.ctr),
+          lineStyle: { width: 2, color: "#10b981" },
+          itemStyle: { color: "#10b981" },
+        },
+        {
+          name: "Personalized CTR",
+          type: "line",
+          smooth: true,
+          data: trendsData.personalized.map((p) => p.ctr),
+          lineStyle: { width: 2, color: "#f59e0b" },
+          itemStyle: { color: "#f59e0b" },
+        },
+        {
+          name: "GapFill CTR",
+          type: "line",
+          smooth: true,
+          data: trendsData.gapfill.map((p) => p.ctr),
+          lineStyle: { width: 2, color: "#8b5cf6" },
+          itemStyle: { color: "#8b5cf6" },
         },
       ],
     };
@@ -538,44 +571,99 @@ const updateCtrChart = (
   });
 };
 
-const updateGmvChart = (
-  placements: Array<{
-    date: string;
-    impressions: number;
-    clicks: number;
-    attributed_orders: number;
-    attributed_gmv: number;
-    ctr: number;
-    purchase_conversion: number;
-    gmv_share: number;
-  }>
-) => {
+const updateConversionChart = (trendsData: Record<string, RecoPoint[]>) => {
+  nextTick(() => {
+    const chart = getChart("conversion", conversionChartRef.value);
+    if (!chart) return;
+
+    const dates = trendsData.all.map((p) => p.date);
+
+    const option: echarts.EChartsCoreOption = {
+      grid: { top: 32, left: 50, right: 50, bottom: 60 },
+      tooltip: {
+        trigger: "axis",
+        valueFormatter: (value: number | string) =>
+          typeof value === "number" ? `${value.toFixed(2)}%` : `${value}`,
+      },
+      legend: {
+        data: [
+          "전체 구매 전환율",
+          "Price Model 구매 전환율",
+          "Personalized 구매 전환율",
+          "GapFill 구매 전환율",
+        ],
+        bottom: 0,
+        textStyle: { color: "#1f2933", fontSize: 11 },
+      },
+      xAxis: {
+        type: "category",
+        data: dates,
+      },
+      yAxis: {
+        type: "value",
+        axisLabel: {
+          formatter: "{value}%",
+          color: "#4b5563",
+        },
+      },
+      series: [
+        {
+          name: "전체 구매 전환율",
+          type: "line",
+          smooth: true,
+          data: trendsData.all.map((p) => p.purchase_conversion),
+          lineStyle: { width: 3, color: "#2563eb" },
+          itemStyle: { color: "#2563eb" },
+        },
+        {
+          name: "Price Model 구매 전환율",
+          type: "line",
+          smooth: true,
+          data: trendsData.price_model.map((p) => p.purchase_conversion),
+          lineStyle: { width: 2, color: "#10b981" },
+          itemStyle: { color: "#10b981" },
+        },
+        {
+          name: "Personalized 구매 전환율",
+          type: "line",
+          smooth: true,
+          data: trendsData.personalized.map((p) => p.purchase_conversion),
+          lineStyle: { width: 2, color: "#f59e0b" },
+          itemStyle: { color: "#f59e0b" },
+        },
+        {
+          name: "GapFill 구매 전환율",
+          type: "line",
+          smooth: true,
+          data: trendsData.gapfill.map((p) => p.purchase_conversion),
+          lineStyle: { width: 2, color: "#8b5cf6" },
+          itemStyle: { color: "#8b5cf6" },
+        },
+      ],
+    };
+
+    chart.setOption(option, true);
+  });
+};
+
+const updateGmvChart = (trendsData: Record<string, RecoPoint[]>) => {
   nextTick(() => {
     const chart = getChart("gmv", gmvChartRef.value);
     if (!chart) return;
 
-    const dates = placements.map((p) => p.date);
+    const dates = trendsData.all.map((p) => p.date);
 
     const option: echarts.EChartsCoreOption = {
-      title: {
-        text: "추천 기여 GMV 비율 추이",
-        subtext:
-          "추천을 통해 발생한 매출이 전체 매출에서 차지하는 비율 변화를 확인합니다.",
-        left: 20,
-        top: 10,
-        textStyle: { fontSize: 14, fontWeight: 700, color: "#111827" },
-        subtextStyle: { fontSize: 11, color: "#6b7280" },
-      },
-      grid: { top: 80, left: 40, right: 36, bottom: 40 },
+      grid: { top: 32, left: 50, right: 50, bottom: 60 },
       tooltip: {
         trigger: "axis",
         valueFormatter: (value: number | string) =>
           typeof value === "number" ? `${value.toFixed(2)}%` : `${value}`,
       },
       legend: {
-        data: ["기여 GMV 비율"],
+        data: ["전체 GMV 기여율", "Price Model", "Personalized", "GapFill"],
         bottom: 0,
-        textStyle: { color: "#1f2933" },
+        textStyle: { color: "#1f2933", fontSize: 11 },
       },
       xAxis: {
         type: "category",
@@ -590,10 +678,37 @@ const updateGmvChart = (
       },
       series: [
         {
-          name: "기여 GMV 비율",
+          name: "전체 GMV 기여율",
           type: "line",
           smooth: true,
-          data: placements.map((p) => p.gmv_share),
+          data: trendsData.all.map((p) => p.gmv_share),
+          lineStyle: { width: 3, color: "#2563eb" },
+          itemStyle: { color: "#2563eb" },
+          areaStyle: { color: "rgba(37, 99, 235, 0.1)" },
+        },
+        {
+          name: "Price Model",
+          type: "line",
+          smooth: true,
+          data: trendsData.price_model.map((p) => p.gmv_share),
+          lineStyle: { width: 2, color: "#10b981" },
+          itemStyle: { color: "#10b981" },
+        },
+        {
+          name: "Personalized",
+          type: "line",
+          smooth: true,
+          data: trendsData.personalized.map((p) => p.gmv_share),
+          lineStyle: { width: 2, color: "#f59e0b" },
+          itemStyle: { color: "#f59e0b" },
+        },
+        {
+          name: "GapFill",
+          type: "line",
+          smooth: true,
+          data: trendsData.gapfill.map((p) => p.gmv_share),
+          lineStyle: { width: 2, color: "#8b5cf6" },
+          itemStyle: { color: "#8b5cf6" },
         },
       ],
     };
@@ -601,17 +716,11 @@ const updateGmvChart = (
     chart.setOption(option, true);
   });
 };
-
-watch(algorithm, () => {
-  // 알고리즘 변경 시에는 조회 버튼을 눌러야 실제 데이터가 변경되므로
-  // 여기서는 기존 차트를 유지하고, 다음 조회에서 새로운 placement 값이 적용되도록 둔다.
-});
 
 const resetFilters = () => {
   granularity.value = "daily";
   dateRange.value = { start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) };
   segment.value = "all";
-  algorithm.value = "all";
   dataMode.value = "all";
   includeTestData.value = true;
   loadData();
@@ -650,39 +759,190 @@ const sortedPlacementSummary = computed(() =>
 
 const placementInsights = computed(() => {
   const rows = sortedPlacementSummary.value;
-  if (!rows.length) return [] as string[];
+  const trendsData = recoTrendsData.value;
+
+  if (!rows.length) return ["모든 추천 알고리즘이 안정적으로 작동 중입니다."];
 
   const insights: string[] = [];
+
+  // === 1. 성과 기준 인사이트 ===
+
+  // GMV 기준 최고 성과
   const topByGmv = rows[0];
+  if (topByGmv && topByGmv.gmv_share > 0) {
+    insights.push(
+      `[성과] 기여 GMV 기준 최고 성과: "${placementDisplayLabel(
+        topByGmv.placement
+      )}" (${topByGmv.gmv_share.toFixed(1)}%)`
+    );
+  }
 
-  insights.push(
-    `기여 GMV 비율 기준으로 가장 효율적인 placement는 "${placementDisplayLabel(
-      topByGmv.placement
-    )}" (기여 비중 ${topByGmv.gmv_share.toFixed(1)}%) 입니다.`
-  );
-
+  // CTR 기준 최고 성과
   const sortedByCtr = [...rows].sort((a, b) => b.ctr - a.ctr);
   const topByCtr = sortedByCtr[0];
-  if (topByCtr && topByCtr.placement !== topByGmv.placement) {
+  if (
+    topByCtr &&
+    topByCtr.placement !== topByGmv.placement &&
+    topByCtr.ctr > 0
+  ) {
     insights.push(
-      `"${placementDisplayLabel(
+      `[성과] CTR 최고: "${placementDisplayLabel(
         topByCtr.placement
-      )}" placement는 CTR(${topByCtr.ctr.toFixed(
+      )}" (${topByCtr.ctr.toFixed(
         1
-      )}%)이 높지만, 기여 GMV 비율은 상대적으로 낮을 수 있습니다.`
+      )}%), 하지만 GMV 기여는 ${topByCtr.gmv_share.toFixed(
+        1
+      )}%로 상대적으로 낮음`
     );
   }
 
-  const homeRow = rows.find((r) => r.placement === "home");
-  if (homeRow) {
+  // 전환율 기준 최저 성과
+  const sortedByConv = [...rows].sort(
+    (a, b) => a.purchase_conversion - b.purchase_conversion
+  );
+  const bottomByConv = sortedByConv[0];
+  if (
+    bottomByConv &&
+    bottomByConv.purchase_conversion > 0 &&
+    bottomByConv.placement !== "all"
+  ) {
     insights.push(
-      `홈 추천(Home)은 전체 매출 중 약 ${homeRow.gmv_share.toFixed(
-        1
-      )}%를 기여하고 있습니다.`
+      `[성과] 구매 전환율 최저: "${placementDisplayLabel(
+        bottomByConv.placement
+      )}" (${bottomByConv.purchase_conversion.toFixed(1)}%) - 개선 필요`
     );
   }
 
-  return insights;
+  // === 2. 트렌드 기준 인사이트 ===
+
+  Object.entries(trendsData).forEach(([placement, series]) => {
+    if (series.length < 3 || placement === "all") return;
+
+    // 최근 3일 vs 초기 3일 비교
+    const recentCtr = series.slice(-3).map((p) => p.ctr);
+    const oldCtr = series.slice(0, 3).map((p) => p.ctr);
+
+    const recentAvg = recentCtr.reduce((a, b) => a + b, 0) / recentCtr.length;
+    const oldAvg = oldCtr.reduce((a, b) => a + b, 0) / oldCtr.length;
+
+    const change = ((recentAvg - oldAvg) / Math.max(oldAvg, 0.01)) * 100;
+
+    if (change > 20) {
+      insights.push(
+        `[추세] "${placementDisplayLabel(placement)}" CTR이 ${change.toFixed(
+          0
+        )}% 상승 중 (${oldAvg.toFixed(1)}% → ${recentAvg.toFixed(1)}%)`
+      );
+    } else if (change < -20) {
+      insights.push(
+        `[추세] "${placementDisplayLabel(placement)}" CTR이 ${Math.abs(
+          change
+        ).toFixed(0)}% 하락 중 (${oldAvg.toFixed(1)}% → ${recentAvg.toFixed(
+          1
+        )}%) - 원인 분석 필요`
+      );
+    }
+  });
+
+  // === 3. 임계값 기준 인사이트 ===
+
+  rows.forEach((row) => {
+    if (row.placement === "all") return;
+
+    const label = placementDisplayLabel(row.placement);
+
+    // CTR 임계값 (2%)
+    if (row.ctr < 2.0 && row.ctr > 0) {
+      insights.push(
+        `[경고] "${label}" CTR이 ${row.ctr.toFixed(
+          2
+        )}%로 임계값(2%) 미만 - 즉시 점검 필요`
+      );
+    }
+
+    // 전환율 임계값 (5%)
+    if (row.purchase_conversion < 5.0 && row.purchase_conversion > 0) {
+      insights.push(
+        `[경고] "${label}" 구매 전환율이 ${row.purchase_conversion.toFixed(
+          2
+        )}%로 임계값(5%) 미만 - 추천 품질 개선 필요`
+      );
+    }
+
+    // GMV 기여율 임계값 (1%)
+    if (row.gmv_share < 1.0 && row.gmv_share > 0) {
+      insights.push(
+        `[경고] "${label}" GMV 기여율이 ${row.gmv_share.toFixed(
+          2
+        )}%로 매우 낮음 - 알고리즘 재검토 권장`
+      );
+    }
+  });
+
+  // === 4. 비교 기준 인사이트 ===
+
+  const allPlacement = rows.find((r) => r.placement === "all");
+  if (allPlacement) {
+    const algorithms = rows.filter(
+      (r) => r.placement !== "all" && r.placement !== "home"
+    );
+
+    // 높은 CTR, 낮은 전환율
+    const highCtrLowConv = algorithms.find(
+      (algo) =>
+        algo.ctr > allPlacement.ctr * 1.1 &&
+        algo.purchase_conversion < allPlacement.purchase_conversion * 0.8
+    );
+
+    if (highCtrLowConv) {
+      insights.push(
+        `[비교] "${placementDisplayLabel(
+          highCtrLowConv.placement
+        )}"는 CTR은 높지만(${highCtrLowConv.ctr.toFixed(
+          1
+        )}%) 전환율은 낮음(${highCtrLowConv.purchase_conversion.toFixed(
+          1
+        )}%) - 추천 품질 vs 클릭 유도성 균형 검토`
+      );
+    }
+
+    // 전반적 저성과 알고리즘
+    const underperformer = algorithms.find(
+      (algo) =>
+        algo.ctr < allPlacement.ctr * 0.7 &&
+        algo.purchase_conversion < allPlacement.purchase_conversion * 0.7
+    );
+
+    if (underperformer) {
+      insights.push(
+        `[비교] "${placementDisplayLabel(
+          underperformer.placement
+        )}"가 전체 평균 대비 CTR/전환율 모두 저조 - 알고리즘 가중치 조정 또는 비활성화 검토`
+      );
+    }
+  }
+
+  // 빈 상태
+  if (insights.length === 0) {
+    return ["모든 추천 알고리즘이 안정적으로 작동 중입니다."];
+  }
+
+  // 우선순위 정렬: 경고 → 추세 → 비교 → 성과
+  return insights.sort((a, b) => {
+    const severityOrder: Record<string, number> = {
+      "[경고]": 0,
+      "[추세]": 1,
+      "[비교]": 2,
+      "[성과]": 3,
+    };
+    const aPrefix =
+      (Object.keys(severityOrder).find((k) => a.startsWith(k)) as string) ||
+      "[성과]";
+    const bPrefix =
+      (Object.keys(severityOrder).find((k) => b.startsWith(k)) as string) ||
+      "[성과]";
+    return severityOrder[aPrefix] - severityOrder[bPrefix];
+  });
 });
 
 function getDateNDaysAgo(n: number) {
@@ -957,26 +1217,48 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-.trend-chart {
-  margin-top: 10px;
-  width: 100%;
-  height: 440px;
-  border-radius: 14px;
-  background: #ffffff;
-  padding: 10px;
+.charts-row {
+  display: flex;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.chart-container.half-width {
+  width: 50%;
+  flex: 1;
+  background: #fff;
   border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 18px;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
 }
 
-.placement-chart {
-  margin-top: 10px;
+.chart-container.full-width {
   width: 100%;
-  height: 440px;
-  border-radius: 14px;
-  background: #ffffff;
-  padding: 10px;
+  background: #fff;
   border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 18px;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.card-head h3 {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.trend-chart,
+.placement-chart {
+  width: 100%;
+  height: 260px;
 }
 
 .placement-summary-grid {
