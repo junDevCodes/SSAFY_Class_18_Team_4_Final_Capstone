@@ -37,6 +37,11 @@ export interface ReviewListResponse {
   results: Review[]
 }
 
+export interface ReviewImageUploadResponse {
+  image_urls: string[]
+  message?: string
+}
+
 /**
  * 리뷰 생성 요청 타입
  */
@@ -94,6 +99,21 @@ export const reviewApi = {
     data: Partial<ReviewCreateRequest>
   ): Promise<Review> => {
     const response = await apiClient.patch<Review>(`/api/reviews/${reviewId}/`, data)
+    return response.data
+  },
+
+  /**
+   * 리뷰 이미지 업로드 (파일 → S3 → URL 반환)
+   */
+  uploadReviewImages: async (files: File[]): Promise<ReviewImageUploadResponse> => {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('images', file))
+
+    const response = await apiClient.post<ReviewImageUploadResponse>(
+      '/api/reviews/images/upload/',
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
     return response.data
   },
 

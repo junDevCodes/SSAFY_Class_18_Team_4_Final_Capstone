@@ -120,6 +120,7 @@ class S3ImageUploader:
         self.seller_profile_prefix = getattr(settings, 'AWS_S3_SELLER_PROFILE_PREFIX', 'seller_profile/seller_profile/')
         self.brand_logo_prefix = getattr(settings, 'AWS_S3_BRAND_LOGO_PREFIX', 'seller_profile/brand_logo/')
         self.brand_banner_prefix = getattr(settings, 'AWS_S3_BRAND_BANNER_PREFIX', 'seller_profile/brand_banner/')
+        self.review_prefix = getattr(settings, 'AWS_S3_REVIEW_PREFIX', 'seller_profile/reviews/')
 
     def _generate_unique_filename(self, original_filename: str, product_id: int) -> str:
         """고유한 파일명 생성
@@ -216,6 +217,21 @@ class S3ImageUploader:
         logger.info(f"메인 이미지 업로드 시작: product_id={product_id}, s3_key={s3_key}")
         url = self._upload_to_s3(file_obj, s3_key, content_type)
         logger.info(f"메인 이미지 업로드 완료: {url}")
+
+        return url
+
+    def upload_review_image(self, file_obj, user_id: int, original_filename: str) -> str:
+        """리뷰 이미지 업로드
+
+        리뷰는 사용자 ID를 기반으로 파일명을 생성한다.
+        """
+        filename = self._generate_unique_filename(original_filename, user_id)
+        s3_key = f"{self.review_prefix}{filename}"
+        content_type = getattr(file_obj, 'content_type', 'image/jpeg')
+
+        logger.info(f"리뷰 이미지 업로드 시작: user_id={user_id}, s3_key={s3_key}")
+        url = self._upload_to_s3(file_obj, s3_key, content_type)
+        logger.info(f"리뷰 이미지 업로드 완료: {url}")
 
         return url
 

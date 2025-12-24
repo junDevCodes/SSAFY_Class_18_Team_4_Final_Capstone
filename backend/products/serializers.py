@@ -783,6 +783,37 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
         return review
 
 
+class ReviewImageUploadSerializer(serializers.Serializer):
+    """리뷰 이미지 업로드 Serializer (파일 업로드 → S3)"""
+
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        required=True,
+        help_text="업로드할 리뷰 이미지 파일 목록 (최대 5개)",
+    )
+
+    def validate_images(self, value):
+        """이미지 파일 유효성 검사"""
+        if len(value) > 5:
+            raise serializers.ValidationError("리뷰 이미지는 최대 5개까지 업로드할 수 있습니다.")
+
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        max_size = 5 * 1024 * 1024  # 5MB
+
+        for img in value:
+            if img.content_type not in allowed_types:
+                raise serializers.ValidationError(
+                    f"지원하지 않는 이미지 형식입니다: {img.content_type}. "
+                    f"허용 형식: JPEG, PNG, GIF, WebP"
+                )
+            if img.size > max_size:
+                raise serializers.ValidationError(
+                    f"이미지 크기가 너무 큽니다: {img.name}. 최대 5MB까지 업로드 가능합니다."
+                )
+
+        return value
+
+
 # ========================= 판매자 상품 이미지 업로드 Serializers =========================
 
 class ProductImageUploadSerializer(serializers.Serializer):

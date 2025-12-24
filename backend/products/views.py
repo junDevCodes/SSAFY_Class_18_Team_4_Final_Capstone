@@ -32,7 +32,7 @@ from .serializers import (
     CategorySerializer, ProductSerializer, ProductDetailSerializer,
     ProductListSerializer, ProductImageSerializer, WishlistSerializer, CartSerializer,
     ProductListSerializerV2, ProductDetailSerializerV2,
-    ReviewSerializer, ReviewCreateSerializer,
+    ReviewSerializer, ReviewCreateSerializer, ReviewImageUploadSerializer,
     NewProductListSerializer, BestProductListSerializer,
     SellerProductCreateSerializer, SellerProductListSerializer,
     ProductImageUploadSerializer, ProductDetailImageUploadSerializer
@@ -665,6 +665,73 @@ class ProductDetailImageUploadView(APIView):
             'image_urls': uploaded_urls,
             'total_images': total_count
         }, status=status.HTTP_201_CREATED)
+
+
+class ReviewImageUploadView(APIView):
+    """리뷰 이미지 업로드 API (파일 업로드 → S3)
+
+    POST /api/reviews/images/upload/
+
+    리뷰 작성 시 이미지 파일을 S3에 업로드하고 URL 목록을 반환한다.
+    DB에는 저장하지 않고 프론트엔드가 반환된 URL을 review.image_urls로 전달한다.
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_permissions(self):
+        """로그인 사용자만 허용"""
+        from rest_framework.permissions import IsAuthenticated
+        return [IsAuthenticated()]
+
+    @extend_schema(
+        tags=['리뷰'],
+        summary='리뷰 이미지 업로드',
+        description='리뷰 작성용 이미지를 S3에 업로드하고 URL 목록을 반환합니다.',
+        request=ReviewImageUploadSerializer,
+        responses={
+            201: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
+            500: OpenApiTypes.OBJECT,
+        },
+    )
+    def post(self, request):
+        serializer = ReviewImageUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        images = serializer.validated_data['images']
+
+        try:
+            uploader = S3ImageUploader()
+        except S3UploadError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        uploaded_urls = []
+        try:
+            for file_obj in images:
+                url = uploader.upload_review_image(file_obj, request.user.id, file_obj.name)
+                uploaded_urls.append(url)
+        except S3UploadError as e:
+            for url in uploaded_urls:
+                try:
+                    uploader.delete_image(url)
+                except Exception:
+                    pass
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        return Response(
+            {
+                'message': f'{len(uploaded_urls)}개의 리뷰 이미지가 업로드되었습니다.',
+                'image_urls': uploaded_urls,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ProductImageManageView(APIView):
