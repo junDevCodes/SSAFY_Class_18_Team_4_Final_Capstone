@@ -156,6 +156,9 @@ services:
       DB_ENGINE: django.db.backends.postgresql
       DB_HOST: db
       DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-selfdb}
+      DB_USER: ${DB_USER:-selfuser}
+      DB_PASSWORD: ${DB_PASSWORD}
       REDIS_URL: redis://redis:6379/0
       ML_API_URL: http://pred:8001
       CELERY_CONCURRENCY: "${CELERY_CONCURRENCY:-4}"
@@ -190,6 +193,9 @@ services:
       DB_ENGINE: django.db.backends.postgresql
       DB_HOST: db
       DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-selfdb}
+      DB_USER: ${DB_USER:-selfuser}
+      DB_PASSWORD: ${DB_PASSWORD}
       REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
