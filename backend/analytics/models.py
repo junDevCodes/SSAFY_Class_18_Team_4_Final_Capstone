@@ -54,6 +54,20 @@ class AdminBizDaily(models.Model):
         verbose_name="장바구니 담기 수",
     )
 
+    # --- 테스트/시나리오 구분 필드 ---
+    is_test = models.BooleanField(
+        default=False,
+        verbose_name="테스트 데이터 여부",
+        help_text="샘플/시나리오 등 테스트용 집계 데이터인 경우 True 로 설정",
+    )
+    scenario = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="시나리오 태그",
+        help_text="테스트 데이터 시나리오 구분값 (예: baseline/promo/high_abandon/loyal)",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
 
@@ -133,6 +147,13 @@ class AdminCategoryDaily(models.Model):
         verbose_name="카테고리 매출(GMV)",
     )
 
+    # --- 테스트 데이터 구분 필드 ---
+    is_test = models.BooleanField(
+        default=False,
+        verbose_name="테스트 데이터 여부",
+        help_text="샘플/시나리오 등 테스트용 카테고리 집계인 경우 True 로 설정",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일시")
 
@@ -206,6 +227,13 @@ class AdminRecoDaily(models.Model):
     reco_attributed_gmv = models.BigIntegerField(
         default=0,
         verbose_name="추천 기여 매출(GMV)",
+    )
+
+    # --- 테스트 데이터 구분 필드 ---
+    is_test = models.BooleanField(
+        default=False,
+        verbose_name="테스트 데이터 여부",
+        help_text="샘플/시나리오 등 테스트용 추천 집계인 경우 True 로 설정",
     )
 
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")

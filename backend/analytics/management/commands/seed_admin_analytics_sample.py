@@ -70,8 +70,12 @@ class Command(BaseCommand):
             seller=seller,
         )
 
-        # 4. 집계 테이블 생성
+        # 4. 집계 테이블 생성 (샘플 데이터는 모두 테스트 플래그로 마킹)
         aggregate_biz_daily_for_range(start_date, end_date)
+        # BizDaily 집계는 공통 서비스 함수를 사용하므로, 범위에 대해 일괄 is_test 플래그를 설정한다.
+        AdminBizDaily.objects.filter(
+            date__range=(start_date, end_date)
+        ).update(is_test=True)
         self._create_sample_reco_for_range(start_date, end_date)
         self._create_sample_category_for_range(start_date, end_date)
 
@@ -114,9 +118,10 @@ class Command(BaseCommand):
             Payment.objects.filter(order_id__in=order_ids).delete()
             demo_orders.delete()
 
-        # AdminBizDaily / AdminRecoDaily 에서 데모 기간 행은 모두 삭제 (안전하게 전체 삭제)
+        # AdminBizDaily / AdminRecoDaily / AdminCategoryDaily 에서 데모 기간 행은 모두 삭제 (안전하게 전체 삭제)
         AdminBizDaily.objects.all().delete()
         AdminRecoDaily.objects.all().delete()
+        AdminCategoryDaily.objects.all().delete()
 
     def _ensure_demo_users(self) -> tuple[User, User]:
         """데모용 consumer/seller 사용자 생성 또는 조회"""
@@ -237,6 +242,7 @@ class Command(BaseCommand):
                         "reco_clicks": base_clicks,
                         "reco_attributed_orders": base_attributed_orders,
                         "reco_attributed_gmv": home_attributed_gmv,
+                        "is_test": True,
                     },
                 )
 
@@ -276,6 +282,7 @@ class Command(BaseCommand):
                             "reco_clicks": algo_clicks,
                             "reco_attributed_orders": algo_attributed_orders,
                             "reco_attributed_gmv": algo_attributed_gmv,
+                            "is_test": True,
                         },
                     )
 
@@ -321,6 +328,7 @@ class Command(BaseCommand):
                             "sessions": 0,
                             "orders": orders,
                             "gmv": gmv,
+                            "is_test": True,
                         },
                     )
 

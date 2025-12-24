@@ -21,6 +21,18 @@ from analytics.serializers import (
 )
 
 
+def _parse_data_mode(raw: str | None) -> str:
+    """
+    테스트/실데이터 포함 범위를 해석한다.
+
+    - all: 테스트 + 실데이터
+    - real: 실데이터만 (is_test=False)
+    """
+    if raw not in {"all", "real"}:
+        return "all"
+    return raw
+
+
 class AdminAnalyticsOverviewView(APIView):
     """
     관리자용 통합 지표 조회 API
@@ -35,6 +47,7 @@ class AdminAnalyticsOverviewView(APIView):
         raw_start = params.get("start_date")
         raw_end = params.get("end_date")
         segment = params.get("segment", UserSegment.ALL)
+        data_mode = _parse_data_mode(params.get("data_mode"))
         # granularity, region 등은 현재 구현에서 직접 사용하지 않지만
         # 향후 확장을 위해 파라미터로만 받아둔다.
         _granularity = params.get("granularity", "daily")
@@ -65,23 +78,27 @@ class AdminAnalyticsOverviewView(APIView):
         if segment not in {UserSegment.ALL, UserSegment.CONSUMER, UserSegment.SELLER}:
             segment = UserSegment.ALL
 
-        overview_data = self._build_overview(start_date, end_date, segment)
+        overview_data = self._build_overview(
+            start_date, end_date, segment, include_test=(data_mode == "all")
+        )
         serializer = AnalyticsOverviewSerializer(overview_data)
         return Response(serializer.data)
 
-    def _build_overview(self, start_date, end_date, segment: str) -> dict:
+    def _build_overview(
+        self, start_date, end_date, segment: str, include_test: bool
+    ) -> dict:
         """
         AdminBizDaily 데이터를 기반으로 AnalyticsOverview 응답을 구성
 
         - 현재는 Top Line 지표만 채우고 breakdown/heatmap/keywords 는 비워둔다.
         """
-        qs = (
-            AdminBizDaily.objects.filter(
-                date__range=(start_date, end_date),
-                user_segment=segment,
-            )
-            .order_by("date")
+        qs = AdminBizDaily.objects.filter(
+            date__range=(start_date, end_date),
+            user_segment=segment,
         )
+        if not include_test:
+            qs = qs.filter(is_test=False)
+        qs = qs.order_by("date")
 
         # 비어 있는 경우에도 API 스키마는 유지
         if not qs.exists():
@@ -179,6 +196,8 @@ class AdminAnalyticsOverviewView(APIView):
             user_segment=segment,
             placement="home",
         )
+        if not include_test:
+            reco_qs = reco_qs.filter(is_test=False)
 
         total_impressions = 0
         total_clicks = 0
@@ -234,6 +253,8 @@ class AdminAnalyticsOverviewView(APIView):
             date__range=(start_date, end_date),
             user_segment=segment,
         )
+        if not include_test:
+            cat_qs = cat_qs.filter(is_test=False)
         category_breakdown: list[dict] = []
         if cat_qs.exists():
             agg_by_cat: dict[str, dict] = {}
@@ -292,6 +313,7 @@ class AdminBehaviorOverviewView(APIView):
         raw_start = params.get("start_date")
         raw_end = params.get("end_date")
         segment = params.get("segment", UserSegment.ALL)
+        data_mode = _parse_data_mode(params.get("data_mode"))
 
         if not raw_start or not raw_end:
             return Response(
@@ -317,13 +339,13 @@ class AdminBehaviorOverviewView(APIView):
         if segment not in {UserSegment.ALL, UserSegment.CONSUMER, UserSegment.SELLER}:
             segment = UserSegment.ALL
 
-        qs = (
-            AdminBizDaily.objects.filter(
-                date__range=(start_date, end_date),
-                user_segment=segment,
-            )
-            .order_by("date")
+        qs = AdminBizDaily.objects.filter(
+            date__range=(start_date, end_date),
+            user_segment=segment,
         )
+        if data_mode == "real":
+            qs = qs.filter(is_test=False)
+        qs = qs.order_by("date")
 
         if not qs.exists():
             empty_payload = {
@@ -476,6 +498,7 @@ class AdminRecommendationTrendView(APIView):
         segment = params.get("segment", UserSegment.ALL)
         _granularity = params.get("granularity", "daily")
         placement = params.get("placement", "home")
+        data_mode = _parse_data_mode(params.get("data_mode"))
 
         if not raw_start or not raw_end:
             return Response(
@@ -503,11 +526,13 @@ class AdminRecommendationTrendView(APIView):
             segment = UserSegment.ALL
 
         # 현재는 일간 집계만 지원 (granularity 는 향후 확장용 파라미터)
-        series = self._build_daily_series(start_date, end_date, segment, placement)
+        series = self._build_daily_series(
+            start_date, end_date, segment, placement, data_mode
+        )
         return Response({"series": series})
 
     def _build_daily_series(
-        self, start_date, end_date, segment: str, placement: str
+        self, start_date, end_date, segment: str, placement: str, data_mode: str
     ) -> list[dict]:
         """일 단위로 추천/비즈니스 집계를 결합해 추이 시계열을 생성
 
@@ -520,7 +545,10 @@ class AdminRecommendationTrendView(APIView):
         biz_qs = AdminBizDaily.objects.filter(
             date__range=(start_date, end_date),
             user_segment=segment,
-        ).values("date", "gmv")
+        )
+        if data_mode == "real":
+            biz_qs = biz_qs.filter(is_test=False)
+        biz_qs = biz_qs.values("date", "gmv")
         gmv_by_date: dict = {row["date"]: int(row["gmv"]) for row in biz_qs}
 
         # 추천 집계
@@ -530,6 +558,8 @@ class AdminRecommendationTrendView(APIView):
         )
         if placement != "all":
             reco_qs = reco_qs.filter(placement=placement)
+        if data_mode == "real":
+            reco_qs = reco_qs.filter(is_test=False)
 
         # 날짜별로 합산
         stats_by_date: dict = {}
@@ -605,6 +635,7 @@ class AdminRecommendationPlacementSummaryView(APIView):
         raw_end = params.get("end_date")
         segment = params.get("segment", UserSegment.ALL)
         _granularity = params.get("granularity", "daily")
+        data_mode = _parse_data_mode(params.get("data_mode"))
 
         if not raw_start or not raw_end:
             return Response(
@@ -630,16 +661,20 @@ class AdminRecommendationPlacementSummaryView(APIView):
         if segment not in {UserSegment.ALL, UserSegment.CONSUMER, UserSegment.SELLER}:
             segment = UserSegment.ALL
 
-        payload = self._build_summary(start_date, end_date, segment)
+        payload = self._build_summary(start_date, end_date, segment, data_mode)
         return Response(payload)
 
-    def _build_summary(self, start_date, end_date, segment: str) -> dict:
+    def _build_summary(
+        self, start_date, end_date, segment: str, data_mode: str
+    ) -> dict:
         """기간/세그먼트 기준 placement 별 집계 결과 생성"""
         # 총 GMV (해당 세그먼트) 집계
         biz_qs = AdminBizDaily.objects.filter(
             date__range=(start_date, end_date),
             user_segment=segment,
         )
+        if data_mode == "real":
+            biz_qs = biz_qs.filter(is_test=False)
         total_gmv = 0
         for row in biz_qs:
             total_gmv += int(row.gmv)
@@ -649,6 +684,8 @@ class AdminRecommendationPlacementSummaryView(APIView):
             date__range=(start_date, end_date),
             user_segment=segment,
         ).exclude(placement="home")
+        if data_mode == "real":
+            reco_qs = reco_qs.filter(is_test=False)
 
         placement_stats: dict[str, dict] = {}
         for reco in reco_qs:
@@ -757,7 +794,7 @@ class AdminOpsOverviewView(APIView):
         # 쿼리 파라미터는 현재 단계에서는 단순히 인터페이스 용도로만 수신
         _raw_start = request.query_params.get("start_date")
         _raw_end = request.query_params.get("end_date")
-        _system = request.query_params.get("system", "all")
+        system_filter = request.query_params.get("system", "all")
 
         now = timezone.now()
         # 최근 7일 기준 mock 시계열 생성

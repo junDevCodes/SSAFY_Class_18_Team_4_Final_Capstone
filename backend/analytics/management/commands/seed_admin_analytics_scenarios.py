@@ -123,9 +123,12 @@ class Command(BaseCommand):
                 elif segment == UserSegment.SELLER:
                     sessions = int(sessions * 0.85)
 
+                # 시나리오 패턴이 적용된 레코드는 테스트 플래그 및 시나리오 태그를 함께 기록
                 AdminBizDaily.objects.filter(pk=biz.pk).update(
                     sessions=max(sessions, 0),
                     cart_adds=max(cart_adds, 0),
+                    is_test=True,
+                    scenario=scenario,
                 )
 
             current = current + timedelta(days=1)
