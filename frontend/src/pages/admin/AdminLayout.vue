@@ -84,6 +84,10 @@ const isActive = (item: (typeof navItems)[number]) => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
 }
 
 .logo {
@@ -157,6 +161,8 @@ const isActive = (item: (typeof navItems)[number]) => {
   }
 
   .admin-sidebar {
+    position: static;
+    height: auto;
     width: 100%;
     flex-direction: row;
     align-items: center;

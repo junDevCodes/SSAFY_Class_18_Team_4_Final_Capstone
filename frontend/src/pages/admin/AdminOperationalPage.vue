@@ -5,22 +5,34 @@
         <p class="eyebrow">전체 관리자 · Operational</p>
         <h1>운영 건강도 지표</h1>
         <p class="sub">
-          크롤링 성공률, API 응답 시간, 에러율, 서비스 가용성을 한눈에 모니터링합니다.
+          크롤링 성공률, EC2 CPU, 네트워크 트래픽, 서비스 가용성을 한눈에 모니터링합니다.
         </p>
       </div>
       <div class="sync">
         <span class="dot" :class="loading ? 'syncing' : 'ok'"></span>
         <span v-if="lastUpdated">동기화: {{ lastUpdated }}</span>
+        <span v-if="backendLabel" class="backend-label">
+          · 소스: {{ backendLabel }}
+        </span>
+        <label class="data-mode-toggle">
+          <input type="checkbox" disabled />
+          <span>테스트 데이터 없음</span>
+        </label>
       </div>
     </header>
 
     <section class="filters">
-      <div class="filter wide">
+      <div class="filter">
         <span class="label">조회 기간</span>
-        <div class="date-range">
-          <input type="date" v-model="dateFilter.start" />
-          <span class="tilde">~</span>
-          <input type="date" v-model="dateFilter.end" />
+        <div class="segmented">
+          <button
+            v-for="opt in rangeOptions"
+            :key="opt.value"
+            :class="{ active: range === opt.value }"
+            @click="onRangeChange(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
         </div>
       </div>
       <div class="filter">
@@ -52,7 +64,7 @@
           <p class="eyebrow">Ops Overview</p>
           <h2>운영 KPI</h2>
           <p class="section-sub">
-            크롤링 성공률, API 응답시간, 에러율, 서비스 가용성 등 핵심 운영 지표를 요약합니다.
+            크롤링 성공률, EC2 CPU 사용률, 네트워크 트래픽, 서비스 가용성 등 핵심 운영 지표를 요약합니다.
           </p>
         </div>
       </header>
@@ -73,85 +85,105 @@
         </article>
       </div>
 
-      <div class="grid">
+      <div class="charts-grid">
         <article class="card">
           <header class="card-head">
             <div>
-              <p class="eyebrow">Trend</p>
-              <h3>운영 지표 시계열</h3>
+              <p class="eyebrow">Crawling</p>
+              <h3>크롤링 성공률 추이</h3>
             </div>
           </header>
-          <div ref="trendChartRef" class="chart"></div>
+          <div ref="crawlChartRef" class="chart chart-small"></div>
         </article>
 
         <article class="card">
           <header class="card-head">
             <div>
-              <p class="eyebrow">Alerts · To-do · Incidents</p>
-              <h3>운영 리스크 & 작업 목록</h3>
+              <p class="eyebrow">EC2 CPU</p>
+              <h3>EC2 CPU 사용률 추이</h3>
             </div>
           </header>
+          <div ref="cpuChartRef" class="chart chart-small"></div>
+        </article>
 
-          <div class="ops-lists">
-            <section class="ops-list-section">
-              <h4 class="ops-list-title">리스크 알림</h4>
-              <ul v-if="alerts.length" class="alert-list">
-                <li v-for="alert in alerts" :key="alert.id" class="alert-item">
-                  <span class="pill" :class="alert.severity">
-                    {{ incidentSeverityLabel(alert.severity) }}
-                  </span>
-                  <div class="alert-main">
-                    <p class="alert-title">{{ alert.title }}</p>
-                    <p class="alert-desc">{{ alert.description }}</p>
-                    <p class="alert-meta">
-                      기준 지표: {{ alert.metric }}
-                    </p>
-                  </div>
-                </li>
-              </ul>
-              <p v-else class="hint">현재 설정된 임계값을 초과한 리스크가 없습니다.</p>
-            </section>
-
-            <section class="ops-list-section">
-              <h4 class="ops-list-title">운영 To-do</h4>
-              <ul v-if="todos.length" class="todo-list">
-                <li v-for="todo in todos" :key="todo.id" class="todo-item">
-                  <div class="todo-main">
-                    <p class="todo-title">{{ todo.title }}</p>
-                    <p class="todo-desc">{{ todo.description }}</p>
-                    <p class="todo-meta">{{ todo.meta }}</p>
-                  </div>
-                </li>
-              </ul>
-              <p v-else class="hint">현재 등록된 운영 To-do가 없습니다.</p>
-            </section>
-
-            <section class="ops-list-section">
-              <h4 class="ops-list-title">최근 장애 이력</h4>
-              <ul v-if="incidents.length" class="incident-list">
-                <li v-for="incident in incidents" :key="incident.id" class="incident">
-                  <span class="pill" :class="incident.severity">
-                    {{ incidentSeverityLabel(incident.severity) }}
-                  </span>
-                  <div class="incident-main">
-                    <p class="incident-title">{{ incident.title }}</p>
-                    <p class="incident-desc">{{ incident.description }}</p>
-                    <p class="incident-meta">
-                      {{ incident.service }} · 시작:
-                      {{ formatDateTime(incident.started_at) }}
-                      <span v-if="incident.resolved_at">
-                        · 종료: {{ formatDateTime(incident.resolved_at) }}
-                      </span>
-                      <span v-else> · 진행 중</span>
-                    </p>
-                  </div>
-                </li>
-              </ul>
-              <p v-else class="hint">최근 7일 내 등록된 장애 이력이 없습니다.</p>
-            </section>
-          </div>
+        <article class="card">
+          <header class="card-head">
+            <div>
+              <p class="eyebrow">Network</p>
+              <h3>네트워크 트래픽 (In) 추이</h3>
+            </div>
+          </header>
+          <div ref="networkChartRef" class="chart chart-small"></div>
         </article>
       </div>
+
+      <article class="card ops-lists-card">
+        <header class="card-head">
+          <div>
+            <p class="eyebrow">Alerts · To-do · Incidents</p>
+            <h3>운영 리스크 & 작업 목록</h3>
+          </div>
+        </header>
+
+        <div class="ops-lists">
+          <section class="ops-list-section">
+            <h4 class="ops-list-title">리스크 알림</h4>
+            <ul v-if="alerts.length" class="alert-list">
+              <li v-for="alert in alerts" :key="alert.id" class="alert-item">
+                <span class="pill" :class="alert.severity">
+                  {{ incidentSeverityLabel(alert.severity) }}
+                </span>
+                <div class="alert-main">
+                  <p class="alert-title">{{ alert.title }}</p>
+                  <p class="alert-desc">{{ alert.description }}</p>
+                  <p class="alert-meta">
+                    기준 지표: {{ alert.metric }}
+                  </p>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="hint">현재 설정된 임계값을 초과한 리스크가 없습니다.</p>
+          </section>
+
+          <section class="ops-list-section">
+            <h4 class="ops-list-title">운영 To-do</h4>
+            <ul v-if="todos.length" class="todo-list">
+              <li v-for="todo in todos" :key="todo.id" class="todo-item">
+                <div class="todo-main">
+                  <p class="todo-title">{{ todo.title }}</p>
+                  <p class="todo-desc">{{ todo.description }}</p>
+                  <p class="todo-meta">{{ todo.meta }}</p>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="hint">현재 등록된 운영 To-do가 없습니다.</p>
+          </section>
+
+          <section class="ops-list-section">
+            <h4 class="ops-list-title">최근 장애 이력</h4>
+            <ul v-if="incidents.length" class="incident-list">
+              <li v-for="incident in incidents" :key="incident.id" class="incident">
+                <span class="pill" :class="incident.severity">
+                  {{ incidentSeverityLabel(incident.severity) }}
+                </span>
+                <div class="incident-main">
+                  <p class="incident-title">{{ incident.title }}</p>
+                  <p class="incident-desc">{{ incident.description }}</p>
+                  <p class="incident-meta">
+                    {{ incident.service }} · 시작:
+                    {{ formatDateTime(incident.started_at) }}
+                    <span v-if="incident.resolved_at">
+                      · 종료: {{ formatDateTime(incident.resolved_at) }}
+                    </span>
+                    <span v-else> · 진행 중</span>
+                  </p>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="hint">최근 7일 내 등록된 장애 이력이 없습니다.</p>
+          </section>
+        </div>
+      </article>
     </section>
   </div>
 </template>
@@ -177,7 +209,9 @@ import type {
 
 echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
 
-const dateFilter = ref({ start: getDateNDaysAgo(6), end: getDateNDaysAgo(0) });
+type RangeKey = "1h" | "7d" | "30d";
+
+const range = ref<RangeKey>("7d");
 const system = ref("all");
 
 const overview = ref<OpsOverview | null>(null);
@@ -185,9 +219,13 @@ const loading = ref(false);
 const errorMessage = ref<string | null>(null);
 const lastUpdated = ref<string | null>(null);
 
-const trendChartRef = ref<HTMLDivElement | null>(null);
-const charts: Record<"trend", echarts.ECharts | null> = {
-  trend: null,
+const crawlChartRef = ref<HTMLDivElement | null>(null);
+const cpuChartRef = ref<HTMLDivElement | null>(null);
+const networkChartRef = ref<HTMLDivElement | null>(null);
+const charts: Record<"crawl" | "cpu" | "network", echarts.ECharts | null> = {
+  crawl: null,
+  cpu: null,
+  network: null,
 };
 
 type OpsKpiCard = {
@@ -204,14 +242,21 @@ const incidents = computed<OpsIncident[]>(() => overview.value?.incidents ?? [])
 const alerts = computed<OpsAlert[]>(() => overview.value?.alerts ?? []);
 const todos = computed<OpsTodo[]>(() => overview.value?.todos ?? []);
 
+const backendLabel = computed(() => {
+  const backend = overview.value?.meta?.backend;
+  if (backend === "cloudwatch") return "CloudWatch (실측)";
+  if (backend === "mock") return "Mock 데이터";
+  return "";
+});
+
 const opsKpiCards = computed<OpsKpiCard[]>(() => {
   const kpis = overview.value?.kpis ?? [];
 
   const find = (prefix: string) => kpis.find((k) => k.label.startsWith(prefix));
 
   const crawl = find("크롤링 성공률");
-  const p95 = find("API P95");
-  const error = find("5xx 에러율");
+  const cpu = find("EC2 CPU 사용률");
+  const network = find("네트워크 트래픽");
   const avail = find("서비스 가용성");
 
   return [
@@ -225,19 +270,19 @@ const opsKpiCards = computed<OpsKpiCard[]>(() => {
     },
     {
       key: "api_p95",
-      label: p95?.label ?? "API P95 응답시간",
-      value: p95?.value ?? 0,
-      unit: p95?.unit ?? "ms",
-      decimals: 0,
-      hint: "백엔드 API 응답시간 P95 (상위 5% 제외)",
+      label: cpu?.label ?? "EC2 CPU 사용률",
+      value: cpu?.value ?? 0,
+      unit: cpu?.unit ?? "%",
+      decimals: 1,
+      hint: "백엔드 EC2 인스턴스 CPU 사용률",
     },
     {
       key: "error_rate",
-      label: error?.label ?? "5xx 에러율",
-      value: error?.value ?? 0,
-      unit: error?.unit ?? "%",
+      label: network?.label ?? "네트워크 트래픽 (In)",
+      value: network?.value ?? 0,
+      unit: network?.unit ?? "bps",
       decimals: 2,
-      hint: "전체 요청 대비 5xx 에러 비율",
+      hint: "EC2 인스턴스 네트워크 In 트래픽(평균, bps 기준)",
     },
     {
       key: "availability",
@@ -250,7 +295,13 @@ const opsKpiCards = computed<OpsKpiCard[]>(() => {
   ];
 });
 
-const getChart = (key: "trend", el: HTMLDivElement | null) => {
+const rangeOptions: { value: RangeKey; label: string }[] = [
+  { value: "1h", label: "최근 1시간" },
+  { value: "7d", label: "최근 7일" },
+  { value: "30d", label: "최근 30일" },
+];
+
+const getChart = (key: "crawl" | "cpu" | "network", el: HTMLDivElement | null) => {
   if (!el) return null;
   if (!charts[key]) {
     charts[key] = echarts.init(el);
@@ -258,67 +309,130 @@ const getChart = (key: "trend", el: HTMLDivElement | null) => {
   return charts[key];
 };
 
-const renderTrendChart = () => {
-  const chart = getChart("trend", trendChartRef.value);
+const renderCrawlChart = () => {
+  const chart = getChart("crawl", crawlChartRef.value);
   if (!chart) return;
 
   const data = metrics.value;
   const labels = data.map((d) => formatTimeLabel(d.timestamp));
 
   const option: echarts.EChartsCoreOption = {
-    grid: { top: 40, left: 56, right: 48, bottom: 64 },
+    grid: { top: 32, left: 56, right: 32, bottom: 56 },
     tooltip: {
       trigger: "axis",
-    },
-    legend: {
-      data: ["크롤링 성공률", "5xx 에러율", "서비스 가용성"],
-      bottom: 8,
     },
     xAxis: {
       type: "category",
       data: labels,
     },
-    yAxis: [
-      {
-        type: "value",
-        name: "성공률/가용성(%)",
-        min: 90,
-        max: 100,
-      },
-      {
-        type: "value",
-        name: "에러율(%)",
-        position: "right",
-        min: 0,
-        max: 5,
-      },
-    ],
+    yAxis: {
+      type: "value",
+      name: "크롤링 성공률(%)",
+      min: 90,
+      max: 100,
+    },
     series: [
       {
         name: "크롤링 성공률",
         type: "line",
         data: data.map((d) => d.crawling_success_rate),
         smooth: true,
-        yAxisIndex: 0,
         lineStyle: { width: 2.5, color: "#22c55e" },
         symbolSize: 5,
       },
+    ],
+  };
+
+  chart.setOption(option, true);
+};
+
+const renderCpuChart = () => {
+  const chart = getChart("cpu", cpuChartRef.value);
+  if (!chart) return;
+
+  const data = metrics.value;
+  const labels = data.map((d) => formatTimeLabel(d.timestamp));
+
+  const option: echarts.EChartsCoreOption = {
+    grid: { top: 32, left: 56, right: 32, bottom: 56 },
+    tooltip: {
+      trigger: "axis",
+    },
+    xAxis: {
+      type: "category",
+      data: labels,
+    },
+    yAxis: {
+      type: "value",
+      name: "EC2 CPU 사용률(%)",
+      min: 0,
+      max: 100,
+    },
+    series: [
       {
-        name: "서비스 가용성",
+        name: "EC2 CPU 사용률",
         type: "line",
-        data: data.map((d) => d.availability),
+        data: data.map((d) => d.api_p95_ms),
         smooth: true,
-        yAxisIndex: 0,
-        lineStyle: { width: 2.5, color: "#2563eb" },
+        lineStyle: { width: 2.5, color: "#f97316" },
         symbolSize: 5,
       },
+    ],
+  };
+
+  chart.setOption(option, true);
+};
+
+const formatBpsShort = (value: number) => {
+  const absV = Math.abs(value);
+  if (absV >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toFixed(1)} Gbps`;
+  }
+  if (absV >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)} Mbps`;
+  }
+  if (absV >= 1_000) {
+    return `${(value / 1_000).toFixed(1)} Kbps`;
+  }
+  return `${value.toFixed(0)} bps`;
+};
+
+const renderNetworkChart = () => {
+  const chart = getChart("network", networkChartRef.value);
+  if (!chart) return;
+
+  const data = metrics.value;
+  const labels = data.map((d) => formatTimeLabel(d.timestamp));
+
+  const option: echarts.EChartsCoreOption = {
+    grid: { top: 32, left: 88, right: 32, bottom: 56 },
+    tooltip: {
+      trigger: "axis",
+      formatter: (params: any) => {
+        if (!params || !params.length) return '';
+        const item = params[0];
+        return `${item.axisValueLabel}<br/>${item.marker}${item.seriesName}: ${formatBpsShort(item.value)}`;
+      },
+    },
+    xAxis: {
+      type: "category",
+      data: labels,
+    },
+    yAxis: {
+      type: "value",
+      name: "네트워크 트래픽 (bps)",
+      min: 0,
+      axisLabel: {
+        formatter: (val: number) => formatBpsShort(val),
+      },
+    },
+    series: [
       {
-        name: "5xx 에러율",
+        name: "네트워크 트래픽 (In)",
         type: "line",
         data: data.map((d) => d.error_rate),
         smooth: true,
-        yAxisIndex: 1,
-        lineStyle: { width: 2, color: "#ef4444", type: "dashed" },
+        lineStyle: { width: 2, color: "#ef4444" },
         symbolSize: 5,
       },
     ],
@@ -328,7 +442,14 @@ const renderTrendChart = () => {
 };
 
 const renderCharts = () => {
-  renderTrendChart();
+  renderCrawlChart();
+  renderCpuChart();
+  renderNetworkChart();
+};
+
+const onRangeChange = (value: RangeKey) => {
+  if (range.value === value) return;
+  range.value = value;
 };
 
 const handleResize = () => {
@@ -341,8 +462,7 @@ const loadData = async () => {
 
   try {
     const { data } = await adminAnalyticsAPI.getOpsOverview({
-      start_date: dateFilter.value.start,
-      end_date: dateFilter.value.end,
+      range: range.value,
       system: system.value,
     });
     overview.value = data;
@@ -361,7 +481,7 @@ const loadData = async () => {
 };
 
 const resetFilters = () => {
-  dateFilter.value = { start: getDateNDaysAgo(6), end: getDateNDaysAgo(0) };
+  range.value = "7d";
   system.value = "all";
   loadData();
 };
@@ -392,14 +512,17 @@ const formatDateTime = (value: string | null) => {
 const formatTimeLabel = (value: string) => {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
+
+  // 최근 1시간 범위일 때는 시:분 중심으로 표시
+  if (range.value === "1h") {
+    return d.toLocaleTimeString("ko-KR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
   return `${d.getMonth() + 1}/${d.getDate()}`;
 };
-
-function getDateNDaysAgo(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
-}
 
 onMounted(() => {
   loadData();
@@ -450,6 +573,20 @@ onMounted(() => {
   border-radius: 12px;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
   font-weight: 700;
+}
+
+.data-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.data-mode-toggle input {
+  width: 14px;
+  height: 14px;
 }
 
 .sync .dot {
@@ -505,20 +642,7 @@ onMounted(() => {
   font-weight: 700;
 }
 
-.date-range {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 8px;
-  align-items: center;
-}
-
-.date-range .tilde {
-  color: #94a3b8;
-  font-weight: 700;
-}
-
-.filter select,
-.filter input[type="date"] {
+.filter select {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   padding: 10px 12px;
@@ -527,6 +651,31 @@ onMounted(() => {
 
 .filter.wide {
   grid-column: span 2;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  gap: 4px;
+}
+
+.segmented button {
+  border: none;
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.segmented button.active {
+  background: #2563eb;
+  color: #f9fafb;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.35);
 }
 
 .actions {
@@ -625,13 +774,6 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 12px;
-  margin-top: 12px;
-}
-
 .card {
   background: #fff;
   border: 1px solid #e2e8f0;
@@ -655,7 +797,91 @@ onMounted(() => {
 
 .chart {
   width: 100%;
-  height: 360px;
+  height: 260px;
+}
+
+.chart-small {
+  height: 260px;
+}
+
+.charts-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.ops-lists-card {
+  margin-top: 12px;
+}
+
+.ops-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.ops-list-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ops-list-title {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.alert-list,
+.todo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.alert-item,
+.todo-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.alert-main,
+.todo-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.alert-title,
+.todo-title {
+  margin: 0;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.alert-desc,
+.todo-desc {
+  margin: 0;
+  font-size: 13px;
+  color: #475569;
+}
+
+.alert-meta,
+.todo-meta {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .incident-list {

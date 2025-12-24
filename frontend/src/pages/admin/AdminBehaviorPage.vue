@@ -11,6 +11,15 @@
       <div class="sync">
         <span class="dot" :class="loading ? 'syncing' : 'ok'"></span>
         <span v-if="lastUpdated">동기화: {{ lastUpdated }}</span>
+        <label class="data-mode-toggle">
+          <input
+            type="checkbox"
+            v-model="includeTestData"
+            :disabled="loading"
+            @change="onDataModeChanged"
+          />
+          <span>테스트 데이터 포함</span>
+        </label>
       </div>
     </header>
 
@@ -29,13 +38,6 @@
           <option value="all">전체</option>
           <option value="consumer">일반회원</option>
           <option value="seller">판매자</option>
-        </select>
-      </div>
-      <div class="filter">
-        <span class="label">데이터 범위</span>
-        <select v-model="dataMode">
-          <option value="all">테스트 데이터 + 실데이터</option>
-          <option value="real">실데이터만</option>
         </select>
       </div>
       <div class="actions">
@@ -152,6 +154,7 @@ echarts.use([
 const dateRange = ref({ start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) });
 const segment = ref("all");
 const dataMode = ref<"all" | "real">("all");
+const includeTestData = ref(true);
 
 const appliedFilters = ref({
   start: dateRange.value.start,
@@ -187,6 +190,11 @@ const segmentLabel = (value: string) => {
 const appliedSegmentLabel = computed(() =>
   segmentLabel(appliedFilters.value.segment)
 );
+
+const onDataModeChanged = () => {
+  dataMode.value = includeTestData.value ? "all" : "real";
+  loadData();
+};
 
 const trendData = computed<BehaviorTrendPoint[]>(
   () => overview.value?.trend ?? []
@@ -349,6 +357,7 @@ const resetFilters = () => {
   dateRange.value = { start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) };
   segment.value = "all";
   dataMode.value = "all";
+  includeTestData.value = true;
   loadData();
 };
 
@@ -421,6 +430,20 @@ onMounted(() => {
   border-radius: 12px;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
   font-weight: 700;
+}
+
+.data-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.data-mode-toggle input {
+  width: 14px;
+  height: 14px;
 }
 
 .sync .dot {

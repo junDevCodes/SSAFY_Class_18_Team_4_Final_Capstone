@@ -6,7 +6,14 @@
         <h1>유저 관리</h1>
         <p class="sub">역할, 상태, 가입일 기준으로 유저를 검색하고 관리하는 화면입니다.</p>
       </div>
-      <p v-if="lastUpdated" class="updated">최근 동기화: {{ lastUpdated }}</p>
+      <div class="sync">
+        <span class="dot" :class="loading ? 'syncing' : 'ok'"></span>
+        <span v-if="lastUpdated">동기화: {{ lastUpdated }}</span>
+        <label class="data-mode-toggle">
+          <input type="checkbox" disabled />
+          <span>테스트 데이터 없음</span>
+        </label>
+      </div>
     </header>
 
     <section class="summary" v-if="summary">
@@ -376,9 +383,44 @@ onMounted(() => {
   margin: 6px 0;
 }
 
-.updated {
-  font-size: 12px;
-  color: #64748b;
+.sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  font-weight: 700;
+}
+
+.sync .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.sync .ok {
+  background: #10b981;
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.15);
+}
+
+.sync .syncing {
+  background: #f59e0b;
+  animation: pulse 1.4s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+  }
 }
 
 .sub {
@@ -391,6 +433,20 @@ onMounted(() => {
   text-transform: uppercase;
   color: #22b8cf;
   font-weight: 700;
+}
+
+.data-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.data-mode-toggle input {
+  width: 14px;
+  height: 14px;
 }
 
 .filters {

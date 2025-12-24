@@ -11,6 +11,15 @@
       <div class="sync">
         <span class="dot" :class="loading ? 'syncing' : 'ok'"></span>
         <span>동기화: {{ lastUpdated }}</span>
+        <label class="data-mode-toggle">
+          <input
+            type="checkbox"
+            v-model="includeTestData"
+            :disabled="loading"
+            @change="onDataModeChanged"
+          />
+          <span>테스트 데이터 포함</span>
+        </label>
       </div>
     </header>
 
@@ -51,13 +60,6 @@
           <option value="price_model">Price log Model</option>
           <option value="personalized">Personalized Model</option>
           <option value="gapfill">Gap Filling Model</option>
-        </select>
-      </div>
-      <div class="filter">
-        <span class="label">데이터 범위</span>
-        <select v-model="dataMode">
-          <option value="all">테스트 데이터 + 실데이터</option>
-          <option value="real">실데이터만</option>
         </select>
       </div>
       <div class="actions">
@@ -243,6 +245,7 @@ const algorithm = ref<"all" | "price_model" | "personalized" | "gapfill">(
   "all"
 );
 const dataMode = ref<"all" | "real">("all");
+const includeTestData = ref(true);
 
 const appliedFilters = ref({
   start: dateRange.value.start,
@@ -290,6 +293,11 @@ const segmentLabel = (value: string) => {
 const appliedSegmentLabel = computed(() =>
   segmentLabel(appliedFilters.value.segment)
 );
+
+const onDataModeChanged = () => {
+  dataMode.value = includeTestData.value ? "all" : "real";
+  loadData();
+};
 
 const recoKpiCards = computed<DashboardKpiCard[]>(() => {
   const src = overview.value?.kpis ?? [];
@@ -605,6 +613,7 @@ const resetFilters = () => {
   segment.value = "all";
   algorithm.value = "all";
   dataMode.value = "all";
+  includeTestData.value = true;
   loadData();
 };
 
@@ -738,6 +747,20 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
   font-weight: 700;
+}
+
+.data-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.data-mode-toggle input {
+  width: 14px;
+  height: 14px;
 }
 
 .sync .dot {

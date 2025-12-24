@@ -11,6 +11,15 @@
       <div class="sync">
         <span class="dot" :class="loading ? 'syncing' : 'ok'"></span>
         <span>동기화: {{ lastUpdated }}</span>
+        <label class="data-mode-toggle">
+          <input
+            type="checkbox"
+            v-model="includeTestData"
+            :disabled="loading"
+            @change="onDataModeChanged"
+          />
+          <span>테스트 데이터 포함</span>
+        </label>
       </div>
     </header>
 
@@ -42,13 +51,6 @@
           <option value="all">전체</option>
           <option value="consumer">일반회원</option>
           <option value="seller">판매자</option>
-        </select>
-      </div>
-      <div class="filter">
-        <span class="label">데이터 범위</span>
-        <select v-model="dataMode">
-          <option value="all">테스트 데이터 + 실데이터</option>
-          <option value="real">실데이터만</option>
         </select>
       </div>
       <div class="actions">
@@ -112,8 +114,8 @@
         <article class="card">
           <header class="card-head">
             <div>
-              <p class="eyebrow">상위 5개</p>
-              <h3>카테고리별 성과</h3>
+              <p class="eyebrow">Top Categories</p>
+              <h3>카테고리별 성과 (최대 5개)</h3>
             </div>
             <span class="hint">매출 / 주문 / 전환율</span>
           </header>
@@ -236,6 +238,7 @@ const appliedGranularity = ref<Granularity>("daily");
 const dateRange = ref({ start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) });
 const segment = ref("all");
 const dataMode = ref<"all" | "real">("all");
+const includeTestData = ref(true);
 
 const appliedFilters = ref({
   start: dateRange.value.start,
@@ -306,6 +309,11 @@ const appliedSegmentLabel = computed(() =>
   segmentLabel(appliedFilters.value.segment)
 );
 
+const onDataModeChanged = () => {
+  dataMode.value = includeTestData.value ? "all" : "real";
+  loadData();
+};
+
 const loadData = async () => {
   if (!dateRange.value.start || !dateRange.value.end) {
     errorMessage.value = "조회 기간을 선택해주세요.";
@@ -358,7 +366,8 @@ const resetFilters = () => {
   appliedGranularity.value = "daily";
   dateRange.value = { start: getDateNDaysAgo(13), end: getDateNDaysAgo(0) };
   segment.value = "all";
-   dataMode.value = "all";
+  dataMode.value = "all";
+  includeTestData.value = true;
   loadData();
 };
 
@@ -499,18 +508,50 @@ const topRiskAlert = computed<OpsAlert | null>(() => {
 
 const riskAlerts = computed<RiskAlert[]>(() => {
   const alert = topRiskAlert.value;
-  if (!alert) return [];
+  const todosSource = opsTodos.value;
 
-  return [
-    {
-      id: alert.id,
-      level: (alert.severity as RiskLevel) ?? "low",
-      title: alert.title,
-      description: alert.description,
-      metric: alert.metric,
-      meta: `집계: ${appliedFilters.value.start} ~ ${appliedFilters.value.end}`,
-    },
-  ];
+  if (alert) {
+    return [
+      {
+        id: alert.id,
+        level: (alert.severity as RiskLevel) ?? "low",
+        title: alert.title,
+        description: alert.description,
+        metric: alert.metric,
+        meta: `집계: ${appliedFilters.value.start} ~ ${appliedFilters.value.end}`,
+      },
+    ];
+  }
+
+  // Alert 가 없지만 운영 To-do 가 있는 경우, To-do 우선순위 기반으로 Top1을 리스크로 승격
+  if (todosSource.length) {
+    const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
+    const best = [...todosSource].sort(
+      (a, b) =>
+        (order[(a.priority as string) ?? "medium"] ?? 1) -
+        (order[(b.priority as string) ?? "medium"] ?? 1)
+    )[0];
+
+    const levelMap: Record<string, RiskLevel> = {
+      high: "high",
+      medium: "medium",
+      low: "low",
+    };
+    const level = levelMap[(best.priority as string) ?? "medium"] ?? "low";
+
+    return [
+      {
+        id: `todo-fallback-${best.id}`,
+        level,
+        title: best.title,
+        description: best.description,
+        metric: "운영 To-do 기반",
+        meta: best.meta || `집계: ${appliedFilters.value.start} ~ ${appliedFilters.value.end}`,
+      },
+    ];
+  }
+
+  return [];
 });
 
 const actionTodos = computed<TodoItem[]>(() => {
@@ -518,7 +559,7 @@ const actionTodos = computed<TodoItem[]>(() => {
   const todos: TodoItem[] = [];
   const sourceTodos = opsTodos.value;
 
-  if (alert) {
+  if (alert && sourceTodos.length) {
     const related =
       sourceTodos.find((t) => t.related_alert_id === alert.id) ?? sourceTodos[0];
     if (related) {
@@ -534,12 +575,18 @@ const actionTodos = computed<TodoItem[]>(() => {
   }
 
   if (sourceTodos.length) {
-    const t = sourceTodos[0];
+    const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
+    const best = [...sourceTodos].sort(
+      (a, b) =>
+        (order[(a.priority as string) ?? "medium"] ?? 1) -
+        (order[(b.priority as string) ?? "medium"] ?? 1)
+    )[0];
+
     todos.push({
-      id: t.id,
-      title: t.title,
-      description: t.description,
-      meta: t.meta,
+      id: best.id,
+      title: best.title,
+      description: best.description,
+      meta: best.meta,
       done: false,
     });
   }
@@ -601,13 +648,17 @@ const renderBreakdownChart = () => {
   const chart = getChart("breakdown", breakdownChartRef.value);
   if (!chart) return;
   const data = breakdownData.value;
+  const sorted = [...data].sort(
+    (a, b) => (b.revenue ?? 0) - (a.revenue ?? 0)
+  );
+  const top = sorted.slice(0, 5);
   chart.setOption({
     grid: { top: 40, left: 56, right: 40, bottom: 92 },
     tooltip: { trigger: "axis" },
     legend: { data: ["매출", "주문", "전환율"], bottom: 8 },
     xAxis: {
       type: "category",
-      data: data.map((d) => d.name),
+      data: top.map((d) => d.name),
       axisLabel: { rotate: 18 },
     },
     yAxis: [
@@ -618,14 +669,14 @@ const renderBreakdownChart = () => {
       {
         name: "매출",
         type: "bar",
-        data: data.map((d) => d.revenue),
+        data: top.map((d) => d.revenue),
         itemStyle: { color: "#22c55e" },
         barWidth: 12,
       },
       {
         name: "주문",
         type: "bar",
-        data: data.map((d) => d.orders),
+        data: top.map((d) => d.orders),
         itemStyle: { color: "#a855f7" },
         barWidth: 12,
         barGap: "25%",
@@ -634,7 +685,7 @@ const renderBreakdownChart = () => {
         name: "전환율",
         type: "line",
         yAxisIndex: 1,
-        data: data.map((d) => d.conversion),
+        data: top.map((d) => d.conversion),
         smooth: true,
         lineStyle: { width: 2.5, color: "#f59e0b" },
         symbolSize: 7,
@@ -872,7 +923,7 @@ function buildMockOverview(): AnalyticsOverview {
 
 <style scoped>
 .admin-analytics {
-  padding: 24px 22px 48px;
+  padding: 32px 24px 52px;
   background: #f6f7fb;
   min-height: 100vh;
   color: #0f172a;
@@ -883,7 +934,7 @@ function buildMockOverview(): AnalyticsOverview {
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .page-header h1 {
@@ -985,7 +1036,7 @@ function buildMockOverview(): AnalyticsOverview {
 }
 
 .dashboard-section {
-  margin-top: 16px;
+  margin-top: 20px;
 }
 
 .section-head {
@@ -1112,7 +1163,21 @@ function buildMockOverview(): AnalyticsOverview {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
-  margin: 10px 0 8px 0;
+  margin: 12px 0 10px 0;
+}
+
+.data-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.data-mode-toggle input {
+  width: 14px;
+  height: 14px;
 }
 
 .kpi-card {
