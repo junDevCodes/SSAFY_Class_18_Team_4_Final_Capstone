@@ -1438,6 +1438,7 @@ class RecipePickleModel(HybridModel):
         self,
         ingredient: str,
         limit: int = 3,
+        exclude_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
         """재료명으로 상품 검색 (검색처럼 유연하게 + 판매량 기반 정렬)
 
@@ -1449,6 +1450,7 @@ class RecipePickleModel(HybridModel):
         - 더 유연한 검색 (재료명 포함 시 허용)
         - 판매량(order_event_count) 기준 정렬 우선
         - 검증 완화로 더 많은 상품 매칭
+        - 중복 상품 제외 (exclude_ids)
 
         예: '계란' 검색 시 → ['계란', '달걀', '유정란', '왕란', '특란', ...]
             '참깨' 검색 시 → ['참깨', '볶음참깨', '통참깨', '깨', ...]
@@ -1456,12 +1458,16 @@ class RecipePickleModel(HybridModel):
         Args:
             ingredient: 재료명 (레시피의 gap 재료)
             limit: 검색 결과 개수
+            exclude_ids: 제외할 상품 ID 목록 (이미 추천된 상품)
 
         Returns:
             매칭된 상품 목록 (판매량 순 정렬)
         """
         if not ingredient:
             return []
+
+        exclude_ids = exclude_ids or []
+        exclude_set = set(exclude_ids)
 
         # 검색 키워드 생성 (역매핑 활용)
         search_terms = []
@@ -1522,10 +1528,15 @@ class RecipePickleModel(HybridModel):
 
         records = await self.db.fetch_all(query, *params)
 
-        # 검증 후 필터링 (유연 모드)
+        # 검증 후 필터링 (유연 모드 + 중복 제외)
         validated_products = []
         for r in records:
+            product_id = r['id']
             product_name = r['name']
+
+            # 이미 추천된 상품 제외
+            if product_id in exclude_set:
+                continue
 
             # 상품이 실제로 해당 재료인지 검증 (유연 모드)
             if not self._is_valid_ingredient_product(product_name, ingredient, strict_mode=False):
@@ -1533,7 +1544,7 @@ class RecipePickleModel(HybridModel):
                 continue
 
             validated_products.append({
-                'product_id': r['id'],
+                'product_id': product_id,
                 'name': product_name,
                 'slug': r['slug'],
                 'price': r['price'],
@@ -1544,6 +1555,9 @@ class RecipePickleModel(HybridModel):
                 'rating': float(r['rating']) if r['rating'] else 0,
                 'ingredient': ingredient,  # 원본 재료명 기록
             })
+
+            # 추가된 상품도 exclude_set에 추가 (같은 재료 내 중복 방지)
+            exclude_set.add(product_id)
 
             if len(validated_products) >= limit:
                 break
@@ -1578,13 +1592,19 @@ class RecipePickleModel(HybridModel):
             )
 
             for r in simple_records:
+                product_id = r['id']
                 product_name = r['name']
+
+                # 이미 추천된 상품 제외
+                if product_id in exclude_set:
+                    continue
+
                 # 완제품만 필터링
                 if self._is_ready_made_product(product_name):
                     continue
 
                 validated_products.append({
-                    'product_id': r['id'],
+                    'product_id': product_id,
                     'name': product_name,
                     'slug': r['slug'],
                     'price': r['price'],
@@ -1595,6 +1615,8 @@ class RecipePickleModel(HybridModel):
                     'rating': float(r['rating']) if r['rating'] else 0,
                     'ingredient': ingredient,
                 })
+
+                exclude_set.add(product_id)
 
                 if len(validated_products) >= limit:
                     break
@@ -1904,15 +1926,17 @@ class RecipePickleModel(HybridModel):
             limit: 검색 결과 개수
 
         Returns:
-            매칭된 상품 목록 (판매량 순 정렬)
+            매칭된 상품 목록 (판매량 순 정렬, 중복 없음)
         """
         if not ingredient:
             return []
 
-        exclude_ids = exclude_ids or []
+        # Set으로 관리하여 중복 방지
+        seen_ids: Set[int] = set(exclude_ids) if exclude_ids else set()
         results = []
 
         # 1단계: parsed_ingredients->>'main_ingredient' 정확 매칭
+        exclude_list = list(seen_ids)
         query_parsed = """
             SELECT p.id, p.name, p.slug, p.price, p.original_price,
                    (
@@ -1932,12 +1956,16 @@ class RecipePickleModel(HybridModel):
             LIMIT $3
         """
         records_parsed = await self.db.fetch_all(
-            query_parsed, ingredient, exclude_ids, limit
+            query_parsed, ingredient, exclude_list, limit
         )
 
         for r in records_parsed:
+            product_id = r['id']
+            if product_id in seen_ids:
+                continue
+            seen_ids.add(product_id)
             results.append({
-                'product_id': r['id'],
+                'product_id': product_id,
                 'name': r['name'],
                 'slug': r['slug'],
                 'price': r['price'],
@@ -1946,24 +1974,26 @@ class RecipePickleModel(HybridModel):
                 'order_count': r['order_count'],
                 'ingredient': ingredient,
             })
-
-        # 결과가 충분하면 반환
-        if len(results) >= limit:
-            return results[:limit]
+            if len(results) >= limit:
+                return results[:limit]
 
         # 2단계: 기존 검색 로직으로 보완
         remaining = limit - len(results)
-        existing_ids = [r['product_id'] for r in results] + exclude_ids
+        if remaining <= 0:
+            return results[:limit]
 
         additional = await self._search_products_for_ingredient(
-            ingredient, limit=remaining + 5
+            ingredient, limit=remaining + 5, exclude_ids=list(seen_ids)
         )
 
         for p in additional:
-            if p['product_id'] not in existing_ids:
-                results.append(p)
-                if len(results) >= limit:
-                    break
+            product_id = p['product_id']
+            if product_id in seen_ids:
+                continue
+            seen_ids.add(product_id)
+            results.append(p)
+            if len(results) >= limit:
+                break
 
         return results[:limit]
 
@@ -1972,118 +2002,519 @@ class RecipePickleModel(HybridModel):
         cart_product_ids: List[int],
         limit: int = 20,
     ) -> Dict[str, Any]:
-        """장바구니 기반 간단 추천 API (상품만 반환)
+        """장바구니 기반 하이브리드 추천 API (Kaggle 최상위 랭커 수준)
 
-        레시피 정보 없이 추천 상품만 반환하는 간소화된 API입니다.
-        parsed_ingredients.main_ingredient 필드를 우선 사용합니다.
+        다단계 하이브리드 추천 시스템:
+        1. 레시피 모델 (v2 Masked Set Transformer) - 재료 기반 추천
+        2. AIRScout (RoBERTa semantic) - 컨텍스트 기반 보완/재정렬
+        3. 폴백: 부족하면 AIRScout 단독 추천으로 채움
+
+        핵심 원칙 (Netflix Prize / Kaggle 최상위):
+        - 항상 limit개를 채움 (빈 결과 없음)
+        - 다양성 보장 (같은 카테고리 집중 방지)
+        - Cold Start 완벽 대응 (AIRScout 폴백)
 
         Args:
             cart_product_ids: 장바구니 상품 ID 목록
-            limit: 추천 상품 개수 (최대)
+            limit: 추천 상품 개수 (항상 이 개수를 채움)
 
         Returns:
             {
-                'products': [상품 목록 - 최대 limit개],
+                'products': [상품 목록 - 정확히 limit개],
                 'cart_ingredients': [인식된 재료],
-                'model_version': 'v2',
+                'model_version': 'hybrid_v2',
+                'recommendation_sources': {'recipe': N, 'airscout': M},
             }
         """
-        if not cart_product_ids:
-            return {
-                'products': [],
-                'cart_ingredients': [],
-                'model_version': 'v2',
-            }
+        seen_product_ids = set(cart_product_ids)  # 장바구니 상품 제외
+        all_products = []
+        cart_ingredients = []
+        recommendation_sources = {'recipe': 0, 'airscout': 0, 'popular': 0}
 
-        # 1. 장바구니 상품에서 재료 추출 (parsed_ingredients 우선)
+        # ===== Stage 1: 레시피 모델 추천 =====
+        if cart_product_ids:
+            recipe_products, cart_ingredients = await self._get_recipe_based_recommendations(
+                cart_product_ids=cart_product_ids,
+                limit=limit,
+                exclude_ids=seen_product_ids,
+            )
+
+            for p in recipe_products:
+                if p['product_id'] not in seen_product_ids:
+                    seen_product_ids.add(p['product_id'])
+                    p['recommendation_source'] = 'recipe'
+                    all_products.append(p)
+                    recommendation_sources['recipe'] += 1
+
+        # ===== Stage 2: AIRScout 보완 (부족분 채우기) =====
+        remaining = limit - len(all_products)
+        if remaining > 0:
+            airscout_products = await self._get_airscout_recommendations(
+                cart_product_ids=cart_product_ids,
+                limit=remaining * 2,  # 여유분 확보 (중복 제거용)
+                exclude_ids=seen_product_ids,
+            )
+
+            for p in airscout_products:
+                if len(all_products) >= limit:
+                    break
+                if p['product_id'] not in seen_product_ids:
+                    seen_product_ids.add(p['product_id'])
+                    p['recommendation_source'] = 'airscout'
+                    all_products.append(p)
+                    recommendation_sources['airscout'] += 1
+
+        # ===== Stage 3: 인기 상품 폴백 (최후의 보루) =====
+        remaining = limit - len(all_products)
+        if remaining > 0:
+            popular_products = await self._get_popular_fallback(
+                limit=remaining * 2,
+                exclude_ids=seen_product_ids,
+            )
+
+            for p in popular_products:
+                if len(all_products) >= limit:
+                    break
+                if p['product_id'] not in seen_product_ids:
+                    seen_product_ids.add(p['product_id'])
+                    p['recommendation_source'] = 'popular'
+                    all_products.append(p)
+                    recommendation_sources['popular'] += 1
+
+        # ===== Stage 4: 하이브리드 점수 계산 및 최종 정렬 =====
+        if all_products and cart_product_ids:
+            all_products = await self._compute_hybrid_scores_and_rank(
+                cart_product_ids=cart_product_ids,
+                products=all_products,
+            )
+
+        # 다양성 보장: 같은 카테고리 연속 방지
+        all_products = self._ensure_diversity(all_products, limit)
+
+        logger.info(
+            f"하이브리드 추천 완료: {len(all_products)}개",
+            extra={
+                "sources": recommendation_sources,
+                "cart_size": len(cart_product_ids),
+                "ingredients": cart_ingredients[:3],
+            },
+        )
+
+        return {
+            'products': all_products[:limit],
+            'cart_ingredients': cart_ingredients,
+            'model_version': 'hybrid_v2',
+            'recommendation_sources': recommendation_sources,
+        }
+
+    async def _get_recipe_based_recommendations(
+        self,
+        cart_product_ids: List[int],
+        limit: int,
+        exclude_ids: Set[int],
+    ) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """레시피 모델 기반 추천 (Stage 1)
+
+        Args:
+            cart_product_ids: 장바구니 상품 ID
+            limit: 추천 개수
+            exclude_ids: 제외할 상품 ID
+
+        Returns:
+            (추천 상품 목록, 인식된 재료 목록)
+        """
+        # 1. 장바구니에서 재료 추출
         cart_ingredients, detected_dishes = await self._get_ingredients_from_cart_with_parsed(
             cart_product_ids
         )
 
         if not cart_ingredients:
-            logger.warning(f"재료 인식 실패: product_ids={cart_product_ids}")
-            return {
-                'products': [],
-                'cart_ingredients': [],
-                'model_version': 'v2',
-            }
-
-        logger.info(
-            f"장바구니 재료 인식: {len(cart_ingredients)}개",
-            extra={"ingredients": cart_ingredients[:5], "dishes": detected_dishes},
-        )
+            logger.debug("재료 인식 실패, 빈 결과 반환")
+            return [], []
 
         # 2. ML 모델로 추천 재료 생성
         recommended_ingredients = []
 
         if self._use_v2_model and self._v2_model:
-            # v2 모델: Masked Set Transformer로 재료 추천
             recommended_ingredients = self._recommend_with_v2_model(
                 cart_ingredients,
-                top_k=min(limit, 15),  # 추천 재료 개수
-            )
-            logger.info(
-                f"v2 모델 추천: {len(recommended_ingredients)}개 재료",
-                extra={"recommendations": recommended_ingredients[:5]},
+                top_k=min(limit, 15),
             )
         elif self._use_pickle and self._pickle_model:
-            # v1 모델: 레시피 기반 Gap 재료 추출
             recipes = self._recommend_with_pickle(
                 cart_ingredients,
                 detected_dishes=detected_dishes,
                 limit=5,
             )
-            # 모든 레시피의 gap 재료 수집
             all_gaps = set()
             for recipe in recipes:
                 all_gaps.update(recipe.get('gap_ingredients', [])[:5])
             recommended_ingredients = list(all_gaps)[:15]
 
+        # ML 모델이 추천 재료를 생성하지 못한 경우:
+        # 장바구니 재료 자체로 연관 상품 검색 (폴백)
         if not recommended_ingredients:
-            logger.warning("추천 재료 없음")
-            return {
-                'products': [],
-                'cart_ingredients': cart_ingredients,
-                'model_version': 'v2' if self._use_v2_model else 'v1',
-            }
+            logger.debug(f"ML 모델 추천 실패, 장바구니 재료({cart_ingredients})로 직접 검색")
+            # 장바구니 재료와 관련된 상품 직접 검색
+            products = []
+            local_seen = set(exclude_ids)
+            used_ingredients = set()  # 이미 사용한 재료 추적
 
-        # 3. 추천 재료별 상품 검색 (parsed_ingredients 활용)
-        products = []
-        seen_product_ids = set(cart_product_ids)  # 장바구니 상품 제외
+            # 라운드 로빈 방식: 각 재료에서 1개씩 순환하며 가져오기
+            round_num = 0
+            max_rounds = limit  # 최대 라운드 수
 
-        for ingredient in recommended_ingredients:
-            if len(products) >= limit:
-                break
-
-            # 재료당 검색할 상품 수 계산
-            remaining = limit - len(products)
-            per_ingredient = max(1, min(3, remaining // max(1, len(recommended_ingredients) - recommended_ingredients.index(ingredient))))
-
-            found_products = await self._search_products_for_ingredient_with_parsed(
-                ingredient,
-                exclude_ids=list(seen_product_ids),
-                limit=per_ingredient,
-            )
-
-            for p in found_products:
-                if p['product_id'] not in seen_product_ids:
-                    seen_product_ids.add(p['product_id'])
-                    p['ingredient'] = ingredient  # 어떤 재료로 추천되었는지 기록
-                    products.append(p)
-
+            while len(products) < limit and round_num < max_rounds:
+                added_this_round = False
+                for ingredient in cart_ingredients:
                     if len(products) >= limit:
                         break
 
-        logger.info(
-            f"최종 추천 상품: {len(products)}개",
-            extra={"product_ids": [p['product_id'] for p in products[:5]]},
+                    # 재료명으로 직접 상품 검색 (1개씩)
+                    found_products = await self._search_products_for_ingredient_with_parsed(
+                        ingredient,
+                        exclude_ids=list(local_seen),
+                        limit=1,
+                    )
+
+                    for p in found_products:
+                        if p['product_id'] not in local_seen:
+                            local_seen.add(p['product_id'])
+                            p['ingredient'] = ingredient
+                            products.append(p)
+                            added_this_round = True
+                            break  # 이 재료에서 1개만
+
+                if not added_this_round:
+                    break  # 더 이상 추가할 상품 없음
+                round_num += 1
+
+            return products, cart_ingredients
+
+        # 3. 재료별 상품 검색 (라운드 로빈 방식으로 다양성 보장)
+        products = []
+        local_seen = set(exclude_ids)
+
+        # 라운드 로빈: 각 재료에서 1개씩 순환하며 가져오기
+        round_num = 0
+        max_rounds = limit  # 최대 라운드 수
+
+        while len(products) < limit and round_num < max_rounds:
+            added_this_round = False
+            for ingredient in recommended_ingredients:
+                if len(products) >= limit:
+                    break
+
+                found_products = await self._search_products_for_ingredient_with_parsed(
+                    ingredient,
+                    exclude_ids=list(local_seen),
+                    limit=1,  # 각 재료에서 1개씩만
+                )
+
+                for p in found_products:
+                    if p['product_id'] not in local_seen:
+                        local_seen.add(p['product_id'])
+                        p['ingredient'] = ingredient
+                        products.append(p)
+                        added_this_round = True
+                        break  # 이 재료에서 1개만
+
+            if not added_this_round:
+                break  # 더 이상 추가할 상품 없음
+            round_num += 1
+
+        return products, cart_ingredients
+
+    async def _get_airscout_recommendations(
+        self,
+        cart_product_ids: List[int],
+        limit: int,
+        exclude_ids: Set[int],
+    ) -> List[Dict[str, Any]]:
+        """AIRScout 단독 추천 (Stage 2 - 부족분 채우기)
+
+        장바구니 상품의 semantic 유사도 기반으로 추천
+
+        Args:
+            cart_product_ids: 장바구니 상품 ID
+            limit: 추천 개수
+            exclude_ids: 제외할 상품 ID
+
+        Returns:
+            AIRScout 기반 추천 상품 목록
+        """
+        try:
+            from ml.models.airscout_model import AIRScoutModel, ENABLE_AIRSCOUT_BOOST
+
+            if not ENABLE_AIRSCOUT_BOOST:
+                return []
+
+            airscout = await AIRScoutModel.get_instance(db=self.db)
+
+            # 장바구니 상품명으로 쿼리 생성
+            cart_product_names = await self._get_product_names_by_ids(cart_product_ids[:5])
+            if not cart_product_names:
+                return []
+
+            query_text = " ".join(cart_product_names)
+
+            # 후보 상품 조회 (인기 상품 기반)
+            candidate_products = await self._get_candidate_products_for_airscout(
+                limit=limit * 3,  # 여유분 확보
+                exclude_ids=exclude_ids,
+            )
+
+            if not candidate_products:
+                return []
+
+            # 상품명으로 semantic 점수 계산
+            product_names = [p.get("name", "") for p in candidate_products]
+
+            semantic_scores = await airscout.compute_recipe_semantic_scores(
+                query_text=query_text,
+                recipe_texts=product_names,
+            )
+
+            # 점수 할당 및 정렬
+            for i, product in enumerate(candidate_products):
+                if i < len(semantic_scores):
+                    product["airscout_score"] = float(semantic_scores[i])
+                else:
+                    product["airscout_score"] = 0.0
+
+            # semantic 점수로 정렬
+            sorted_products = sorted(
+                candidate_products,
+                key=lambda p: p.get("airscout_score", 0),
+                reverse=True
+            )
+
+            logger.debug(
+                f"AIRScout 단독 추천: {len(sorted_products[:limit])}개",
+                extra={
+                    "query": query_text[:30],
+                    "top_score": sorted_products[0].get("airscout_score", 0) if sorted_products else 0,
+                }
+            )
+
+            return sorted_products[:limit]
+
+        except Exception as e:
+            logger.warning(f"AIRScout 추천 실패: {e}")
+            return []
+
+    async def _get_candidate_products_for_airscout(
+        self,
+        limit: int,
+        exclude_ids: Set[int],
+    ) -> List[Dict[str, Any]]:
+        """AIRScout용 후보 상품 조회 (인기 상품 기반)
+
+        Args:
+            limit: 조회 개수
+            exclude_ids: 제외할 상품 ID
+
+        Returns:
+            후보 상품 목록
+        """
+        try:
+            exclude_list = list(exclude_ids) if exclude_ids else []
+
+            if exclude_list:
+                placeholders = ", ".join(f"${i+2}" for i in range(len(exclude_list)))
+                exclude_clause = f"AND p.id NOT IN ({placeholders})"
+                params = [limit * 2] + exclude_list
+            else:
+                exclude_clause = ""
+                params = [limit * 2]
+
+            query = f"""
+                SELECT
+                    p.id AS product_id,
+                    p.name,
+                    p.slug,
+                    p.price,
+                    p.original_price,
+                    (SELECT pi.image_url FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.display_order ASC, pi.id LIMIT 1) AS main_image,
+                    COALESCE(ps.order_event_count, 0) AS order_count,
+                    p.category_id
+                FROM products p
+                LEFT JOIN product_stats ps ON p.id = ps.product_id
+                WHERE p.status = 'active'
+                {exclude_clause}
+                ORDER BY COALESCE(ps.order_event_count, 0) DESC, p.id DESC
+                LIMIT $1
+            """
+
+            records = await self.db.fetch_all(query, *params)
+
+            return [
+                {
+                    "product_id": r["product_id"],
+                    "name": r["name"],
+                    "slug": r["slug"],
+                    "price": r["price"],
+                    "original_price": r["original_price"],
+                    "main_image": r["main_image"],
+                    "order_count": r["order_count"],
+                    "category_id": r["category_id"],
+                }
+                for r in records
+            ]
+
+        except Exception as e:
+            logger.warning(f"후보 상품 조회 실패: {e}")
+            return []
+
+    async def _get_popular_fallback(
+        self,
+        limit: int,
+        exclude_ids: Set[int],
+    ) -> List[Dict[str, Any]]:
+        """인기 상품 폴백 (Stage 3 - 최후의 보루)
+
+        Args:
+            limit: 조회 개수
+            exclude_ids: 제외할 상품 ID
+
+        Returns:
+            인기 상품 목록
+        """
+        return await self._get_candidate_products_for_airscout(
+            limit=limit,
+            exclude_ids=exclude_ids,
         )
 
-        return {
-            'products': products,
-            'cart_ingredients': cart_ingredients,
-            'model_version': 'v2' if self._use_v2_model else 'v1',
-        }
+    async def _compute_hybrid_scores_and_rank(
+        self,
+        cart_product_ids: List[int],
+        products: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """하이브리드 점수 계산 및 최종 정렬 (Stage 4)
+
+        Netflix Prize 우승 전략:
+        - 여러 모델의 점수를 가중 평균
+        - Semantic 유사도로 최종 보정
+
+        Args:
+            cart_product_ids: 장바구니 상품 ID
+            products: 모든 소스에서 수집된 상품
+
+        Returns:
+            최종 정렬된 상품 목록
+        """
+        if not products:
+            return []
+
+        try:
+            from ml.models.airscout_model import AIRScoutModel, ENABLE_AIRSCOUT_BOOST
+
+            # AIRScout으로 semantic 점수 계산
+            if ENABLE_AIRSCOUT_BOOST:
+                airscout = await AIRScoutModel.get_instance(db=self.db)
+
+                cart_product_names = await self._get_product_names_by_ids(cart_product_ids[:5])
+                if cart_product_names:
+                    query_text = " ".join(cart_product_names)
+                    product_names = [p.get("name", "") for p in products]
+
+                    semantic_scores = await airscout.compute_recipe_semantic_scores(
+                        query_text=query_text,
+                        recipe_texts=product_names,
+                    )
+
+                    for i, product in enumerate(products):
+                        if i < len(semantic_scores):
+                            product["semantic_score"] = float(semantic_scores[i])
+                        else:
+                            product["semantic_score"] = 0.0
+
+            # 하이브리드 점수 계산
+            for i, product in enumerate(products):
+                source = product.get("recommendation_source", "unknown")
+
+                # 소스별 기본 점수
+                if source == "recipe":
+                    base_score = 0.8  # 레시피 모델 추천 = 높은 신뢰도
+                elif source == "airscout":
+                    base_score = 0.6  # AIRScout 단독 = 중간 신뢰도
+                else:
+                    base_score = 0.4  # 인기 상품 폴백 = 낮은 신뢰도
+
+                # 순서 보너스 (앞에 있을수록 높음)
+                order_bonus = 0.2 * (1.0 - i / max(len(products), 1))
+
+                # Semantic 점수 (있으면)
+                semantic_bonus = product.get("semantic_score", 0) * 0.3
+
+                # AIRScout 점수 (있으면)
+                airscout_bonus = product.get("airscout_score", 0) * 0.2
+
+                # 최종 하이브리드 점수
+                product["hybrid_score"] = base_score + order_bonus + semantic_bonus + airscout_bonus
+
+            # 하이브리드 점수로 정렬
+            sorted_products = sorted(
+                products,
+                key=lambda p: p.get("hybrid_score", 0),
+                reverse=True
+            )
+
+            return sorted_products
+
+        except Exception as e:
+            logger.warning(f"하이브리드 점수 계산 실패: {e}")
+            return products
+
+    def _ensure_diversity(
+        self,
+        products: List[Dict[str, Any]],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        """다양성 보장: 같은 카테고리 연속 방지
+
+        Args:
+            products: 정렬된 상품 목록
+            limit: 최종 개수
+
+        Returns:
+            다양성이 보장된 상품 목록
+        """
+        if len(products) <= 3:
+            return products[:limit]
+
+        result = []
+        remaining = list(products)
+        last_category = None
+        consecutive_same_category = 0
+
+        while remaining and len(result) < limit:
+            # 다른 카테고리 상품 찾기
+            found = False
+            for i, product in enumerate(remaining):
+                category = product.get("category_id")
+
+                # 같은 카테고리가 3개 연속이면 다른 카테고리 우선
+                if category == last_category and consecutive_same_category >= 2:
+                    continue
+
+                result.append(product)
+                remaining.pop(i)
+                found = True
+
+                if category == last_category:
+                    consecutive_same_category += 1
+                else:
+                    consecutive_same_category = 1
+                    last_category = category
+
+                break
+
+            # 다른 카테고리가 없으면 그냥 첫 번째 추가
+            if not found and remaining:
+                result.append(remaining.pop(0))
+
+        return result[:limit]
 
     async def enhance_recipes_with_airscout(
         self,
@@ -2155,3 +2586,109 @@ class RecipePickleModel(HybridModel):
         except Exception as e:
             logger.warning(f"AIRScout 레시피 재정렬 실패 (기존 결과 사용): {e}")
             return recipe_candidates[:top_k]
+
+    async def _enhance_products_with_airscout(
+        self,
+        cart_product_ids: List[int],
+        product_candidates: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """AIRScout semantic 유사도로 추천 상품 재정렬
+
+        장바구니 상품명을 쿼리로 사용하여, 추천 상품들의
+        semantic 유사도를 계산하고 점수를 가산합니다.
+
+        Args:
+            cart_product_ids: 장바구니 상품 ID 목록 (쿼리 생성용)
+            product_candidates: 레시피 모델이 추천한 상품 후보
+
+        Returns:
+            AIRScout 점수가 반영되어 재정렬된 상품 목록
+        """
+        if not product_candidates:
+            return []
+
+        try:
+            from ml.models.airscout_model import AIRScoutModel, ENABLE_AIRSCOUT_BOOST
+
+            if not ENABLE_AIRSCOUT_BOOST:
+                return product_candidates
+
+            airscout = await AIRScoutModel.get_instance(db=self.db)
+
+            # 장바구니 상품명으로 쿼리 생성
+            cart_product_names = await self._get_product_names_by_ids(cart_product_ids[:5])
+            if not cart_product_names:
+                return product_candidates
+
+            query_text = " ".join(cart_product_names)
+
+            # 추천 상품명 목록
+            product_names = [p.get("name", "") for p in product_candidates]
+
+            # semantic 유사도 계산
+            semantic_scores = await airscout.compute_recipe_semantic_scores(
+                query_text=query_text,
+                recipe_texts=product_names,  # 상품명을 레시피 텍스트처럼 취급
+            )
+
+            # 기존 점수(순서 기반)와 semantic 점수 혼합
+            for i, product in enumerate(product_candidates):
+                # 기존 순서 기반 점수 (앞에 있을수록 높음)
+                order_score = 1.0 - (i / len(product_candidates))
+
+                if i < len(semantic_scores):
+                    sem_score = float(semantic_scores[i])
+                    # 혼합: 기존 순서 50% + semantic 50%
+                    product["airscout_score"] = sem_score
+                    product["final_score"] = 0.5 * order_score + 0.5 * sem_score
+                else:
+                    product["airscout_score"] = 0.0
+                    product["final_score"] = order_score
+
+            # 최종 점수로 재정렬
+            sorted_products = sorted(
+                product_candidates,
+                key=lambda p: p.get("final_score", 0),
+                reverse=True
+            )
+
+            logger.debug(
+                f"AIRScout 상품 재정렬 완료",
+                extra={
+                    "query": query_text[:50],
+                    "product_count": len(product_candidates),
+                    "top_semantic": round(float(semantic_scores.max()), 3) if len(semantic_scores) > 0 else 0,
+                }
+            )
+
+            return sorted_products
+
+        except Exception as e:
+            logger.warning(f"AIRScout 상품 재정렬 실패 (기존 결과 사용): {e}")
+            return product_candidates
+
+    async def _get_product_names_by_ids(self, product_ids: List[int]) -> List[str]:
+        """상품 ID 목록으로 상품명 조회
+
+        Args:
+            product_ids: 상품 ID 목록
+
+        Returns:
+            상품명 목록
+        """
+        if not product_ids:
+            return []
+
+        try:
+            placeholders = ", ".join(f"${i+1}" for i in range(len(product_ids)))
+            query = f"""
+                SELECT name FROM products
+                WHERE id IN ({placeholders})
+                LIMIT 10
+            """
+            records = await self.db.fetch_all(query, *product_ids)
+            return [r["name"] for r in records if r.get("name")]
+
+        except Exception as e:
+            logger.warning(f"상품명 조회 실패: {e}")
+            return []
