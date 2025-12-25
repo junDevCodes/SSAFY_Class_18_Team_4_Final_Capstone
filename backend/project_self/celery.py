@@ -33,11 +33,12 @@ app.autodiscover_tasks()
 # Celery Beat 스케줄 설정
 app.conf.beat_schedule = {
     # 매시간: 미처리 상품 GMS 추출 (parsed_ingredients가 null인 상품)
+    # 시간당 500개씩 처리하여 하루 최대 12,000개 처리 가능
     'gms-extract-pending-hourly': {
         'task': 'products.tasks.process_pending_extractions',
         'schedule': crontab(minute=0),  # 매시 정각
         'kwargs': {
-            'batch_size': 100,
+            'batch_size': 500,
             'use_fallback': True,
         },
     },
@@ -48,7 +49,7 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=3, minute=0),
         'kwargs': {
             'min_confidence': 0.7,
-            'batch_size': 200,
+            'batch_size': 1000,
         },
     },
 
@@ -58,6 +59,7 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=4, minute=0),
         'kwargs': {
             'max_retries': 3,
+            'batch_size': 500,
         },
     },
 }

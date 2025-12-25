@@ -517,8 +517,9 @@ class ContinuousTrainer:
         metrics.started_at = datetime.now()
 
         model_name = self.config.model_name
-        model_path = model_loader.models_dir / f"{model_name}.pkl"
-        temp_path = model_loader.models_dir / f"{model_name}_temp.pkl"
+        # 런타임 모델은 runtime 디렉토리에 저장
+        model_path = model_loader.runtime_dir / f"{model_name}.pkl"
+        temp_path = model_loader.runtime_dir / f"{model_name}_temp.pkl"
 
         try:
             # 1. 기존 모델 데이터 로드 (비교용)
@@ -595,7 +596,7 @@ class ContinuousTrainer:
             }
 
             # 임시 파일 저장
-            model_loader.models_dir.mkdir(parents=True, exist_ok=True)
+            model_loader.runtime_dir.mkdir(parents=True, exist_ok=True)
             with open(temp_path, "wb") as f:
                 pickle.dump(model_data, f)
 
