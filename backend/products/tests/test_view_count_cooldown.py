@@ -38,7 +38,7 @@ class ViewCountServiceTestCase(TestCase):
         cls.seller = Seller.objects.create(
             user=cls.seller_user,
             brand_name='테스트 브랜드',
-            business_number='123-45-67890',
+            brand_slug='test-brand',
         )
 
         # 카테고리 생성
@@ -302,7 +302,7 @@ class ViewCountAPITestCase(TestCase):
         cls.seller = Seller.objects.create(
             user=cls.seller_user,
             brand_name='테스트 브랜드',
-            business_number='123-45-67890',
+            brand_slug='test-brand',
         )
         cls.category = Category.objects.create(
             name='테스트 카테고리',
