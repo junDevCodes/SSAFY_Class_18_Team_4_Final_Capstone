@@ -1,5 +1,5 @@
 <template>
-  <div class="wishlist-page">
+  <div class="wishlist-page" :class="{ embedded: isEmbeddedInMyPage }">
     <div class="container">
       <!-- Header -->
       <div class="page-header">
@@ -166,13 +166,19 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useWishlistStore } from '@/stores/wishlist'
 import { useCartStore } from '@/stores/cart'
 import type { WishlistItem, Product } from '@/types/product'
 import { getProductImage, formatPrice, DEFAULT_PRODUCT_IMAGE, calculateDiscountRate } from '@/types/product'
 
+const route = useRoute()
 const wishlistStore = useWishlistStore()
 const cartStore = useCartStore()
+
+const isEmbeddedInMyPage = computed(() => {
+  return route.matched.some(record => record.path === '/mypage')
+})
 
 // v2.1: 계산된 할인율
 const getDiscountRate = (product: Product): number => {
@@ -352,6 +358,45 @@ onMounted(() => {
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 1rem;
+}
+
+.wishlist-page.embedded {
+  min-height: auto;
+  background: transparent;
+  padding: 0;
+}
+
+.wishlist-page.embedded .container {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.wishlist-page.embedded .page-header {
+  margin-bottom: 2.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(95, 0, 128, 0.1);
+  text-align: left;
+}
+
+.wishlist-page.embedded .page-title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+.wishlist-page.embedded .page-description {
+  color: #666;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.wishlist-page.embedded .wishlist-content {
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
 }
 
 /* Header */

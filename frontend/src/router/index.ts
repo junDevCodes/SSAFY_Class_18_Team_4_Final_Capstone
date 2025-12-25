@@ -4,7 +4,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-// Lazy load pages
+// 페이지 지연 로딩
 const HomePage = () => import('@/pages/HomePage.vue')
 const SearchPage = () => import('@/pages/SearchPage.vue')
 const ProductDetailPage = () => import('@/pages/ProductDetailPage.vue')
@@ -19,14 +19,14 @@ const NewPage = () => import('@/pages/NewPage.vue')
 const SelfMallPage = () => import('@/pages/SelfMallPage.vue')
 const FreshMallPage = () => import('@/pages/FreshMallPage.vue')
 
-// MyPage
+// 마이페이지
 const MyPageLayout = () => import('@/pages/mypage/MyPageLayout.vue')
 const MyPageProfile = () => import('@/pages/mypage/ProfilePage.vue')
 const MyPageOrders = () => import('@/pages/mypage/OrdersPage.vue')
 const MyPageOrderDetail = () => import('@/pages/mypage/OrderDetailPage.vue')
 const MyPageAddresses = () => import('@/pages/mypage/AddressesPage.vue')
 
-// Seller
+// 판매자
 const SellerDashboard = () => import('@/pages/seller/DashboardPage.vue')
 const SellerProducts = () => import('@/pages/seller/ProductsPage.vue')
 const SellerProductCreate = () => import('@/pages/seller/ProductCreatePage.vue')
@@ -36,7 +36,7 @@ const SellerAnalytics = () => import('@/pages/seller/AnalyticsPage.vue')
 const SellerOrders = () => import('@/pages/seller/OrdersPage.vue')
 const SellerSettings = () => import('@/pages/seller/SettingsPage.vue')
 
-// Admin
+// 관리자
 const AdminLayout = () => import('@/pages/admin/AdminLayout.vue')
 const AdminAnalytics = () => import('@/pages/admin/AdminAnalyticsPage.vue')
 const AdminRecommendation = () => import('@/pages/admin/AdminRecommendationPage.vue')
@@ -44,14 +44,17 @@ const AdminBehavior = () => import('@/pages/admin/AdminBehaviorPage.vue')
 const AdminOperational = () => import('@/pages/admin/AdminOperationalPage.vue')
 const AdminUsers = () => import('@/pages/admin/AdminUsersPage.vue')
 
-// Brand
+// 브랜드
 const BrandMallPage = () => import('@/pages/brand/BrandMallPage.vue')
 const BrandDetailPage = () => import('@/pages/brand/BrandDetailPage.vue')
 const BrandStoryPage = () => import('@/pages/BrandStoryPage.vue')
 
-// Policy
+// 정책
 const PrivacyPolicyPage = () => import('@/pages/PrivacyPolicyPage.vue')
 const TermsOfServicePage = () => import('@/pages/TermsOfServicePage.vue')
+
+// 인증
+const ChangePasswordPage = () => import('@/pages/ChangePasswordPage.vue')
 
 const routes: RouteRecordRaw[] = [
   {
@@ -206,6 +209,18 @@ const routes: RouteRecordRaw[] = [
         name: 'mypage-addresses',
         component: MyPageAddresses,
         meta: { title: '배송지 관리' }
+      },
+      {
+        path: 'wishlist',
+        name: 'mypage-wishlist',
+        component: WishlistPage,
+        meta: { title: '찜 목록' }
+      },
+      {
+        path: 'cart',
+        name: 'mypage-cart',
+        component: CartPage,
+        meta: { title: '장바구니' }
       }
     ]
   },
@@ -286,6 +301,12 @@ const routes: RouteRecordRaw[] = [
     name: 'terms-of-service',
     component: TermsOfServicePage,
     meta: { title: '이용약관' }
+  },
+  {
+    path: '/change-password',
+    name: 'change-password',
+    component: ChangePasswordPage,
+    meta: { title: '비밀번호 변경', requiresAuth: true, requiresPasswordChange: true }
   }
 ]
 
@@ -303,7 +324,7 @@ const router = createRouter({
   }
 })
 
-// Navigation Guard
+// 내비게이션 가드
 router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
 
@@ -319,6 +340,19 @@ router.beforeEach(async (to, _from, next) => {
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     window.dispatchEvent(new CustomEvent('auth:required', { detail: { to: to.fullPath } }))
     return next({ name: 'home', query: { redirect: to.fullPath } })
+  }
+
+  // 비밀번호 변경 필요 여부 확인 (임시 비밀번호로 로그인한 경우)
+  if (authStore.isAuthenticated && authStore.mustChangePassword) {
+    // 비밀번호 변경 페이지가 아닌 다른 페이지로 이동하려는 경우
+    if (to.name !== 'change-password') {
+      return next({ name: 'change-password' })
+    }
+  }
+
+  // 비밀번호 변경 완료 후 change-password 페이지 접근 차단
+  if (to.name === 'change-password' && authStore.isAuthenticated && !authStore.mustChangePassword) {
+    return next({ name: 'home' })
   }
 
   // 관리자 제한

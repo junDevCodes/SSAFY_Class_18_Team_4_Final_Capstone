@@ -1,7 +1,10 @@
 <template>
-  <div class="cart-page">
+  <div class="cart-page" :class="{ embedded: isEmbeddedInMyPage }">
     <div class="cart-container">
-      <h1 class="page-title">장바구니</h1>
+      <div class="page-header">
+        <h1 class="page-title">장바구니</h1>
+        <p v-if="isEmbeddedInMyPage" class="page-description">담아둔 상품을 확인하고 주문을 진행해보세요.</p>
+      </div>
 
       <!-- 로딩 상태 -->
       <div v-if="cartStore.loading" class="loading">
@@ -171,7 +174,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useCartStore } from '@/stores/cart'
 import { useAuthStore } from '@/stores/auth'
 import { useUIStore } from '@/stores/ui'
@@ -179,6 +182,10 @@ import type { CartItem } from '@/stores/cart'
 import { getProductImage, formatPrice, DEFAULT_PRODUCT_IMAGE, type Product } from '@/types/product'
 
 const router = useRouter()
+const route = useRoute()
+const isEmbeddedInMyPage = computed(() => {
+  return route.matched.some(record => record.path === '/mypage')
+})
 const cartStore = useCartStore()
 const authStore = useAuthStore()
 const uiStore = useUIStore()
@@ -361,6 +368,52 @@ function handleImageError(e: Event) {
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 1rem;
+}
+
+.cart-page.embedded {
+  min-height: auto;
+  background: transparent;
+  padding: 0;
+}
+
+.cart-page.embedded .cart-container {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.cart-page.embedded .page-header {
+  margin-bottom: 2.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(95, 0, 128, 0.1);
+}
+
+.cart-page.embedded .page-title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+.cart-page.embedded .page-description {
+  color: #666;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.cart-page.embedded .loading,
+.cart-page.embedded .error-message,
+.cart-page.embedded .empty-cart {
+  background: transparent;
+  border-radius: 0;
+  padding: 4rem 1rem;
+}
+
+.cart-page.embedded .cart-list,
+.cart-page.embedded .order-summary {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .page-title {
