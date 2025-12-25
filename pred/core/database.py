@@ -4,6 +4,7 @@
 asyncpg를 사용한 PostgreSQL 비동기 연결 풀 관리
 """
 
+import json
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -15,6 +16,31 @@ from core.exceptions import DatabaseConnectionError, DatabaseQueryError
 from core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+async def _init_connection(conn: asyncpg.Connection) -> None:
+    """커넥션 초기화 - JSON/JSONB 타입 코덱 등록
+
+    asyncpg는 기본적으로 JSON/JSONB 필드를 문자열로 반환합니다.
+    이 함수는 각 커넥션에 JSON 코덱을 등록하여 Python dict로 자동 변환합니다.
+
+    Args:
+        conn: 초기화할 asyncpg 커넥션
+    """
+    # JSON 타입 코덱 등록 (PostgreSQL OID: 114)
+    await conn.set_type_codec(
+        'json',
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema='pg_catalog',
+    )
+    # JSONB 타입 코덱 등록 (PostgreSQL OID: 3802)
+    await conn.set_type_codec(
+        'jsonb',
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema='pg_catalog',
+    )
 
 
 class Database:
@@ -52,6 +78,7 @@ class Database:
                 min_size=settings.db_min_connections,
                 max_size=settings.db_max_connections,
                 command_timeout=30,
+                init=_init_connection,  # JSON/JSONB 타입 코덱 등록
             )
 
             logger.info(
