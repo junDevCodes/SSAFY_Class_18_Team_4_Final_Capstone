@@ -98,6 +98,12 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'project_self.wsgi.application'
 
+# ========================= 파일 업로드 설정 =========================
+# 파일 업로드 최대 크기 제한 (50MB)
+# 판매자 이미지, 상품 이미지 업로드 시 413 에러 방지
+DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
+
 # 정적 파일 설정
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATIC_URL = 'static/'

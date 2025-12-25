@@ -341,7 +341,7 @@
           <div class="help-card">
             <h3 class="card-title">도움이 필요하신가요?</h3>
             <p>판매자 등록과 관련하여 궁금한 사항이 있으시면 고객센터로 문의해주세요</p>
-            <a href="mailto:seller@example.com" class="btn-contact">
+            <a href="mailto:sellfresh.shop@gmail.com" class="btn-contact">
               문의하기
             </a>
           </div>

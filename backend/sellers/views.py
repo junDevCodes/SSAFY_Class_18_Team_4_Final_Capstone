@@ -47,15 +47,20 @@ class SellerRegistrationView(generics.CreateAPIView):
     serializer_class = SellerRegistrationSerializer
     permission_classes = [IsAuthenticated]
 
-    def perform_create(self, serializer):
-        user = self.request.user
-
-        # 이미 판매자인지 확인
-        if hasattr(user, 'seller_profile'):
+    def create(self, request, *args, **kwargs):
+        """판매자 등록 (이미 판매자인 경우 사전 검증)"""
+        # 이미 판매자인지 확인 (perform_create가 아닌 create에서 검증)
+        if hasattr(request.user, 'seller_profile'):
             return Response(
                 {'error': '이미 판매자로 등록되어 있습니다.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        return super().create(request, *args, **kwargs)
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        """판매자 생성 (트랜잭션 보장)"""
+        user = self.request.user
 
         # MVP: 자동 승인 (프로덕션에서는 pending 상태로 저장)
         seller = serializer.save(

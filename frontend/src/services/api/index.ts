@@ -62,6 +62,14 @@ export const authAPI = {
   changePassword: (data: { old_password: string; new_password: string }) =>
     apiClient.post('/auth/password/change/', data),
 
+  // 비밀번호 찾기 (임시 비밀번호 발급)
+  requestPasswordReset: (email: string) =>
+    apiClient.post<{ detail: string; temp_password?: string }>('/auth/password/reset/', { email }),
+
+  // 강제 비밀번호 변경 (임시 비밀번호로 로그인 후)
+  forceChangePassword: (new_password: string) =>
+    apiClient.post<{ detail: string }>('/auth/password/change/', { new_password }),
+
   // 계정 삭제 가능 여부 조회
   checkAccountDeletion: () =>
     apiClient.get<{
@@ -387,6 +395,43 @@ export interface TimeDealResponse {
 }
 
 /**
+ * 온보딩 추천 상품 (ProductListSerializerV2 기반)
+ */
+export interface OnboardingProduct {
+  id: number
+  slug: string
+  name: string
+  price: number
+  original_price: number | null
+  unit: string | null
+  main_image: string | null
+  category: { id: number; name: string; slug: string } | null
+  category_name: string | null
+  status: string
+  product_type: string
+  view_count: number
+  average_rating: number
+  review_count: number
+  order_event_count: number
+  wishlist_count: number
+  quality_score: number | null
+  stock_quantity: number
+  main_ingredient: string | null
+  created_at: string
+}
+
+/**
+ * 온보딩 기반 추천 응답
+ * 사용자 선호 카테고리 기반 인기 상품 목록
+ */
+export interface OnboardingRecommendationsResponse {
+  products: OnboardingProduct[]
+  total_count: number
+  source: 'onboarding'
+  message?: string
+}
+
+/**
  * 가격 히스토리 데이터 포인트
  */
 export interface PriceHistoryPoint {
@@ -489,6 +534,21 @@ export const recommendationsAPI = {
   getPriceHistory: (productId: number, days: number = 30) =>
     apiClient.get<PriceHistoryResponse>(`/api/recommendations/price-history/${productId}/`, {
       params: { days },
+    }),
+
+  /**
+   * 온보딩 기반 추천 (로그인 필수)
+   * 사용자가 온보딩에서 선택한 카테고리 선호도 기반 추천
+   *
+   * - 가중치 높은 카테고리에서 인기 상품 우선
+   * - 제외(-1) 카테고리는 완전 배제
+   * - 온보딩 미완료 시 빈 배열 반환
+   *
+   * @param limit 추천 개수 (기본 8, 최대 20)
+   */
+  getOnboardingRecommendations: (params?: { limit?: number }) =>
+    apiClient.get<OnboardingRecommendationsResponse>('/api/recommendations/onboarding/', {
+      params: { limit: params?.limit ?? 8 },
     }),
 }
 

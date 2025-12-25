@@ -13,8 +13,8 @@
         </span>
       </a>
 
-      <!-- Desktop Nav -->
-      <nav class="hidden xl:flex gap-7 text-[15px] font-semibold tracking-tight" :class="isLightMode ? 'text-gray-700' : 'text-white/90'">
+      <!-- Desktop Nav: xl(1280px) 이상에서 표시 -->
+      <nav class="hidden xl:flex gap-6 2xl:gap-7 text-[14px] 2xl:text-[15px] font-semibold tracking-tight" :class="isLightMode ? 'text-gray-700' : 'text-white/90'">
         <RouterLink
           v-for="link in navLinks"
           :key="link.name"
@@ -49,18 +49,18 @@
       </nav>
     </div>
 
-    <!-- Center: Search Bar (Persistent) -->
-    <div class="flex-1 max-w-xl mx-4 lg:mx-8 transition-all duration-300">
-      <div class="relative group">
-        <input 
-          type="text" 
-          placeholder="검색어를 입력해주세요" 
+    <!-- Center: Search Bar - sm 이상에서 표시 -->
+    <div class="hidden sm:flex flex-1 max-w-[180px] md:max-w-xs lg:max-w-sm xl:max-w-md 2xl:max-w-xl mx-2 md:mx-4 lg:mx-6 xl:mx-8 transition-all duration-300">
+      <div class="relative group w-full">
+        <input
+          type="text"
+          placeholder="검색어를 입력해주세요"
           v-model="searchQuery"
           @keyup.enter="handleSearch"
           :class="[
             'w-full py-2.5 pl-4 pr-10 rounded-full text-sm transition-all focus:outline-none focus:ring-2 focus:ring-brand-500/50',
-            isLightMode 
-              ? 'bg-gray-100 text-gray-900 placeholder-gray-400' 
+            isLightMode
+              ? 'bg-gray-100 text-gray-900 placeholder-gray-400'
               : 'bg-white/20 text-white placeholder-white/70 backdrop-blur-sm border border-white/30 focus:bg-white/30'
           ]"
         >
@@ -70,65 +70,106 @@
       </div>
     </div>
 
+    <!-- Mobile Search Icon - sm 미만에서 표시 -->
+    <button
+      class="sm:hidden p-2 transition-colors"
+      :class="isLightMode ? 'text-gray-600' : 'text-white'"
+      @click="toggleMobileSearch"
+      aria-label="검색"
+    >
+      <Search :size="24" />
+    </button>
+
     <!-- Right: Actions -->
-    <div class="flex items-center gap-3 shrink-0">
-      <!-- Authenticated actions -->
+    <div class="flex items-center gap-1 sm:gap-2 xl:gap-3 shrink-0">
+      <!-- Authenticated actions - xl 이상에서만 텍스트 표시 -->
       <template v-if="authStore.isAuthenticated">
         <button
           v-if="authStore.isSeller"
           @click="goTo('/seller/dashboard')"
-          class="hidden md:block text-sm font-medium hover:opacity-70 transition-opacity mr-2"
+          class="hidden xl:block text-sm font-medium hover:opacity-70 transition-opacity mr-1 xl:mr-2"
           :class="isLightMode ? 'text-gray-600' : 'text-white'"
         >
           판매자 센터
         </button>
         <button
           @click="goTo('/mypage/profile')"
-          class="hidden md:block text-sm font-medium hover:opacity-70 transition-opacity mr-2"
+          class="hidden xl:block text-sm font-medium hover:opacity-70 transition-opacity mr-1 xl:mr-2"
           :class="isLightMode ? 'text-gray-600' : 'text-white'"
         >
           마이페이지
         </button>
         <button
           @click="handleLogout"
-          class="hidden md:block text-sm font-medium hover:opacity-70 transition-opacity mr-2"
+          class="hidden xl:block text-sm font-medium hover:opacity-70 transition-opacity mr-1 xl:mr-2"
           :class="isLightMode ? 'text-gray-600' : 'text-white'"
         >
           로그아웃
         </button>
-        <button class="md:hidden p-2" :class="isLightMode ? 'text-gray-600' : 'text-white'" @click="goTo('/mypage/profile')">
-          <User :size="24" />
-        </button>
       </template>
 
-      <!-- Guest actions -->
+      <!-- Guest actions - xl 이상에서만 텍스트 표시 -->
       <template v-else>
-        <button @click="uiStore.openLogin" class="hidden md:block text-sm font-medium hover:opacity-70 transition-opacity mr-2" :class="isLightMode ? 'text-gray-600' : 'text-white'">
+        <button @click="uiStore.openLogin" class="hidden xl:block text-sm font-medium hover:opacity-70 transition-opacity mr-1 xl:mr-2" :class="isLightMode ? 'text-gray-600' : 'text-white'">
           로그인
         </button>
-        <button class="md:hidden p-2" :class="isLightMode ? 'text-gray-600' : 'text-white'" @click="uiStore.openLogin">
-          <User :size="24" />
-        </button>
       </template>
 
-      <button @click="uiStore.openRecent" :class="['relative p-2 rounded-full transition-colors', isLightMode ? 'text-gray-900 hover:bg-gray-100' : 'text-white hover:bg-white/10']" aria-label="최근 본 상품">
+      <!-- 최근 본 상품 - lg 이상에서만 표시 -->
+      <button @click="uiStore.openRecent" :class="['hidden lg:flex relative p-2 rounded-full transition-colors', isLightMode ? 'text-gray-900 hover:bg-gray-100' : 'text-white hover:bg-white/10']" aria-label="최근 본 상품">
         <Clock3 :size="24" />
       </button>
 
+      <!-- 장바구니 - 항상 표시 -->
       <button @click="uiStore.openCart" :class="['relative p-2 rounded-full transition-colors', isLightMode ? 'text-gray-900 hover:bg-gray-100' : 'text-white hover:bg-white/10']" aria-label="장바구니">
         <ShoppingCart :size="24" />
         <span v-if="cartStore.count > 0" class="absolute top-0 right-0 w-4 h-4 bg-brand-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white">
           {{ cartStore.count }}
         </span>
       </button>
+
+      <!-- 햄버거 메뉴 - xl 미만에서 표시 -->
+      <button
+        class="xl:hidden p-2 rounded-full transition-colors"
+        :class="isLightMode ? 'text-gray-900 hover:bg-gray-100' : 'text-white hover:bg-white/10'"
+        @click="uiStore.openMobileMenu"
+        aria-label="메뉴"
+      >
+        <Menu :size="24" />
+      </button>
     </div>
   </header>
+
+  <!-- 모바일 검색바 확장 영역 -->
+  <Transition name="slide-down">
+    <div
+      v-if="isMobileSearchOpen"
+      :class="['sm:hidden fixed left-0 right-0 bg-white shadow-lg p-4 z-40', navState === 'hero' ? 'top-24' : 'top-16']"
+    >
+      <div class="relative">
+        <input
+          type="text"
+          placeholder="검색어를 입력해주세요"
+          v-model="searchQuery"
+          @keyup.enter="handleMobileSearch"
+          class="w-full py-3 pl-4 pr-10 rounded-full text-sm bg-gray-100 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+        >
+        <button class="absolute right-3 top-3 text-gray-500" @click="handleMobileSearch">
+          <Search :size="20" />
+        </button>
+      </div>
+    </div>
+  </Transition>
+
+  <!-- 모바일 메뉴 드로어 -->
+  <MobileMenuDrawer />
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Search, User, ShoppingCart, Clock3 } from 'lucide-vue-next'
+import { Search, ShoppingCart, Clock3, Menu } from 'lucide-vue-next'
+import MobileMenuDrawer from './MobileMenuDrawer.vue'
 import { useUIStore } from '@/stores/ui'
 import { useCartStore } from '@/stores/cart'
 import { useAuthStore } from '@/stores/auth'
@@ -164,9 +205,17 @@ const headerToneClass = computed(() => {
   return 'h-24 bg-transparent text-white'
 })
 const searchQuery = ref('')
+const isMobileSearchOpen = ref(false)
+const toggleMobileSearch = () => {
+  isMobileSearchOpen.value = !isMobileSearchOpen.value
+}
 const handleSearch = () => {
   const q = searchQuery.value.trim()
   router.push({ name: 'search', query: q ? { q } : {} })
+}
+const handleMobileSearch = () => {
+  handleSearch()
+  isMobileSearchOpen.value = false
 }
 const handleLogoClick = () => {
   if (route.name === 'home') {

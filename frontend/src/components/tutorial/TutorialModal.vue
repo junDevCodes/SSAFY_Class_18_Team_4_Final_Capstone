@@ -78,7 +78,7 @@
             </div>
           </div>
 
-          <!-- Step 3 -->
+          <!-- Step 3: 메인 후보 선택 (좋아하는 음식) -->
           <div v-else-if="step === 3" class="space-y-4">
             <TutorialStepHeader
               :step="3"
@@ -86,24 +86,11 @@
               :celebrityName="celebrityDisplayName"
               :celebrityId="selectedCelebrity || undefined"
             />
-            <FoodSelectGrid :items="q3Items" :selectedIds="selectedDislikeIds" @select="handleDislikeSelect" />
-            <div v-if="selectedDislikeLabels.length" class="flex flex-wrap gap-2 text-xs text-red-700">
-              <span class="rounded-full bg-red-50 px-3 py-1 ring-1 ring-red-100" v-for="label in selectedDislikeLabels" :key="label">
-                {{ label }} 제외
-              </span>
-            </div>
-            <div class="flex justify-end">
-              <button
-                type="button"
-                class="rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
-                @click="goToStep(4)"
-              >
-                다 골랐어요
-              </button>
-            </div>
+            <p class="text-xs text-gray-600">메인 후보를 골라주세요.</p>
+            <FoodSelectGrid :items="q3LikeItems" @select="handleStep3Select" />
           </div>
 
-          <!-- Step 4 -->
+          <!-- Step 4: 메인 확정 (좋아하는 음식 강화) -->
           <div v-else-if="step === 4" class="space-y-4">
             <TutorialStepHeader
               :step="4"
@@ -111,11 +98,13 @@
               :celebrityName="celebrityDisplayName"
               :celebrityId="selectedCelebrity || undefined"
             />
-            <p class="text-xs text-gray-600">메인 후보를 골라주세요.</p>
-            <FoodSelectGrid :items="q4Items" @select="handleQ4Select" />
+            <p class="text-xs text-gray-600">
+              방금 선택이 다시 등장할 수 있어요. 정말 좋아하는거라면 또 골라주세요! (추천 서비스에 도움이 돼요)
+            </p>
+            <FoodSelectGrid :items="q4LikeItems" @select="handleStep4Select" />
           </div>
 
-          <!-- Step 5 -->
+          <!-- Step 5: 보조 후보 선택 -->
           <div v-else-if="step === 5" class="space-y-4">
             <TutorialStepHeader
               :step="5"
@@ -123,13 +112,11 @@
               :celebrityName="celebrityDisplayName"
               :celebrityId="selectedCelebrity || undefined"
             />
-            <p class="text-xs text-gray-600">
-              방금 선택이 다시 등장할 수 있어요. 정말 좋아하는거라면 또 골라주세요! (추천 서비스에 도움이 돼요)
-            </p>
-            <FoodSelectGrid :items="q5Items" @select="handleQ5Select" />
+            <p class="text-xs text-gray-600">보조 후보를 골라주세요.</p>
+            <FoodSelectGrid :items="q5LikeItems" @select="handleStep5Select" />
           </div>
 
-          <!-- Step 6 -->
+          <!-- Step 6: 좋아하는 음식 선택 (복수 선택) -->
           <div v-else-if="step === 6" class="space-y-4">
             <TutorialStepHeader
               :step="6"
@@ -137,11 +124,25 @@
               :celebrityName="celebrityDisplayName"
               :celebrityId="selectedCelebrity || undefined"
             />
-            <p class="text-xs text-gray-600">보조 후보를 골라주세요.</p>
-            <FoodSelectGrid :items="q6Items" @select="handleQ6Select" />
+            <p class="text-xs text-gray-600">좋아하는 음식을 여러 개 골라주세요! (복수 선택 가능)</p>
+            <FoodSelectGrid :items="q6LikeItems" :selectedIds="selectedLikeIds" @select="handleStep6MultiSelect" />
+            <div v-if="selectedLikeLabels.length" class="flex flex-wrap gap-2 text-xs text-brand-700">
+              <span class="rounded-full bg-brand-50 px-3 py-1 ring-1 ring-brand-100" v-for="label in selectedLikeLabels" :key="label">
+                {{ label }} 선택
+              </span>
+            </div>
+            <div class="flex justify-end">
+              <button
+                type="button"
+                class="rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+                @click="goToStep(7)"
+              >
+                다 골랐어요
+              </button>
+            </div>
           </div>
 
-          <!-- Step 7 -->
+          <!-- Step 7: 싫어하는 음식 선택 (단일 선택) -->
           <div v-else-if="step === 7" class="space-y-4">
             <TutorialStepHeader
               :step="7"
@@ -150,9 +151,9 @@
               :celebrityId="selectedCelebrity || undefined"
             />
             <p class="text-xs text-gray-600">
-              방금 선택이 다시 등장할 수 있어요. 정말 좋아하는거라면 또 골라주세요! (추천 서비스에 도움이 돼요)
+              싫어하는 음식을 하나 골라주세요. (추천에서 제외됩니다)
             </p>
-            <FoodSelectGrid :items="q7Items" @select="handleQ7Select" />
+            <FoodSelectGrid :items="dislikeItems" @select="handleStep7DislikeSelect" />
           </div>
 
           <!-- Step 8 -->
@@ -235,7 +236,7 @@ type TutorialMode = 'CELEB' | 'PARENT'
 const currentMode = computed(() => props.mode ?? 'AUTO')
 const isManual = computed(() => currentMode.value === 'MANUAL')
 
-const selectedDislikeIds = ref<string[]>([])
+const selectedLikeIds = ref<string[]>([])
 const mainCategory = ref<Category | null>(null)
 const secondaryCategory = ref<Category | null>(null)
 
@@ -267,14 +268,15 @@ const buildScorePayload = (): Record<Category, number> => {
 }
 
 const saveScoresToServer = async () => {
-  // Backend guide: POST /users/tutorial/complete (overwrite=true for reset) or POST /users/tutorial/reset
+  // Backend: POST /api/users/tutorial/complete (overwrite=true for 재설정)
   try {
-    await apiClient.post('/users/tutorial/complete', {
+    await apiClient.post('/api/users/tutorial/complete', {
       scores: buildScorePayload(),
       overwrite: currentMode.value === 'MANUAL',
     })
+    console.log('온보딩 선호도 저장 완료')
   } catch (error) {
-    console.error('Failed to save tutorial scores', error)
+    console.error('온보딩 선호도 저장 실패:', error)
   }
 }
 
@@ -289,20 +291,26 @@ const celebrityDisplayName = computed(() =>
   selectedCelebrity.value ? celebrityNameMap[selectedCelebrity.value] : '',
 )
 
-const q3Items = computed(() => FOOD_ITEMS)
-const q4Items = computed(() => buildQ4Items())
-const q5Items = computed(() =>
+// 새로운 순서: Step 3-5 좋아하는 음식, Step 6 좋아하는 음식(복수 선택), Step 7 싫어하는 음식(단일 선택)
+// Step 3: 메인 후보 (buildQ4Items 사용)
+const q3LikeItems = computed(() => buildQ4Items())
+// Step 4: 메인 강화 (buildQ5Items 사용 - 선택한 메인 카테고리 포함)
+const q4LikeItems = computed(() =>
   buildQ5Items(mainCategory.value ? [mainCategory.value] : []),
 )
-const q6Items = computed(() => buildQ6Items())
-const q7Items = computed(() =>
+// Step 5: 보조 후보 (buildQ6Items 사용)
+const q5LikeItems = computed(() => buildQ6Items())
+// Step 6: 좋아하는 음식 (복수 선택 가능)
+const q6LikeItems = computed(() =>
   buildQ7Items(secondaryCategory.value ? [secondaryCategory.value] : []),
 )
+// Step 7: 싫어하는 음식 (단일 선택, 전체 음식 목록)
+const dislikeItems = computed(() => FOOD_ITEMS)
 
 const progress = computed(() => (step.value / 9) * 100)
 
-const selectedDislikeLabels = computed(() =>
-  selectedDislikeIds.value
+const selectedLikeLabels = computed(() =>
+  selectedLikeIds.value
     .map((id) => FOOD_ITEMS.find((item) => item.id === id)?.label)
     .filter(Boolean) as string[],
 )
@@ -332,39 +340,44 @@ const selectMode = (mode: TutorialMode) => {
   step.value = 3
 }
 
-const handleDislikeSelect = (item: FoodItem) => {
-  const index = selectedDislikeIds.value.indexOf(item.id)
-  if (index > -1) {
-    // 이미 선택된 경우 토글하여 제거
-    selectedDislikeIds.value = selectedDislikeIds.value.filter(id => id !== item.id)
-    // 점수 복구 (제외 취소 - 초기값 0으로 복구)
-    scores[item.category] = 0
-  } else {
-    // 선택되지 않은 경우 추가
-    selectedDislikeIds.value = [...selectedDislikeIds.value, item.id]
-    addScore(item.category, -1)
-  }
-}
-
-const handleQ4Select = (item: FoodItem) => {
+// Step 3: 메인 후보 선택 (가중치 4)
+const handleStep3Select = (item: FoodItem) => {
   mainCategory.value = item.category
   addScore(item.category, 4)
+  step.value = 4
+}
+
+// Step 4: 메인 강화 (가중치 3)
+const handleStep4Select = (item: FoodItem) => {
+  addScore(item.category, 3)
   step.value = 5
 }
 
-const handleQ5Select = (item: FoodItem) => {
-  addScore(item.category, 3)
+// Step 5: 보조 후보 선택 (가중치 2) → Step 6으로 이동
+const handleStep5Select = (item: FoodItem) => {
+  secondaryCategory.value = item.category
+  addScore(item.category, 2)
   step.value = 6
 }
 
-const handleQ6Select = (item: FoodItem) => {
-  secondaryCategory.value = item.category
-  addScore(item.category, 2)
-  step.value = 7
+// Step 6: 좋아하는 음식 선택 (복수 선택)
+const handleStep6MultiSelect = (item: FoodItem) => {
+  const index = selectedLikeIds.value.indexOf(item.id)
+  if (index > -1) {
+    // 이미 선택된 경우 토글하여 제거
+    selectedLikeIds.value = selectedLikeIds.value.filter(id => id !== item.id)
+    // 점수 차감 (선택 취소)
+    addScore(item.category, -1)
+  } else {
+    // 선택되지 않은 경우 추가
+    selectedLikeIds.value = [...selectedLikeIds.value, item.id]
+    addScore(item.category, 1)
+  }
 }
 
-const handleQ7Select = (item: FoodItem) => {
-  addScore(item.category, 1)
+// Step 7: 싫어하는 음식 선택 (단일 선택) → Step 8로 이동
+const handleStep7DislikeSelect = (item: FoodItem) => {
+  addScore(item.category, -1)
   step.value = 8
 }
 
@@ -495,7 +508,7 @@ watch(
   (value) => {
     if (value) {
       resetTutorial()
-      selectedDislikeIds.value = []
+      selectedLikeIds.value = []
       mainCategory.value = null
       secondaryCategory.value = null
       if (isManual.value) {

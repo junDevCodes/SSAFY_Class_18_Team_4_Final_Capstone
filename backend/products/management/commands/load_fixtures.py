@@ -19,7 +19,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 
@@ -68,6 +68,89 @@ class Command(BaseCommand):
         'product_images': 'product_images_*.csv',
         'product_price_histories': 'product_price_histories_*.csv',
         'product_stats': 'product_stats_*.csv',
+    }
+
+    # pred 테이블 파일 매핑 (의존성 순서: ingredients → recipes → recipe_ingredients → ingredient_products)
+    PRED_FIXTURE_FILES = {
+        'pred_ingredients': 'pred_ingredients_*.csv',
+        'pred_recipes': 'pred_recipes_*.csv',
+        'pred_recipe_ingredients': 'pred_recipe_ingredients_*.csv',
+        'pred_ingredient_products': 'pred_ingredient_products_*.csv',
+    }
+
+    # pred 테이블 DDL (테이블 생성 SQL)
+    PRED_TABLE_DDL = {
+        'pred_ingredients': """
+            CREATE TABLE IF NOT EXISTS pred_ingredients (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(200) NOT NULL,
+                name_normalized VARCHAR(200),
+                category VARCHAR(100),
+                importance_score DECIMAL(5,2),
+                is_processed BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_pred_ingredients_name ON pred_ingredients(name);
+            CREATE INDEX IF NOT EXISTS idx_pred_ingredients_name_normalized ON pred_ingredients(name_normalized);
+        """,
+        'pred_recipes': """
+            CREATE TABLE IF NOT EXISTS pred_recipes (
+                id SERIAL PRIMARY KEY,
+                source_site VARCHAR(50),
+                source_id VARCHAR(100),
+                source_url TEXT,
+                name VARCHAR(500) NOT NULL,
+                name_normalized VARCHAR(500),
+                description TEXT,
+                thumbnail_url TEXT,
+                cooking_time_min INTEGER,
+                servings INTEGER,
+                difficulty VARCHAR(50),
+                view_count INTEGER DEFAULT 0,
+                like_count INTEGER DEFAULT 0,
+                rating DECIMAL(3,2) DEFAULT 0.00,
+                rating_count INTEGER DEFAULT 0,
+                category_main VARCHAR(100),
+                category_sub VARCHAR(100),
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_pred_recipes_name ON pred_recipes(name);
+            CREATE INDEX IF NOT EXISTS idx_pred_recipes_source ON pred_recipes(source_site, source_id);
+        """,
+        'pred_recipe_ingredients': """
+            CREATE TABLE IF NOT EXISTS pred_recipe_ingredients (
+                id SERIAL PRIMARY KEY,
+                recipe_id INTEGER NOT NULL,
+                ingredient_id INTEGER NOT NULL,
+                quantity_text VARCHAR(200),
+                is_required BOOLEAN DEFAULT TRUE,
+                is_main BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT fk_recipe FOREIGN KEY (recipe_id) REFERENCES pred_recipes(id) ON DELETE CASCADE,
+                CONSTRAINT fk_ingredient FOREIGN KEY (ingredient_id) REFERENCES pred_ingredients(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_pred_recipe_ingredients_recipe ON pred_recipe_ingredients(recipe_id);
+            CREATE INDEX IF NOT EXISTS idx_pred_recipe_ingredients_ingredient ON pred_recipe_ingredients(ingredient_id);
+        """,
+        'pred_ingredient_products': """
+            CREATE TABLE IF NOT EXISTS pred_ingredient_products (
+                id SERIAL PRIMARY KEY,
+                ingredient_id INTEGER NOT NULL,
+                product_id INTEGER NOT NULL,
+                similarity_score DECIMAL(5,4),
+                mapping_method VARCHAR(50),
+                priority INTEGER DEFAULT 0,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT fk_ingredient_product FOREIGN KEY (ingredient_id) REFERENCES pred_ingredients(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_pred_ingredient_products_ingredient ON pred_ingredient_products(ingredient_id);
+            CREATE INDEX IF NOT EXISTS idx_pred_ingredient_products_product ON pred_ingredient_products(product_id);
+        """,
     }
 
     def add_arguments(self, parser):
@@ -651,6 +734,340 @@ class Command(BaseCommand):
         for model, count in deleted_counts.items():
             self.stdout.write(f"  {model}: {count}개 삭제됨")
 
+    # =======================================================================
+    # pred 테이블 관련 메서드
+    # =======================================================================
+
+    def table_exists(self, table_name: str) -> bool:
+        """테이블 존재 여부 확인"""
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_name = %s
+                )
+            """, [table_name])
+            return cursor.fetchone()[0]
+
+    def get_table_count(self, table_name: str) -> int:
+        """테이블 행 수 조회"""
+        if not self.table_exists(table_name):
+            return 0
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+            return cursor.fetchone()[0]
+
+    def create_pred_tables(self, dry_run: bool = False):
+        """pred 테이블 생성 (없는 경우에만)"""
+        self.stdout.write('\n[PRED] 테이블 확인/생성...')
+
+        for table_name, ddl in self.PRED_TABLE_DDL.items():
+            exists = self.table_exists(table_name)
+            if exists:
+                count = self.get_table_count(table_name)
+                self.stdout.write(f"  [EXISTS] {table_name}: {count}개 행")
+            else:
+                if dry_run:
+                    self.stdout.write(f"  [DRY-RUN] {table_name}: 생성 예정")
+                else:
+                    with connection.cursor() as cursor:
+                        cursor.execute(ddl)
+                    self.stdout.write(self.style.SUCCESS(f"  [CREATED] {table_name}"))
+
+    def clear_pred_tables(self):
+        """pred 테이블 데이터 삭제 (의존성 역순)"""
+        self.stdout.write(self.style.WARNING('pred 테이블 데이터를 삭제합니다...'))
+
+        # 의존성 역순으로 삭제
+        tables = ['pred_ingredient_products', 'pred_recipe_ingredients', 'pred_recipes', 'pred_ingredients']
+
+        for table_name in tables:
+            if self.table_exists(table_name):
+                with connection.cursor() as cursor:
+                    cursor.execute(f"DELETE FROM {table_name}")
+                    count = cursor.rowcount
+                self.stdout.write(f"  {table_name}: {count}개 삭제됨")
+
+    def load_pred_ingredients(self, file_path: Path, dry_run: bool = False) -> dict:
+        """pred_ingredients 테이블 로드"""
+        stats = {'loaded': 0, 'skipped': 0, 'failed': 0}
+        batch = []
+        batch_size = 5000
+
+        # 기존 ID 수집
+        existing_ids = set()
+        if self.table_exists('pred_ingredients'):
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id FROM pred_ingredients")
+                existing_ids = {row[0] for row in cursor.fetchall()}
+
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+
+            for row in reader:
+                try:
+                    row_id = self.parse_int(row.get('id'))
+
+                    if dry_run:
+                        stats['loaded'] += 1
+                        continue
+
+                    if row_id in existing_ids:
+                        stats['skipped'] += 1
+                        continue
+
+                    batch.append((
+                        row_id,
+                        row.get('name', '').strip()[:200],
+                        row.get('name_normalized', '').strip()[:200] or None,
+                        row.get('category', '').strip()[:100] or None,
+                        self.parse_decimal(row.get('importance_score')) if row.get('importance_score') else None,
+                        self.parse_bool(row.get('is_processed')),
+                        self.parse_datetime(row.get('created_at')) or timezone.now(),
+                        self.parse_datetime(row.get('updated_at')) or timezone.now(),
+                    ))
+                    stats['loaded'] += 1
+
+                    if len(batch) >= batch_size:
+                        self._insert_pred_ingredients_batch(batch)
+                        batch = []
+                        self.stdout.write(f"    진행 중... {stats['loaded']}개 로드됨")
+
+                except Exception as e:
+                    stats['failed'] += 1
+                    if stats['failed'] <= 5:
+                        self.stderr.write(f"  재료 로드 실패 (id={row.get('id')}): {e}")
+
+        if batch:
+            self._insert_pred_ingredients_batch(batch)
+
+        return stats
+
+    def _insert_pred_ingredients_batch(self, batch: list):
+        """pred_ingredients 배치 삽입"""
+        with connection.cursor() as cursor:
+            cursor.executemany("""
+                INSERT INTO pred_ingredients (id, name, name_normalized, category, importance_score, is_processed, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO NOTHING
+            """, batch)
+
+    def load_pred_recipes(self, file_path: Path, dry_run: bool = False) -> dict:
+        """pred_recipes 테이블 로드"""
+        stats = {'loaded': 0, 'skipped': 0, 'failed': 0}
+        batch = []
+        batch_size = 5000
+
+        existing_ids = set()
+        if self.table_exists('pred_recipes'):
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id FROM pred_recipes")
+                existing_ids = {row[0] for row in cursor.fetchall()}
+
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+
+            for row in reader:
+                try:
+                    row_id = self.parse_int(row.get('id'))
+
+                    if dry_run:
+                        stats['loaded'] += 1
+                        continue
+
+                    if row_id in existing_ids:
+                        stats['skipped'] += 1
+                        continue
+
+                    batch.append((
+                        row_id,
+                        row.get('source_site', '').strip()[:50] or None,
+                        row.get('source_id', '').strip()[:100] or None,
+                        row.get('source_url', '').strip() or None,
+                        row.get('name', '').strip()[:500],
+                        row.get('name_normalized', '').strip()[:500] or None,
+                        row.get('description', '').strip() or None,
+                        row.get('thumbnail_url', '').strip() or None,
+                        self.parse_int(row.get('cooking_time_min')) or None,
+                        self.parse_int(row.get('servings')) or None,
+                        row.get('difficulty', '').strip()[:50] or None,
+                        self.parse_int(row.get('view_count')),
+                        self.parse_int(row.get('like_count')),
+                        self.parse_decimal(row.get('rating'), '0.00'),
+                        self.parse_int(row.get('rating_count')),
+                        row.get('category_main', '').strip()[:100] or None,
+                        row.get('category_sub', '').strip()[:100] or None,
+                        self.parse_bool(row.get('is_active'), True),
+                        self.parse_datetime(row.get('created_at')) or timezone.now(),
+                        self.parse_datetime(row.get('updated_at')) or timezone.now(),
+                    ))
+                    stats['loaded'] += 1
+
+                    if len(batch) >= batch_size:
+                        self._insert_pred_recipes_batch(batch)
+                        batch = []
+                        self.stdout.write(f"    진행 중... {stats['loaded']}개 로드됨")
+
+                except Exception as e:
+                    stats['failed'] += 1
+                    if stats['failed'] <= 5:
+                        self.stderr.write(f"  레시피 로드 실패 (id={row.get('id')}): {e}")
+
+        if batch:
+            self._insert_pred_recipes_batch(batch)
+
+        return stats
+
+    def _insert_pred_recipes_batch(self, batch: list):
+        """pred_recipes 배치 삽입"""
+        with connection.cursor() as cursor:
+            cursor.executemany("""
+                INSERT INTO pred_recipes (id, source_site, source_id, source_url, name, name_normalized,
+                    description, thumbnail_url, cooking_time_min, servings, difficulty,
+                    view_count, like_count, rating, rating_count, category_main, category_sub,
+                    is_active, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO NOTHING
+            """, batch)
+
+    def load_pred_recipe_ingredients(self, file_path: Path, dry_run: bool = False) -> dict:
+        """pred_recipe_ingredients 테이블 로드 (대용량)"""
+        stats = {'loaded': 0, 'skipped': 0, 'failed': 0}
+        batch = []
+        batch_size = 10000  # 대용량이므로 배치 크기 증가
+
+        existing_ids = set()
+        if self.table_exists('pred_recipe_ingredients'):
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id FROM pred_recipe_ingredients")
+                existing_ids = {row[0] for row in cursor.fetchall()}
+
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+
+            for row in reader:
+                try:
+                    row_id = self.parse_int(row.get('id'))
+
+                    if dry_run:
+                        stats['loaded'] += 1
+                        continue
+
+                    if row_id in existing_ids:
+                        stats['skipped'] += 1
+                        continue
+
+                    batch.append((
+                        row_id,
+                        self.parse_int(row.get('recipe_id')),
+                        self.parse_int(row.get('ingredient_id')),
+                        row.get('quantity_text', '').strip()[:200] or None,
+                        self.parse_bool(row.get('is_required'), True),
+                        self.parse_bool(row.get('is_main')),
+                        self.parse_datetime(row.get('created_at')) or timezone.now(),
+                    ))
+                    stats['loaded'] += 1
+
+                    if len(batch) >= batch_size:
+                        self._insert_pred_recipe_ingredients_batch(batch)
+                        batch = []
+                        if stats['loaded'] % 100000 == 0:
+                            self.stdout.write(f"    진행 중... {stats['loaded']:,}개 로드됨")
+
+                except Exception as e:
+                    stats['failed'] += 1
+                    if stats['failed'] <= 5:
+                        self.stderr.write(f"  레시피-재료 로드 실패 (id={row.get('id')}): {e}")
+
+        if batch:
+            self._insert_pred_recipe_ingredients_batch(batch)
+
+        return stats
+
+    def _insert_pred_recipe_ingredients_batch(self, batch: list):
+        """pred_recipe_ingredients 배치 삽입"""
+        with connection.cursor() as cursor:
+            cursor.executemany("""
+                INSERT INTO pred_recipe_ingredients (id, recipe_id, ingredient_id, quantity_text, is_required, is_main, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO NOTHING
+            """, batch)
+
+    def load_pred_ingredient_products(self, file_path: Path, dry_run: bool = False) -> dict:
+        """pred_ingredient_products 테이블 로드"""
+        stats = {'loaded': 0, 'skipped': 0, 'failed': 0}
+        batch = []
+        batch_size = 5000
+
+        existing_ids = set()
+        if self.table_exists('pred_ingredient_products'):
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id FROM pred_ingredient_products")
+                existing_ids = {row[0] for row in cursor.fetchall()}
+
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+
+            for row in reader:
+                try:
+                    row_id = self.parse_int(row.get('id'))
+
+                    if dry_run:
+                        stats['loaded'] += 1
+                        continue
+
+                    if row_id in existing_ids:
+                        stats['skipped'] += 1
+                        continue
+
+                    batch.append((
+                        row_id,
+                        self.parse_int(row.get('ingredient_id')),
+                        self.parse_int(row.get('product_id')),
+                        self.parse_decimal(row.get('similarity_score')) if row.get('similarity_score') else None,
+                        row.get('mapping_method', '').strip()[:50] or None,
+                        self.parse_int(row.get('priority')),
+                        self.parse_bool(row.get('is_active'), True),
+                        self.parse_datetime(row.get('created_at')) or timezone.now(),
+                        self.parse_datetime(row.get('updated_at')) or timezone.now(),
+                    ))
+                    stats['loaded'] += 1
+
+                    if len(batch) >= batch_size:
+                        self._insert_pred_ingredient_products_batch(batch)
+                        batch = []
+
+                except Exception as e:
+                    stats['failed'] += 1
+                    if stats['failed'] <= 5:
+                        self.stderr.write(f"  재료-상품 로드 실패 (id={row.get('id')}): {e}")
+
+        if batch:
+            self._insert_pred_ingredient_products_batch(batch)
+
+        return stats
+
+    def _insert_pred_ingredient_products_batch(self, batch: list):
+        """pred_ingredient_products 배치 삽입"""
+        with connection.cursor() as cursor:
+            cursor.executemany("""
+                INSERT INTO pred_ingredient_products (id, ingredient_id, product_id, similarity_score, mapping_method, priority, is_active, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO NOTHING
+            """, batch)
+
+    def update_pred_sequences(self):
+        """pred 테이블 시퀀스 업데이트 (ID 자동증가 값 조정)"""
+        tables = ['pred_ingredients', 'pred_recipes', 'pred_recipe_ingredients', 'pred_ingredient_products']
+
+        for table_name in tables:
+            if self.table_exists(table_name):
+                with connection.cursor() as cursor:
+                    cursor.execute(f"""
+                        SELECT setval(pg_get_serial_sequence('{table_name}', 'id'),
+                            COALESCE((SELECT MAX(id) FROM {table_name}), 1))
+                    """)
+
     def handle(self, *args, **options):
         """커맨드 실행"""
         clear = options.get('clear', False)
@@ -694,6 +1111,14 @@ class Command(BaseCommand):
                 self.stdout.write(f"  [OK] {key}: {file_path.name}")
             else:
                 self.stdout.write(self.style.WARNING(f"  [MISSING] {key}: {pattern}"))
+
+        # pred 파일 확인
+        pred_files = {}
+        for key, pattern in self.PRED_FIXTURE_FILES.items():
+            file_path = self.get_fixture_file(pattern)
+            if file_path:
+                pred_files[key] = file_path
+                self.stdout.write(f"  [OK] {key}: {file_path.name}")
 
         if 'products' not in fixture_files:
             raise CommandError('products CSV 파일이 필수입니다')
@@ -759,6 +1184,49 @@ class Command(BaseCommand):
                     stats = self.load_product_stats(fixture_files['product_stats'], dry_run)
                     self.stdout.write(f"  로드: {stats['loaded']}, 스킵: {stats['skipped']}, 실패: {stats['failed']}")
 
+                # =======================================================
+                # pred 테이블 로드 (레시피/재료 데이터)
+                # =======================================================
+                if pred_files:
+                    self.stdout.write('\n' + '=' * 60)
+                    self.stdout.write(self.style.SUCCESS('[PRED] 레시피/재료 데이터 로드'))
+                    self.stdout.write('=' * 60)
+
+                    # pred 테이블 생성 (없으면)
+                    self.create_pred_tables(dry_run)
+
+                    # 기존 데이터 삭제 (옵션)
+                    if clear and not dry_run:
+                        self.clear_pred_tables()
+
+                    # pred_ingredients 로드
+                    if 'pred_ingredients' in pred_files:
+                        self.stdout.write('\n[PRED 1/4] 재료 마스터 로드...')
+                        stats = self.load_pred_ingredients(pred_files['pred_ingredients'], dry_run)
+                        self.stdout.write(f"  로드: {stats['loaded']:,}, 스킵: {stats['skipped']:,}, 실패: {stats['failed']}")
+
+                    # pred_recipes 로드
+                    if 'pred_recipes' in pred_files:
+                        self.stdout.write('\n[PRED 2/4] 레시피 마스터 로드...')
+                        stats = self.load_pred_recipes(pred_files['pred_recipes'], dry_run)
+                        self.stdout.write(f"  로드: {stats['loaded']:,}, 스킵: {stats['skipped']:,}, 실패: {stats['failed']}")
+
+                    # pred_recipe_ingredients 로드 (대용량)
+                    if 'pred_recipe_ingredients' in pred_files:
+                        self.stdout.write('\n[PRED 3/4] 레시피-재료 매핑 로드 (대용량)...')
+                        stats = self.load_pred_recipe_ingredients(pred_files['pred_recipe_ingredients'], dry_run)
+                        self.stdout.write(f"  로드: {stats['loaded']:,}, 스킵: {stats['skipped']:,}, 실패: {stats['failed']}")
+
+                    # pred_ingredient_products 로드
+                    if 'pred_ingredient_products' in pred_files:
+                        self.stdout.write('\n[PRED 4/4] 재료-상품 매핑 로드...')
+                        stats = self.load_pred_ingredient_products(pred_files['pred_ingredient_products'], dry_run)
+                        self.stdout.write(f"  로드: {stats['loaded']:,}, 스킵: {stats['skipped']:,}, 실패: {stats['failed']}")
+
+                    # 시퀀스 업데이트
+                    if not dry_run:
+                        self.update_pred_sequences()
+
                 if dry_run:
                     # dry-run 모드: 롤백
                     raise CommandError('[DRY-RUN] 검증 완료 - 롤백됨')
@@ -780,4 +1248,13 @@ class Command(BaseCommand):
         self.stdout.write(f'이미지: {ProductImage.objects.count()}개')
         self.stdout.write(f'가격 이력: {ProductPriceHistory.objects.count()}개')
         self.stdout.write(f'상품 통계: {ProductStats.objects.count()}개')
+
+        # pred 테이블 통계
+        if pred_files:
+            self.stdout.write('-' * 60)
+            self.stdout.write(f'레시피 재료: {self.get_table_count("pred_ingredients"):,}개')
+            self.stdout.write(f'레시피: {self.get_table_count("pred_recipes"):,}개')
+            self.stdout.write(f'레시피-재료 매핑: {self.get_table_count("pred_recipe_ingredients"):,}개')
+            self.stdout.write(f'재료-상품 매핑: {self.get_table_count("pred_ingredient_products"):,}개')
+
         self.stdout.write('=' * 60)
