@@ -440,14 +440,21 @@ export const recommendationsAPI = {
     limit?: number
     page_type?: 'home' | 'category' | 'product_detail'
     category_id?: number
-  }) =>
-    apiClient.get<PersonalizedRecommendationsResponse>('/api/recommendations/personalized/', {
-      params: {
-        limit: params?.limit ?? 8,
-        page_type: params?.page_type ?? 'home',
-        ...(params?.category_id ? { category_id: params.category_id } : {}),
-      },
-    }),
+  }) => {
+    const queryParams: Record<string, any> = {
+      limit: params?.limit ?? 8,
+      page_type: params?.page_type ?? 'home',
+    }
+    
+    // category_id가 명시적으로 전달된 경우에만 추가 (undefined가 아닐 때)
+    if (params?.category_id !== undefined && params.category_id !== null) {
+      queryParams.category_id = params.category_id
+    }
+    
+    return apiClient.get<PersonalizedRecommendationsResponse>('/api/recommendations/personalized/', {
+      params: queryParams,
+    })
+  },
 
   /**
    * 타임세일 가성비 상품 (비회원 허용)

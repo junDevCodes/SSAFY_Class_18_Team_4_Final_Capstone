@@ -86,8 +86,7 @@
               :celebrityName="celebrityDisplayName"
               :celebrityId="selectedCelebrity || undefined"
             />
-            <p class="text-xs text-gray-600">선택 즉시 추천에서 제외되며 취소할 수 없어요.</p>
-            <FoodSelectGrid :items="q3Items" @select="handleDislikeSelect" />
+            <FoodSelectGrid :items="q3Items" :selectedIds="selectedDislikeIds" @select="handleDislikeSelect" />
             <div v-if="selectedDislikeLabels.length" class="flex flex-wrap gap-2 text-xs text-red-700">
               <span class="rounded-full bg-red-50 px-3 py-1 ring-1 ring-red-100" v-for="label in selectedDislikeLabels" :key="label">
                 {{ label }} 제외
@@ -191,12 +190,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { useTutorialState } from '@/composables/useTutorialState'
 import { useTutorialFlow } from '@/composables/useTutorialFlow'
 import { FOOD_ITEMS, type FoodItem } from '@/constants/foodItems'
 import { CELEB_LINES, type Celebrity } from '@/constants/celebLines'
 import { CATEGORY_LIST, type Category } from '@/constants/categories'
 import apiClient from '@/services/api/client'
+import { productsAPI } from '@/services/api'
+import type { Category as CategoryType } from '@/types/product'
 import TutorialStepHeader from '@/components/tutorial/TutorialStepHeader.vue'
 import FoodSelectGrid from '@/components/tutorial/FoodSelectGrid.vue'
 import SummaryCard from '@/components/tutorial/SummaryCard.vue'
@@ -212,6 +214,8 @@ const emit = defineEmits<{
   (e: 'tutorialCompleted'): void
   (e: 'close'): void
 }>()
+
+const router = useRouter()
 
 const {
   step,
@@ -329,9 +333,17 @@ const selectMode = (mode: TutorialMode) => {
 }
 
 const handleDislikeSelect = (item: FoodItem) => {
-  if (selectedDislikeIds.value.includes(item.id)) return
-  selectedDislikeIds.value = [...selectedDislikeIds.value, item.id]
-  addScore(item.category, -1)
+  const index = selectedDislikeIds.value.indexOf(item.id)
+  if (index > -1) {
+    // 이미 선택된 경우 토글하여 제거
+    selectedDislikeIds.value = selectedDislikeIds.value.filter(id => id !== item.id)
+    // 점수 복구 (제외 취소 - 초기값 0으로 복구)
+    scores[item.category] = 0
+  } else {
+    // 선택되지 않은 경우 추가
+    selectedDislikeIds.value = [...selectedDislikeIds.value, item.id]
+    addScore(item.category, -1)
+  }
 }
 
 const handleQ4Select = (item: FoodItem) => {
@@ -365,6 +377,103 @@ const handleComplete = async () => {
   markCompleted()
   emit('tutorialCompleted')
   emit('close')
+
+  // 가장 높은 점수를 받은 카테고리 찾기
+  let topCategory: Category | null = null
+  let topScore = -Infinity
+
+  for (const category of CATEGORY_LIST) {
+    const score = scores[category]
+    if (score > topScore) {
+      topScore = score
+      topCategory = category
+    }
+  }
+
+  // 카테고리 ID 찾기
+  let categoryId: number | null = null
+  if (topCategory) {
+    try {
+      const { data } = await productsAPI.getCategories()
+      const categoryNameMap: Record<string, string> = {
+        GRAIN: '쌀/잡곡',
+        NOODLE_FLOUR: '면/가루/베이커리/제빵',
+        VEGETABLE: '채소/샐러드/버섯/나물',
+        FRUIT: '과일',
+        BEAN_EGG: '두부/콩/계란',
+        MEAT: '육류',
+        SEAFOOD: '수산물/해산물/건어물',
+        DAIRY: '우유/유제품',
+        KIMCHI_SIDE: '김치/반찬/절임',
+        SEASONING_SAUCE_OIL: '양념/조미/소스/오일',
+        NUT_DRY_ETC: '견과/건과/간식',
+        DRINK: '음료',
+        INSTANT_FOOD: '라면/간편식품/통조림',
+      }
+      const targetName = categoryNameMap[topCategory]
+      if (targetName && data.results) {
+        const matchedCategory = data.results.find((cat: CategoryType) => cat.name === targetName)
+        if (matchedCategory) {
+          categoryId = matchedCategory.id
+        }
+      }
+    } catch (error) {
+      console.error('카테고리 목록 조회 실패:', error)
+    }
+  }
+
+  // 메인페이지로 이동
+  const query: Record<string, string> = {}
+  if (categoryId) {
+    query.category_id = String(categoryId)
+  }
+
+  // 현재 페이지가 홈이 아니면 홈으로 이동
+  if (router.currentRoute.value.name !== 'home') {
+    router.push({ name: 'home', query })
+  } else {
+    // 이미 홈이면 query만 업데이트
+    router.push({ query })
+  }
+
+  // 스크롤 함수 호출 (약간의 지연 후)
+  await nextTick()
+  setTimeout(() => {
+    const el = document.getElementById('recommend')
+    if (el) {
+      const header = document.querySelector('header') as HTMLElement | null
+      const catNav = document.getElementById('sticky-nav')
+      const headerHeight = header?.offsetHeight ?? 0
+      const navHeight = catNav?.offsetHeight ?? 0
+      const stickyHeaderHeight = headerHeight ? Math.min(headerHeight, 72) : 72
+      const offset = stickyHeaderHeight + navHeight + 8
+
+      const top = el.getBoundingClientRect().top + window.scrollY - offset
+      
+      const smoothScrollTo = (targetY: number, duration = 1200) => {
+        const startY = window.scrollY
+        const delta = targetY - startY
+        if (delta === 0) return
+
+        const startTime = performance.now()
+        const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t)
+
+        const step = (now: number) => {
+          const elapsed = now - startTime
+          const progress = Math.min(1, elapsed / duration)
+          const eased = easeInOut(progress)
+          window.scrollTo({ top: startY + delta * eased })
+          if (progress < 1) {
+            requestAnimationFrame(step)
+          }
+        }
+
+        requestAnimationFrame(step)
+      }
+
+      smoothScrollTo(top, 1200)
+    }
+  }, 100)
 }
 
 const handleSkip = () => {

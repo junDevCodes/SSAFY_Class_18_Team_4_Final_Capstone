@@ -44,12 +44,14 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useProductStore } from '@/stores/products'
 import { recommendationsAPI, type PersonalizedProduct } from '@/services/api'
 import ProductCard from '@/components/ui/ProductCard.vue'
 import type { Product } from '@/types/product'
 
+const route = useRoute()
 const authStore = useAuthStore()
 const productStore = useProductStore()
 
@@ -61,6 +63,16 @@ const isPersonalized = ref(false)
 
 // Computed
 const isAuthenticated = computed(() => authStore.isAuthenticated)
+
+// Route query에서 category_id 추출
+const categoryId = computed(() => {
+  const categoryIdParam = route.query.category_id
+  if (categoryIdParam) {
+    const id = typeof categoryIdParam === 'string' ? parseInt(categoryIdParam, 10) : Number(categoryIdParam)
+    return isNaN(id) ? undefined : id
+  }
+  return undefined
+})
 
 /**
  * 표시할 상품 목록
@@ -105,15 +117,31 @@ const fetchPersonalizedRecommendations = async () => {
   isPersonalized.value = false
 
   try {
-    const { data } = await recommendationsAPI.getPersonalizedRecommendations({
+    // category_id가 있을 때만 전달 (undefined는 제외)
+    const params: {
+      limit: number
+      page_type: 'home'
+      category_id?: number
+    } = {
       limit: 8,
       page_type: 'home',
-    })
+    }
+    
+    if (categoryId.value !== undefined) {
+      params.category_id = categoryId.value
+    }
+
+    const { data } = await recommendationsAPI.getPersonalizedRecommendations(params)
     personalizedProducts.value = data.products
     isPersonalized.value = true
 
     // 디버그: user_type 로깅
-    console.log(`AI 추천 완료: user_type=${data.user_type}, 상품 수=${data.products.length}`)
+    console.log(`AI 추천 완료: user_type=${data.user_type}, 상품 수=${data.products.length}, category_id=${categoryId.value || 'none'}`)
+    
+    // category_id가 있는데 결과가 없으면 경고
+    if (categoryId.value !== undefined && data.products.length === 0) {
+      console.warn(`카테고리 ID ${categoryId.value}에 대한 추천 상품이 없습니다.`)
+    }
   } catch (err) {
     console.error('AI 추천 실패, 폴백으로 전환:', err)
     // 폴백: 일반 상품 목록
@@ -161,5 +189,10 @@ watch(isAuthenticated, (newValue, oldValue) => {
   if (newValue !== oldValue) {
     loadData()
   }
+})
+
+// category_id 변경 시 데이터 재로딩
+watch(categoryId, () => {
+  loadData()
 })
 </script>
