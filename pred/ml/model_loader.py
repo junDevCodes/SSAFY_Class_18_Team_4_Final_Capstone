@@ -99,6 +99,10 @@ class ModelLoader:
         # 모델 디렉토리 경로 (환경변수 또는 기본값)
         default_path = Path(__file__).parent.parent / "models"
         self.models_dir = Path(os.getenv("MODELS_DIR", str(default_path)))
+        # 베이스 모델 디렉토리 (Git 추적, 고정 모델)
+        self.base_dir = self.models_dir / "base"
+        # 런타임 모델 디렉토리 (Git 무시, 연속 학습 모델)
+        self.runtime_dir = self.models_dir / "runtime"
         # 모니터링 간격 (환경변수로 설정 가능)
         self._monitor_interval = int(os.getenv("MODEL_RELOAD_INTERVAL", "30"))
 
@@ -106,6 +110,7 @@ class ModelLoader:
         """모든 모델 로드
 
         서비스 시작 시 한 번 호출하여 모든 pickle 모델을 메모리에 로드
+        base/ 디렉토리(고정 모델)와 runtime/ 디렉토리(연속 학습 모델) 모두 탐색
         """
         if self._loaded:
             logger.info("모델이 이미 로드됨, 스킵")
@@ -119,6 +124,9 @@ class ModelLoader:
             self._loaded = True
             return
 
+        # 런타임 디렉토리 생성 (없으면)
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+
         # 메타데이터 로드
         metadata_path = self.models_dir / "model_metadata.json"
         if metadata_path.exists():
@@ -129,8 +137,33 @@ class ModelLoader:
             except Exception as e:
                 logger.warning(f"메타데이터 로드 실패: {e}")
 
-        # pickle 모델들 로드
-        model_files = list(self.models_dir.glob("*.pkl"))
+        # 모델 로드 전략:
+        # - 베이스 모델 (recipe_gapfilling, masked_set_transformer, self_price_analyzer): base/ 에서 로드
+        # - 런타임 모델 (self_personalized): runtime/ 에서만 로드 (base에 있어도 무시)
+        #
+        # 런타임 모델은 main.py의 lifespan에서 미리 복사되어 있어야 함
+        RUNTIME_ONLY_MODELS = {"self_personalized_v2", "self_personalized"}
+
+        model_files_dict = {}  # {모델명: 파일경로}
+
+        # 1. 베이스 모델 등록 (고정 모델, runtime-only 모델 제외)
+        if self.base_dir.exists():
+            for f in list(self.base_dir.glob("*.pkl")) + list(self.base_dir.glob("*.pt")):
+                # runtime-only 모델은 base에서 로드하지 않음
+                if f.stem not in RUNTIME_ONLY_MODELS:
+                    model_files_dict[f.stem] = f
+
+        # 2. 런타임 모델 등록 (연속 학습 모델)
+        if self.runtime_dir.exists():
+            for f in self.runtime_dir.glob("*.pkl"):
+                model_files_dict[f.stem] = f  # runtime 모델 추가
+
+        # 3. 기존 경로 호환성 (마이그레이션 기간, 가장 낮은 우선순위)
+        for f in self.models_dir.glob("*.pkl"):
+            if f.stem not in model_files_dict:
+                model_files_dict[f.stem] = f
+
+        model_files = list(model_files_dict.values())
         logger.info(f"발견된 모델 파일: {len(model_files)}개")
 
         for model_file in model_files:
@@ -155,16 +188,42 @@ class ModelLoader:
         """
         model_name = model_file.stem  # 확장자 제외 파일명
 
+        # 파일 로드 재시도 설정 (파일 교체 중 충돌 방지)
+        max_retries = 3
+        retry_delay = 0.5  # 초
+        model_data = None
+        file_mtime = None
+
+        for attempt in range(max_retries):
+            try:
+                # 1단계: 파일에서 모델 데이터 완전히 로드 (아직 _models에 할당 안 함)
+                model_data = safe_pickle_load(model_file)
+                file_mtime = model_file.stat().st_mtime
+
+                # 2단계: 로드 성공 후 검증
+                if model_data is None:
+                    logger.error(f"모델 로드 결과가 None: {model_file}")
+                    return False
+
+                break  # 성공 시 루프 탈출
+
+            except (EOFError, pickle.UnpicklingError, OSError) as e:
+                # 파일 교체 중 읽기 시도 시 발생 가능한 오류
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"모델 로드 재시도 ({attempt + 1}/{max_retries}): {model_name}",
+                        extra={"error": str(e)}
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(f"모델 로드 실패 (재시도 초과): {model_file}", extra={"error": str(e)})
+                    return False
+
+        # 재시도 후에도 데이터가 없으면 실패
+        if model_data is None:
+            return False
+
         try:
-            # 1단계: 파일에서 모델 데이터 완전히 로드 (아직 _models에 할당 안 함)
-            model_data = safe_pickle_load(model_file)
-            file_mtime = model_file.stat().st_mtime
-
-            # 2단계: 로드 성공 후 검증
-            if model_data is None:
-                logger.error(f"모델 로드 결과가 None: {model_file}")
-                return False
-
             # 3단계: Atomic Swap - Lock 하에 참조만 교체
             # asyncio는 단일 스레드이므로 딕셔너리 할당 자체는 atomic하지만,
             # 명시적 Lock으로 의도를 명확히 하고 향후 확장성 확보
@@ -390,7 +449,13 @@ class ModelLoader:
             return []
 
         reloaded = []
-        model_files = list(self.models_dir.glob("*.pkl"))
+        # runtime 디렉토리 모니터링 (연속 학습 모델)
+        model_files = []
+        if self.runtime_dir.exists():
+            model_files.extend(list(self.runtime_dir.glob("*.pkl")))
+        # 기존 경로 호환성
+        model_files.extend(list(self.models_dir.glob("*.pkl")))
+        model_files = list(set(model_files))
 
         for model_file in model_files:
             model_name = model_file.stem
@@ -476,9 +541,16 @@ class ModelLoader:
         Returns:
             리로드 성공 여부
         """
-        model_file = self.models_dir / f"{model_name}.pkl"
+        # 런타임 디렉토리 우선 확인
+        model_file = self.runtime_dir / f"{model_name}.pkl"
         if not model_file.exists():
-            logger.error(f"모델 파일 없음: {model_file}")
+            # 베이스 디렉토리 확인
+            model_file = self.base_dir / f"{model_name}.pkl"
+        if not model_file.exists():
+            # 기존 경로 호환성
+            model_file = self.models_dir / f"{model_name}.pkl"
+        if not model_file.exists():
+            logger.error(f"모델 파일 없음: {model_name}")
             return False
 
         success = await self._load_single_model(model_file, is_reload=True)
@@ -518,7 +590,11 @@ class ModelLoader:
         Returns:
             백업 파일 경로 또는 None
         """
-        model_file = self.models_dir / f"{model_name}.pkl"
+        # 런타임 모델 경로 우선 확인
+        model_file = self.runtime_dir / f"{model_name}.pkl"
+        if not model_file.exists():
+            # 기존 경로 호환성
+            model_file = self.models_dir / f"{model_name}.pkl"
         if not model_file.exists():
             logger.warning(f"백업 대상 모델 없음: {model_name}")
             return None
@@ -559,7 +635,8 @@ class ModelLoader:
             logger.error(f"백업 파일 없음: {backup_path}")
             return False
 
-        model_file = self.models_dir / f"{model_name}.pkl"
+        # 런타임 모델은 runtime 디렉토리에 복원
+        model_file = self.runtime_dir / f"{model_name}.pkl"
 
         try:
             shutil.copy2(backup_path, model_file)
