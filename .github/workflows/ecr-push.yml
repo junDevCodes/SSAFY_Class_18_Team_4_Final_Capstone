@@ -154,6 +154,7 @@ jobs:
 
                       docker compose -f docker-compose.prod.yml down
 
+                      # 여기만 수정 (pred 추가)
                       docker compose -f docker-compose.prod.yml pull backend frontend pred
 
                       docker compose -f docker-compose.prod.yml up -d
