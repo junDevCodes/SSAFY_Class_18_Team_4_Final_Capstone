@@ -368,6 +368,25 @@ class AuthEmailCredential(models.Model):
         auto_now=True,
         verbose_name="비밀번호 변경일시",
     )
+    # 임시 비밀번호 관련 필드
+    temp_password_hash = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        verbose_name="임시 비밀번호 해시",
+        help_text="비밀번호 찾기로 발급된 임시 비밀번호",
+    )
+    temp_password_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="임시 비밀번호 만료시각",
+        help_text="임시 비밀번호는 발급 후 30분간만 유효",
+    )
+    must_change_password = models.BooleanField(
+        default=False,
+        verbose_name="비밀번호 변경 필요",
+        help_text="임시 비밀번호로 로그인 시 True, 비밀번호 변경 후 False",
+    )
 
     class Meta:
         db_table = "auth_email_credentials"
@@ -456,6 +475,145 @@ class AuthKakaoAccount(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user.username} - Kakao ({self.email})"
+
+
+# ============================================================================
+# 온보딩 선호도 모델
+# ============================================================================
+
+class UserCategoryPreference(models.Model):
+    """사용자 카테고리 선호도 (온보딩 결과 저장)
+
+    온보딩 과정에서 사용자가 선택한 카테고리별 선호도를 저장합니다.
+    - 점수 범위: -1 (제외), 0~10 (선호도)
+    - -1은 해당 카테고리를 추천에서 완전히 제외
+    """
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="category_preference",
+        verbose_name="사용자",
+    )
+
+    # 13개 카테고리별 점수 (-1: 제외, 0~10: 선호도)
+    grain = models.SmallIntegerField(
+        default=0,
+        verbose_name="쌀/잡곡",
+    )
+    noodle_flour = models.SmallIntegerField(
+        default=0,
+        verbose_name="면/가루/베이커리",
+    )
+    vegetable = models.SmallIntegerField(
+        default=0,
+        verbose_name="채소/샐러드",
+    )
+    fruit = models.SmallIntegerField(
+        default=0,
+        verbose_name="과일",
+    )
+    bean_egg = models.SmallIntegerField(
+        default=0,
+        verbose_name="두부/콩/계란",
+    )
+    meat = models.SmallIntegerField(
+        default=0,
+        verbose_name="육류",
+    )
+    seafood = models.SmallIntegerField(
+        default=0,
+        verbose_name="수산물/해산물",
+    )
+    dairy = models.SmallIntegerField(
+        default=0,
+        verbose_name="우유/유제품",
+    )
+    kimchi_side = models.SmallIntegerField(
+        default=0,
+        verbose_name="김치/반찬",
+    )
+    seasoning_sauce_oil = models.SmallIntegerField(
+        default=0,
+        verbose_name="양념/소스/오일",
+    )
+    nut_dry_etc = models.SmallIntegerField(
+        default=0,
+        verbose_name="견과류/간식",
+    )
+    drink = models.SmallIntegerField(
+        default=0,
+        verbose_name="음료",
+    )
+    instant_food = models.SmallIntegerField(
+        default=0,
+        verbose_name="라면/간편식",
+    )
+
+    completed_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="완료 일시",
+    )
+
+    class Meta:
+        db_table = "user_category_preferences"
+        verbose_name = "카테고리 선호도"
+        verbose_name_plural = "카테고리 선호도"
+
+    def __str__(self) -> str:
+        return f"{self.user.username} 카테고리 선호도"
+
+    def get_weighted_categories(self) -> list:
+        """양수 점수 카테고리를 가중치 순으로 반환
+
+        Returns:
+            list: [(필드명, 점수), ...] 형태의 내림차순 정렬된 리스트
+        """
+        categories = [
+            ('grain', self.grain),
+            ('noodle_flour', self.noodle_flour),
+            ('vegetable', self.vegetable),
+            ('fruit', self.fruit),
+            ('bean_egg', self.bean_egg),
+            ('meat', self.meat),
+            ('seafood', self.seafood),
+            ('dairy', self.dairy),
+            ('kimchi_side', self.kimchi_side),
+            ('seasoning_sauce_oil', self.seasoning_sauce_oil),
+            ('nut_dry_etc', self.nut_dry_etc),
+            ('drink', self.drink),
+            ('instant_food', self.instant_food),
+        ]
+        # 양수 점수만 필터링하고 내림차순 정렬
+        return sorted(
+            [(name, score) for name, score in categories if score > 0],
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+    def get_excluded_categories(self) -> list:
+        """제외된 카테고리 필드명 목록 반환
+
+        Returns:
+            list: 제외된 카테고리 필드명 리스트
+        """
+        categories = [
+            ('grain', self.grain),
+            ('noodle_flour', self.noodle_flour),
+            ('vegetable', self.vegetable),
+            ('fruit', self.fruit),
+            ('bean_egg', self.bean_egg),
+            ('meat', self.meat),
+            ('seafood', self.seafood),
+            ('dairy', self.dairy),
+            ('kimchi_side', self.kimchi_side),
+            ('seasoning_sauce_oil', self.seasoning_sauce_oil),
+            ('nut_dry_etc', self.nut_dry_etc),
+            ('drink', self.drink),
+            ('instant_food', self.instant_food),
+        ]
+        return [name for name, score in categories if score == -1]
 
 
 # ============================================================================

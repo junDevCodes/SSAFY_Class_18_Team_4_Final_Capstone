@@ -70,21 +70,92 @@ def generate_email_verification_code(length: Optional[int] = None) -> str:
     return "".join(secrets.choice(digits) for _ in range(length))
 
 
+def generate_temp_password(length: int = 12) -> str:
+    """임시 비밀번호 생성 (영문 대소문자 + 숫자 + 특수문자)
+
+    보안 요구사항을 충족하는 랜덤 비밀번호를 생성합니다.
+    """
+    # 최소 요구사항을 충족하기 위해 각 문자 유형에서 최소 1개씩 선택
+    lowercase = secrets.choice(string.ascii_lowercase)
+    uppercase = secrets.choice(string.ascii_uppercase)
+    digit = secrets.choice(string.digits)
+    special = secrets.choice("!@#$%^&*")
+
+    # 나머지는 모든 문자 중에서 랜덤 선택
+    all_chars = string.ascii_letters + string.digits + "!@#$%^&*"
+    remaining = "".join(secrets.choice(all_chars) for _ in range(length - 4))
+
+    # 섞어서 반환
+    password_list = list(lowercase + uppercase + digit + special + remaining)
+    secrets.SystemRandom().shuffle(password_list)
+    return "".join(password_list)
+
+
+def send_temp_password_email(recipient_email: str, temp_password: str) -> None:
+    """임시 비밀번호를 포함한 메일 발송
+
+    비밀번호 찾기 기능에서 사용됩니다.
+    """
+    from_email = AUTH_CONFIG.get("EMAIL_VERIFICATION_FROM_EMAIL") or getattr(
+        settings, "DEFAULT_FROM_EMAIL", None
+    ) or "noreply@example.com"
+
+    email_backend = getattr(settings, "EMAIL_BACKEND", "")
+
+    subject = "[SelF] 임시 비밀번호 안내"
+    message = (
+        "안녕하세요, SelF입니다.\n\n"
+        "요청하신 임시 비밀번호를 안내해 드립니다.\n\n"
+        f"임시 비밀번호: {temp_password}\n\n"
+        "위 비밀번호로 로그인 후 반드시 새 비밀번호로 변경해 주세요.\n"
+        "보안을 위해 임시 비밀번호는 로그인 즉시 무효화됩니다.\n\n"
+        "본인이 요청하지 않으셨다면 이 메일을 무시하시면 됩니다.\n"
+        "기존 비밀번호는 그대로 유효합니다.\n\n"
+        "감사합니다.\n"
+        "SelF 팀 드림"
+    )
+
+    # console 백엔드 사용 시에는 즉시 처리
+    if email_backend == "django.core.mail.backends.console.EmailBackend":
+        send_mail(subject, message, from_email, [recipient_email], fail_silently=False)
+        return
+
+    # SMTP 백엔드 사용 시 타임아웃 설정
+    try:
+        email_timeout = getattr(settings, 'EMAIL_TIMEOUT', 5)
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(email_timeout)
+
+        try:
+            send_mail(subject, message, from_email, [recipient_email], fail_silently=False)
+        finally:
+            socket.setdefaulttimeout(old_timeout)
+    except socket.timeout:
+        logger.error(f"임시 비밀번호 이메일 발송 타임아웃: {recipient_email}")
+        raise EmailDeliveryError("이메일 발송 중 타임아웃이 발생했습니다.")
+    except SMTPAuthenticationError as exc:
+        logger.exception("SMTP 인증 실패", exc_info=exc)
+        raise EmailDeliveryError("SMTP 인증에 실패했습니다.")
+    except Exception as exc:
+        logger.exception("임시 비밀번호 이메일 발송 실패", exc_info=exc)
+        raise EmailDeliveryError(f"이메일 발송 중 오류가 발생했습니다: {str(exc)}")
+
+
 def send_email_verification_email(recipient_email: str, verification_code: str) -> None:
     """인증 번호를 포함한 메일 발송
 
     Gmail SMTP 를 사용할 경우 앱 비밀번호를 발급받아 EMAIL_HOST_PASSWORD 에 넣어야 한다.
     기본 계정 비밀번호를 그대로 쓰면 Google 보안 정책상 2단계 인증을 요구하며 차단된다.
-    
+
     개발 환경에서는 console 백엔드를 사용하여 즉시 응답하도록 권장합니다.
     """
 
     from_email = AUTH_CONFIG.get("EMAIL_VERIFICATION_FROM_EMAIL") or getattr(
         settings, "DEFAULT_FROM_EMAIL", None
     ) or "noreply@example.com"  # 기본값 설정
-    
+
     email_backend = getattr(settings, "EMAIL_BACKEND", "")
-    
+
     # console 백엔드 사용 시에는 즉시 처리
     if email_backend == "django.core.mail.backends.console.EmailBackend":
         from_email = from_email or "noreply@example.com"
