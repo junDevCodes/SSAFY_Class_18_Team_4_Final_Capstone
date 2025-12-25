@@ -36,11 +36,15 @@ import TutorialModal from './components/tutorial/TutorialModal.vue'
 import { useAuthStore } from './stores/auth'
 import { useWishlistStore } from './stores/wishlist'
 import { useUIStore } from './stores/ui'
+import { useTokenRefresh } from './composables/useTokenRefresh'
 
 const route = useRoute()
 const authStore = useAuthStore()
 const wishlistStore = useWishlistStore()
 const uiStore = useUIStore()
+
+// 선제적 토큰 갱신 - 로그인 상태에서 자동으로 토큰 갱신
+useTokenRefresh()
 
 const isHome = computed(() => route.name === 'home')
 const isAdminAnalytics = computed(() => route.path.startsWith('/admin'))

@@ -20,20 +20,30 @@
 
         <!-- Modal Body -->
         <div class="p-6 overflow-y-auto custom-scrollbar">
-          <!-- Tabs -->
-          <div class="flex gap-4 mb-8 border-b border-gray-100">
-            <button 
-              @click="uiStore.setAuthMode('login')" 
+          <!-- Tabs (비밀번호 찾기 모드가 아닐 때만 표시) -->
+          <div v-if="uiStore.authMode !== 'forgot-password'" class="flex gap-4 mb-8 border-b border-gray-100">
+            <button
+              @click="uiStore.setAuthMode('login')"
               :class="['flex-1 pb-3 text-sm font-bold border-b-2 transition-colors', uiStore.authMode === 'login' ? 'text-gray-900 border-gray-900' : 'text-gray-400 border-transparent hover:text-gray-600']"
             >
               로그인
             </button>
-            <button 
-              @click="uiStore.setAuthMode('signup')" 
+            <button
+              @click="uiStore.setAuthMode('signup')"
               :class="['flex-1 pb-3 text-sm font-bold border-b-2 transition-colors', uiStore.authMode === 'signup' ? 'text-gray-900 border-gray-900' : 'text-gray-400 border-transparent hover:text-gray-600']"
             >
               회원가입
             </button>
+          </div>
+
+          <!-- 비밀번호 찾기 헤더 -->
+          <div v-if="uiStore.authMode === 'forgot-password'" class="mb-6">
+            <button @click="uiStore.setAuthMode('login')" class="flex items-center gap-1 mb-4 text-sm text-gray-500 hover:text-gray-700">
+              <ArrowLeft :size="16" />
+              <span>로그인으로 돌아가기</span>
+            </button>
+            <h2 class="text-lg font-bold text-gray-900">비밀번호 찾기</h2>
+            <p class="mt-1 text-sm text-gray-500">가입한 이메일로 임시 비밀번호를 보내드립니다.</p>
           </div>
 
           <!-- Login Form -->
@@ -59,7 +69,7 @@
                 <input v-model="loginForm.rememberMe" type="checkbox" class="border-gray-300 rounded text-brand-600 focus:ring-brand-500">
                 <span>로그인 유지</span>
               </label>
-              <a href="#" class="hover:underline">비밀번호 찾기</a>
+              <button type="button" @click="uiStore.setAuthMode('forgot-password')" class="hover:underline">비밀번호 찾기</button>
             </div>
             <button 
               @click="handleLogin" 
@@ -96,8 +106,56 @@
             </div>
           </div>
 
+          <!-- Forgot Password Form -->
+          <div v-else-if="uiStore.authMode === 'forgot-password'" class="space-y-4 animate-fade-in">
+            <!-- 이메일 발송 완료 전 -->
+            <div v-if="!forgotPasswordSent" class="space-y-4">
+              <input
+                v-model="forgotPasswordEmail"
+                type="email"
+                placeholder="가입한 이메일을 입력해주세요"
+                @keyup.enter="handleForgotPassword"
+                class="w-full px-4 py-3 text-sm transition-all border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-brand-500 focus:bg-white"
+              >
+              <button
+                @click="handleForgotPassword"
+                :disabled="isSubmitting"
+                class="w-full bg-brand-500 hover:bg-brand-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-lg transition-colors text-sm shadow-lg shadow-brand-500/20"
+              >
+                {{ isSubmitting ? '처리 중...' : '임시 비밀번호 발송' }}
+              </button>
+            </div>
+
+            <!-- 이메일 발송 완료 후 -->
+            <div v-else class="space-y-4 text-center">
+              <div class="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-brand-100">
+                <Mail :size="32" class="text-brand-600" />
+              </div>
+              <div>
+                <h3 class="mb-2 text-lg font-bold text-gray-900">이메일을 확인해주세요</h3>
+                <p class="text-sm text-gray-500">
+                  <span class="font-medium text-brand-600">{{ forgotPasswordEmail }}</span>으로<br>
+                  임시 비밀번호를 발송했습니다.
+                </p>
+              </div>
+              <div class="p-4 text-left rounded-lg bg-gray-50">
+                <p class="text-xs text-gray-600">
+                  • 임시 비밀번호로 로그인해주세요<br>
+                  • 로그인 후 새 비밀번호로 변경하셔야 합니다<br>
+                  • 메일이 오지 않으면 스팸함을 확인해주세요
+                </p>
+              </div>
+              <button
+                @click="handleBackToLogin"
+                class="w-full py-3 text-sm font-bold text-gray-700 transition-colors bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                로그인하러 가기
+              </button>
+            </div>
+          </div>
+
           <!-- Signup Form -->
-          <div v-else class="space-y-4 animate-fade-in">
+          <div v-else-if="uiStore.authMode === 'signup'" class="space-y-4 animate-fade-in">
             <div class="flex gap-2">
               <input 
                 v-model="signupForm.email"
@@ -144,7 +202,21 @@
             <div class="pt-2">
               <label class="flex items-start gap-2 cursor-pointer">
                 <input v-model="signupForm.agreeTerms" type="checkbox" class="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                <span class="text-xs leading-tight text-gray-500">[필수] 만 14세 이상이며, 이용약관 및 개인정보 처리방침에 동의합니다.</span>
+                <span class="text-xs leading-tight text-gray-500">
+                  [필수] 만 14세 이상이며,
+                  <a
+                    href="/terms-of-service"
+                    target="_blank"
+                    class="text-brand-600 underline hover:text-brand-700"
+                    @click.stop
+                  >이용약관</a> 및
+                  <a
+                    href="/privacy-policy"
+                    target="_blank"
+                    class="text-brand-600 underline hover:text-brand-700"
+                    @click.stop
+                  >개인정보 처리방침</a>에 동의합니다.
+                </span>
               </label>
             </div>
 
@@ -190,7 +262,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { X, MessageCircle } from 'lucide-vue-next'
+import { X, MessageCircle, ArrowLeft, Mail } from 'lucide-vue-next'
 import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 
@@ -212,6 +284,10 @@ const signupForm = reactive({
   agreeTerms: false
 })
 
+// 비밀번호 찾기 상태
+const forgotPasswordEmail = ref('')
+const forgotPasswordSent = ref(false)
+
 const isSubmitting = ref(false)
 
 // 로그인 처리
@@ -223,24 +299,31 @@ const handleLogin = async () => {
 
   isSubmitting.value = true
   try {
-    await authStore.login(loginForm.email, loginForm.password)
-    uiStore.showToast('로그인되었습니다.')
+    const result = await authStore.login(loginForm.email, loginForm.password)
     uiStore.closeLogin()
 
-    // 로그인 후 리다이렉트 처리
-    const target = uiStore.redirectPath
-    // 권한 기반 기본 경로
-    const fallback =
-      authStore.isAdmin ? '/admin/analytics' :
-      authStore.isSeller ? '/seller/dashboard' :
-      '/mypage/profile'
-
-    // 리다이렉트 경로가 있으면 우선 이동
-    if (target) {
-      router.push(target)
-      uiStore.setRedirectPath(null)
+    // 임시 비밀번호로 로그인한 경우 비밀번호 변경 페이지로 이동
+    if (result.must_change_password) {
+      uiStore.showToast('임시 비밀번호로 로그인되었습니다. 새 비밀번호를 설정해주세요.')
+      router.push('/change-password')
     } else {
-      router.push(fallback)
+      uiStore.showToast('로그인되었습니다.')
+
+      // 로그인 후 리다이렉트 처리
+      const target = uiStore.redirectPath
+      // 권한 기반 기본 경로
+      const fallback =
+        authStore.isAdmin ? '/admin/analytics' :
+        authStore.isSeller ? '/seller/dashboard' :
+        '/mypage/profile'
+
+      // 리다이렉트 경로가 있으면 우선 이동
+      if (target) {
+        router.push(target)
+        uiStore.setRedirectPath(null)
+      } else {
+        router.push(fallback)
+      }
     }
 
     // 폼 초기화
@@ -369,6 +452,40 @@ const handleKakaoLogin = () => {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
   const frontendUrl = window.location.origin
   window.location.href = `${apiBaseUrl}/auth/kakao/?ui=web&next=${encodeURIComponent(frontendUrl)}`
+}
+
+// 비밀번호 찾기 처리
+const handleForgotPassword = async () => {
+  if (!forgotPasswordEmail.value) {
+    uiStore.showToast('이메일을 입력해주세요.')
+    return
+  }
+
+  // 이메일 형식 검증
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(forgotPasswordEmail.value)) {
+    uiStore.showToast('올바른 이메일 형식을 입력해주세요.')
+    return
+  }
+
+  isSubmitting.value = true
+  try {
+    await authStore.requestPasswordReset(forgotPasswordEmail.value)
+    forgotPasswordSent.value = true
+  } catch (error: any) {
+    // OAuth 계정인 경우 안내 메시지 표시
+    const errorMessage = error.message || '요청 처리 중 오류가 발생했습니다.'
+    uiStore.showToast(errorMessage)
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+// 비밀번호 찾기 후 로그인으로 돌아가기
+const handleBackToLogin = () => {
+  forgotPasswordEmail.value = ''
+  forgotPasswordSent.value = false
+  uiStore.setAuthMode('login')
 }
 
 </script>

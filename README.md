@@ -2,7 +2,7 @@
 
 > 소비자가 원하는 상품을 추천하고, 가장 저렴하게 찾을 수 있는 전자상거래 플랫폼.
 
-<img src="https://i.postimg.cc/FsR1X5cv/Self_로고.png" alt="SelF-Logo" width="200">
+<img src="https://i.postimg.cc/k5NcQ5rw/Chat-GPT-Image-2025nyeon-12wol-26il-ojeon-04-11-12.png" alt="SelF-Logo" width="200">
 
 ## 📌 프로젝트 소개
 
@@ -12,21 +12,25 @@ SelF은 농산물 전자상거래 플랫폼으로, 신선한 농산물을 합리
 **주요 특징:**
 - 🛒 일반 상품(크롤링/관리자 등록) + 판매자 직접 등록 상품 통합 관리
 - 🏪 판매자 브랜드몰 시스템 (자체 상품 등록 및 관리)
-- 📊 데이터 기반 상품 추천 (품질 점수, CTR, 사용자 행동 분석)
+- 🧠 고도화 추천 알고리즘 기반 상품 추천 (Personalized, Price log, Gap Filling, AIRScout)
 - 🔐 다중 인증 방식 (이메일, Google OAuth, Kakao OAuth)
 - 💳 장바구니, 찜 목록, 주문/결제 통합 시스템
+- 📊 관리자 및 상품 통계 지표 (품질 점수, CTR, 사용자 행동 분석)
 
-- **1차 개발 기간**: 2025.11.10 ~ 2025.11.24 (MVP)
-- **추가 개발 기간**: 2025.11.25 ~ 2025.12.28 (고도화)
+---
+**개발 기간**
+
+- **1차 개발 기간**: 2025.11.10 ~ 2025.11.24 (온라인 이커머스 MVP)
+- **추가 개발 기간**: 2025.11.25 ~ 2025.12.26 (추천 알고리즘 및 서비스 고도화)
 - **팀 구성**: 3명
 
 ## 👥 팀원 소개
 
 | 이름 | 역할 | GitHub | 담당 기능 |
 |------|------|--------|-----------|
-| 이준영 | 팀장/Data/AI/Embeded/DevOps | [@junDevCodes](@https://github.com/junDevCodes) | Data 분석 & 인사이트 도출, CI/CD 파이프라인 구축 |
-| 배용건 | Frontend | [@dragun8](@https://github.com/dragun8) | MVP 설계, UI/UX 구현 |
-| 송준서 | Backend/DevOps/AI Agent | [@Junseo5](@https://github.com/Junseo5) | API 개발, DB 설계, 기능 개발 |
+| 이준영 | 팀장/Data/AI/DevOps | [@junDevCodes](@https://github.com/junDevCodes) | Data 분석 , CI/CD 파이프라인 구축, AI 모델 개발 |
+| 배용건 | Frontend | [@dragun8](@https://github.com/dragun8) | MVP 설계, UI/UX 구현,기획 및 자료조사 |
+| 송준서 | Backend/DevOps/AI Agent | [@Junseo5](@https://github.com/Junseo5) | API 개발, DB 설계, 기능 개발, AI 모델 개발 |
 
 ## 🛠 기술 스택
 
@@ -45,31 +49,31 @@ SelF은 농산물 전자상거래 플랫폼으로, 신선한 농산물을 합리
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?logo=postgresql&logoColor=white&style=flat-square)![Redis:Database](https://img.shields.io/badge/Database-Redis-informational?style=flat-square&logo=redis&logoColor=white&color=red)
 
 ### Crawling / Scraping
-![Playwright]()
+**Playwright**
 
 ### Data Processing & ML/DL
 ![Pandas](https://img.shields.io/badge/-Pandas-333333?style=flat-square&logo=pandas)
 ![Numpy](https://img.shields.io/badge/-Numpy-013243?&logo=NumPy&style=flat-square)
 ![Scikit-Learn](https://img.shields.io/badge/scikit--learn-F7931E?style=flat-square&logo=scikit-learn&logoColor=white)
 ![Keras](https://img.shields.io/badge/-Keras-D00000?style=flat-sqaure&logo=Keras)
-![Prophet]()
-![Sentence-Transformers]()
 ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat-square&logo=fastapi)
+**Prophet**, 
+**Sentence-Transformers**
 
 ### Cloud & Infra
 ![Docker](https://img.shields.io/badge/docker-257bd6?style=flat-square&logo=docker&logoColor=white)
 ![Docker-compose](https://img.shields.io/badge/Docker%20Compose-061D2F?logo=docker&style=flat-square)
-![AWS-Lightsail-Container]()
 ![Nginx](https://img.shields.io/badge/Nginx-009639?logo=nginx&logoColor=white&style=flat-square)
 ![Github-Actions](https://img.shields.io/badge/-GitHub%20Actions-333333?style=flat-square&logo=github-actions)
 
-### Storage
-![AWS-S3]()
-![Nginx](https://img.shields.io/badge/Nginx-009639?logo=nginx&logoColor=white&style=flat-square)
+**AWS-EC2**
 
+### Storage
+![Nginx](https://img.shields.io/badge/Nginx-009639?logo=nginx&logoColor=white&style=flat-square)
+**AWS-S3**
 
 ### Authentication
-![OAuth2](https://img.shields.io/badge/OAuth_2.0-Bearer-000000?style=flat-square)
+![OAuth2](https://img.shields.io/badge/OAuth2.0-EB5424?style=flat&logo=auth0&logoColor=white)
 <!-- ### Tools
 ![REDIS](https://img.shields.io/badge/Redis-DC382D?style=flat-square&logo=redis&logoColor=white)
 ![Kafka](https://img.shields.io/badge/Apache_Kafka-231F20?style=for-the-badge&logo=apache-kafka&logoColor=white) -->
@@ -78,7 +82,7 @@ SelF은 농산물 전자상거래 플랫폼으로, 신선한 농산물을 합리
 ![Git](https://img.shields.io/badge/Git-F05032?style=flat-square&logo=git&logoColor=white)
 ![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white)
 ![Slack](https://img.shields.io/badge/Slack-Join?logo=Slack&style=flat-square)
-![Discord](https://shields.io/discord/1442794136955654144?style=flat-square&label=discord&logo=discord&labelColor=black&color=5865F2)
+![Discord](https://img.shields.io/badge/Discord-5865F2?style=flat&logo=discord&logoColor=white)
 
 
 ## ✨ 주요 기능
@@ -109,9 +113,18 @@ SelF은 농산물 전자상거래 플랫폼으로, 신선한 농산물을 합리
 - **주문 관리**: 주문 취소, 배송 추적 (MVP: 기본 기능만)
 
 ### 5. 데이터 기반 추천
-- **상품 조회 로그**: 모든 사용자 행동 추적 (로그인/비로그인)
-- **CTR 계산**: 클릭률 기반 상품 품질 평가
-- **통계 비정규화**: 조회수, 찜 수, 구매 수 실시간 집계
+- **Personalized Model**: CF, CBF 기반 개인화 추천 알고리즘 모델
+- **Price log Model**: 가격 로그, 계절성 평가 기반 상품 state 설정 및 이상치 탐지 모델
+- **Recipe Gap Filling Model**: 레시피 데이터 기반 추가 재료 추천 알고리즘 모델
+- **AIRScout Model**: TF-IDF, Ridge 모델, ko-SBert, BM25 모델 앙상블, 문맥기반 보조 추천 알고리즘 모델
+
+
+### 6. 관리자 통계
+- **비즈니스 핵심 지표**: 비즈니스 성과 지표 및 추천, 주문 핵심 통계, 리스크 알림
+- **추천 알고리즘 성과 지표**: CTR, 구매전환율, 추천 기여 GMV 비율, 추천 알고리즘 별 성과 요약
+- **유저 행동 지표**: DAU, MAU, 유저 구매 전환율, 장바구니 담기 수, 구매 수 실시간 집계
+- **서버 운영 지표**: 크롤링 성공율, EC2 CPU 사용율, 네트워크 트래픽, 서비스 가용성
+- **유저 관리**: 유저 현황, Role, 상태 설정 및 간편 유저 통계 제공
 
 ## 🏗 프로젝트 구조
 
@@ -266,7 +279,7 @@ npm run preview
 
 - [프로젝트 기획 노션 페이지](https://www.notion.so/SSAFY-SEOUL-CLASS-18-TEAM-4-FINAL-CAPSTONE-PROJECT-2a67359b60688023991cef2fa72846f1?source=copy_link)
 - [배포 URL](https://sellfresh.shop)
-- [API 문서](https://api.sellfresh.shop/docs)
+- [API 문서](https://sellfresh.shop/api/docs/)
 
 ## 📄 라이센스
 

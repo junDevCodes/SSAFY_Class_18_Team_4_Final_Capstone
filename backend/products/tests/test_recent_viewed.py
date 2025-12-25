@@ -8,6 +8,7 @@ TDD 기반 테스트:
 - limit 파라미터 동작 확인
 """
 import time
+from datetime import timedelta
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -15,7 +16,8 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from authentication.models import User
 from sellers.models import Seller
-from products.models import Category, Product, UserProductStats
+from products.models import Category, Product, UserProductStats, ProductViewLog
+from products.services.view_count import VIEW_COUNT_COOLDOWN_SECONDS
 
 
 class RecentViewedProductsAPITest(TestCase):
@@ -287,21 +289,38 @@ class ProductDetailViewUserStatsTest(TestCase):
         self.assertIsNotNone(stats)
         self.assertEqual(stats.view_count, 1)
 
-    def test_로그인_사용자_반복_조회시_view_count_증가(self):
-        """로그인 사용자가 같은 상품을 여러 번 조회하면 view_count가 증가한다"""
+    def test_로그인_사용자_반복_조회시_쿨타임_만료후_view_count_증가(self):
+        """로그인 사용자가 쿨타임 만료 후 재조회하면 view_count가 증가한다"""
         self.client.force_authenticate(user=self.user)
 
         url = reverse('product-detail', kwargs={'pk': self.product.pk})
 
-        # 3번 조회
-        for _ in range(3):
-            self.client.get(url)
+        # 첫 번째 조회
+        self.client.get(url)
 
         stats = UserProductStats.objects.get(
             user=self.user,
             product=self.product
         )
+        self.assertEqual(stats.view_count, 1)
 
+        # 쿨타임 만료 시뮬레이션 (조회 로그의 시간을 과거로 변경)
+        old_time = timezone.now() - timedelta(seconds=VIEW_COUNT_COOLDOWN_SECONDS + 10)
+        ProductViewLog.objects.filter(user=self.user, product=self.product).update(viewed_at=old_time)
+
+        # 두 번째 조회 (쿨타임 만료 후)
+        self.client.get(url)
+
+        stats.refresh_from_db()
+        self.assertEqual(stats.view_count, 2)
+
+        # 쿨타임 만료 시뮬레이션
+        ProductViewLog.objects.filter(user=self.user, product=self.product).update(viewed_at=old_time)
+
+        # 세 번째 조회
+        self.client.get(url)
+
+        stats.refresh_from_db()
         self.assertEqual(stats.view_count, 3)
 
     def test_비로그인_사용자_조회시_UserProductStats_미생성(self):
@@ -319,7 +338,7 @@ class ProductDetailViewUserStatsTest(TestCase):
         self.assertEqual(stats_count, 0)
 
     def test_조회시_last_interacted_at_갱신(self):
-        """상품 조회 시 last_interacted_at이 갱신된다"""
+        """쿨타임 만료 후 재조회 시 last_interacted_at이 갱신된다"""
         self.client.force_authenticate(user=self.user)
 
         url = reverse('product-detail', kwargs={'pk': self.product.pk})
@@ -332,8 +351,11 @@ class ProductDetailViewUserStatsTest(TestCase):
         )
         first_time = stats1.last_interacted_at
 
-        # 잠시 대기 후 두 번째 조회
-        time.sleep(0.1)
+        # 쿨타임 만료 시뮬레이션 (조회 로그의 시간을 과거로 변경)
+        old_time = timezone.now() - timedelta(seconds=VIEW_COUNT_COOLDOWN_SECONDS + 10)
+        ProductViewLog.objects.filter(user=self.user, product=self.product).update(viewed_at=old_time)
+
+        # 두 번째 조회 (쿨타임 만료 후)
         self.client.get(url)
 
         stats2 = UserProductStats.objects.get(

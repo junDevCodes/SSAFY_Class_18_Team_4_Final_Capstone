@@ -37,6 +37,7 @@ export const useAuthStore = defineStore('auth', () => {
   const authProvider = ref<AuthProvider>(null)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
+  const mustChangePassword = ref(false)  // 임시 비밀번호로 로그인 시 true
 
   // Computed
   const isAuthenticated = computed(() => {
@@ -66,6 +67,9 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await authAPI.login({ email, password })
       user.value = response.data.user
+
+      // 임시 비밀번호로 로그인 시 플래그 설정
+      mustChangePassword.value = response.data.must_change_password || false
 
       // 토큰 저장
       if (response.data.access) {
@@ -230,9 +234,50 @@ export const useAuthStore = defineStore('auth', () => {
         old_password: oldPassword,
         new_password: newPassword
       })
+      // 비밀번호 변경 성공 시 플래그 해제
+      mustChangePassword.value = false
     } catch (err: any) {
       error.value = err.response?.data?.detail || '비밀번호 변경에 실패했습니다.'
       throw err
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  // 비밀번호 찾기 (임시 비밀번호 발급 요청)
+  const requestPasswordReset = async (email: string) => {
+    isLoading.value = true
+    error.value = null
+    try {
+      const response = await authAPI.requestPasswordReset(email)
+
+      // 개발 환경에서 임시 비밀번호 출력
+      if (import.meta.env.DEV && response.data.temp_password) {
+        console.log(`[개발 환경] 임시 비밀번호: ${response.data.temp_password}`)
+      }
+
+      return response.data
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || '비밀번호 찾기에 실패했습니다.'
+      error.value = errorMessage
+      throw new Error(errorMessage)
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  // 강제 비밀번호 변경 (임시 비밀번호로 로그인 후)
+  const forceChangePassword = async (newPassword: string) => {
+    isLoading.value = true
+    error.value = null
+    try {
+      await authAPI.forceChangePassword(newPassword)
+      // 비밀번호 변경 성공 시 플래그 해제
+      mustChangePassword.value = false
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || '비밀번호 변경에 실패했습니다.'
+      error.value = errorMessage
+      throw new Error(errorMessage)
     } finally {
       isLoading.value = false
     }
@@ -244,6 +289,7 @@ export const useAuthStore = defineStore('auth', () => {
     authProvider.value = null
     isLoading.value = false
     error.value = null
+    mustChangePassword.value = false
   }
 
   return {
@@ -251,6 +297,7 @@ export const useAuthStore = defineStore('auth', () => {
     authProvider,
     isLoading,
     error,
+    mustChangePassword,
     isAuthenticated,
     isSeller,
     isAdmin,
@@ -263,6 +310,8 @@ export const useAuthStore = defineStore('auth', () => {
     loadUser,
     updateUser,
     changePassword,
+    requestPasswordReset,
+    forceChangePassword,
     reset,
   }
 })

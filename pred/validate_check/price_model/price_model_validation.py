@@ -227,9 +227,9 @@ async def validate_price_model() -> Dict[str, Any]:
     print("[1] 모델 로드")
     print("-" * 70)
 
-    # pred/models/self_price_analyzer_v1.pkl 을 기본 경로로 사용
+    # pred/models/base/self_price_analyzer_v1.pkl 을 기본 경로로 사용
     project_root = Path(__file__).resolve().parents[2]
-    model_path = project_root / "models" / "self_price_analyzer_v1.pkl"
+    model_path = project_root / "models" / "base" / "self_price_analyzer_v1.pkl"
     
     if not model_path.exists():
         print(f"[오류] 모델 파일을 찾을 수 없습니다: {model_path}")

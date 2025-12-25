@@ -1,7 +1,9 @@
 """
 판매자 관련 Serializer (ERD V2.1)
 """
+import uuid
 from rest_framework import serializers
+from django.db import IntegrityError
 from django.utils.text import slugify
 from orders.models import OrderItem, OrderItemStatus
 from .models import Seller, SellerBusiness, SellerSettlement, SellerSchedule
@@ -149,26 +151,52 @@ class SellerRegistrationSerializer(serializers.ModelSerializer):
 
         brand_name = validated_data.get('brand_name')
 
-        # brand_slug 자동 생성
+        # brand_slug 자동 생성 (race condition 방어: UUID fallback)
         base_slug = slugify(brand_name, allow_unicode=True)
+        if not base_slug:
+            # 브랜드명이 특수문자만 있는 경우 UUID 기반 slug 생성
+            base_slug = f"seller-{uuid.uuid4().hex[:8]}"
+
         slug = base_slug
         counter = 1
+        max_attempts = 10
 
-        while Seller.objects.filter(brand_slug=slug).exists():
+        # 중복 slug 처리 (최대 10회 시도)
+        while Seller.objects.filter(brand_slug=slug).exists() and counter <= max_attempts:
             slug = f"{base_slug}-{counter}"
             counter += 1
 
+        # max_attempts 초과 시 UUID 추가로 유일성 보장
+        if counter > max_attempts:
+            slug = f"{base_slug}-{uuid.uuid4().hex[:8]}"
+
         validated_data['brand_slug'] = slug
 
-        # Seller 생성
-        seller = super().create(validated_data)
+        # Seller 생성 (IntegrityError 대비 - 동시 요청 race condition)
+        try:
+            seller = super().create(validated_data)
+        except IntegrityError:
+            # 동시 요청으로 slug 충돌 시 UUID 추가하여 재시도
+            validated_data['brand_slug'] = f"{base_slug}-{uuid.uuid4().hex[:8]}"
+            seller = super().create(validated_data)
 
         # SellerBusiness 생성
         SellerBusiness.objects.create(seller=seller, **business_data)
 
-        # SellerSettlement 생성 (정산 정보가 있는 경우만)
-        if any(settlement_data.values()):
+        # SellerSettlement 생성 (모든 정산 정보가 있는 경우에만)
+        # 부분 데이터 생성 방지: 은행명, 계좌번호, 예금주 모두 필수
+        settlement_values = [v for v in settlement_data.values() if v]
+        if len(settlement_values) == 3:
+            # 모든 필드가 입력된 경우에만 생성
             SellerSettlement.objects.create(seller=seller, **settlement_data)
+        elif len(settlement_values) > 0:
+            # 부분 입력 시 로그 남기고 생성하지 않음 (데이터 무결성 보호)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"SellerSettlement 부분 데이터 무시: seller_id={seller.id}, "
+                f"입력된 필드 수={len(settlement_values)}/3"
+            )
 
         return seller
 

@@ -28,7 +28,7 @@
             <ul class="space-y-3 text-gray-500">
               <li><a href="#" class="hover:text-brand-600">고객센터</a></li>
               <li><a href="#" class="hover:text-brand-600">자주 묻는 질문</a></li>
-              <li><a href="#" class="hover:text-brand-600">1:1 문의</a></li>
+              <li><a href="mailto:sellfresh.shop@gmail.com" class="hover:text-brand-600">1:1 문의</a></li>
             </ul>
           </div>
           <div>

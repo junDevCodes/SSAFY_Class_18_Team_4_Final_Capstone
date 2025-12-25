@@ -138,8 +138,9 @@ const sortedProducts = computed(() => {
   }
 
   if (sortOption.value === '판매순') {
+    // 실제 판매량(order_event_count) 기준 정렬
     return [...freshProducts.value].sort((a, b) => {
-      const salesDiff = (b.view_count || 0) - (a.view_count || 0)
+      const salesDiff = (b.order_event_count || 0) - (a.order_event_count || 0)
       if (salesDiff !== 0) return salesDiff
       return recentFirst(a, b)
     })
