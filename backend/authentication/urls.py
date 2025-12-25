@@ -26,6 +26,7 @@ from .views import (
     UserAddressViewSet,
     UserPaymentMethodViewSet,
     AccountDeleteView,
+    TutorialCompleteView,
 )
 
 app_name = "authentication"
@@ -60,5 +61,8 @@ urlpatterns = [
     # 사용자 리소스 (배송지, 결제수단 등) - Nginx에서 /api 프록시 활용
     # URL: /api/users/me/addresses/, /api/users/me/payment-methods/
     path("api/users/me/", include(user_router.urls)),
+    # 온보딩 (튜토리얼)
+    # URL: /api/users/tutorial/complete
+    path("api/users/tutorial/complete", TutorialCompleteView.as_view(), name="tutorial_complete"),
 ]
 

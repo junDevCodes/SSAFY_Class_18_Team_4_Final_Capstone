@@ -936,3 +936,78 @@ class UserProductStats(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.product.name} 통계"
+
+
+class ProductViewLog(models.Model):
+    """상품 조회 로그 (조회수 어뷰징 방지용)
+
+    회원/비회원 구분 없이 상품 조회를 기록하여 쿨타임(2분) 적용.
+    - 회원: user_id 기반 추적
+    - 비회원: IP + User-Agent 해시 기반 추적
+
+    TTL 인덱스로 오래된 로그 자동 정리 가능 (배치 작업으로 구현).
+    """
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='view_logs',
+        verbose_name="상품",
+    )
+    user = models.ForeignKey(
+        'authentication.User',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='product_view_logs',
+        verbose_name="사용자",
+        help_text="로그인 사용자인 경우 기록",
+    )
+
+    # 비회원 식별용 (IP + User-Agent 해시)
+    visitor_hash = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        verbose_name="방문자 해시",
+        help_text="비회원: SHA256(IP + User-Agent), 회원: NULL",
+    )
+
+    # 원본 IP (로깅/분석용, 해시로만 추적하지만 필요시 참조)
+    ip_address = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        verbose_name="IP 주소",
+    )
+
+    viewed_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="조회 시각",
+    )
+
+    class Meta:
+        db_table = 'product_view_logs'
+        verbose_name = '상품 조회 로그'
+        verbose_name_plural = '상품 조회 로그'
+        indexes = [
+            # 회원 조회 쿨타임 체크용 (user + product + viewed_at)
+            models.Index(
+                fields=['user', 'product', '-viewed_at'],
+                name='ix_pvl_user_product_time'
+            ),
+            # 비회원 조회 쿨타임 체크용 (visitor_hash + product + viewed_at)
+            models.Index(
+                fields=['visitor_hash', 'product', '-viewed_at'],
+                name='ix_pvl_visitor_product_time'
+            ),
+            # 오래된 로그 정리용 (배치 작업에서 사용)
+            models.Index(
+                fields=['viewed_at'],
+                name='ix_pvl_viewed_at'
+            ),
+        ]
+
+    def __str__(self):
+        if self.user:
+            return f"{self.user.username} - {self.product.name} @ {self.viewed_at}"
+        return f"Guest({self.visitor_hash[:8]}...) - {self.product.name} @ {self.viewed_at}"

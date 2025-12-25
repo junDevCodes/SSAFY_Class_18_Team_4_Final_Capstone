@@ -1,7 +1,7 @@
 <template>
   <div class="mypage-layout">
     <div class="container">
-      <!-- Page Header -->
+      <!-- 페이지 헤더 -->
       <div class="page-header">
         <div class="header-content">
           <h1 class="page-title">마이페이지</h1>
@@ -12,7 +12,7 @@
       </div>
 
       <div class="mypage-content">
-        <!-- Sidebar Navigation -->
+        <!-- 사이드바 내비게이션 -->
         <aside class="mypage-sidebar">
           <nav class="sidebar-nav">
             <div class="nav-section">
@@ -57,7 +57,7 @@
                 </li>
                 <li>
                   <router-link
-                    to="/wishlist"
+                    to="/mypage/wishlist"
                     class="nav-link"
                     active-class="active"
                   >
@@ -69,7 +69,7 @@
                 </li>
                 <li>
                   <router-link
-                    to="/cart"
+                    to="/mypage/cart"
                     class="nav-link"
                     active-class="active"
                   >
@@ -145,7 +145,7 @@
           </nav>
         </aside>
 
-        <!-- Main Content -->
+        <!-- 메인 콘텐츠 -->
         <main class="mypage-main">
           <router-view />
         </main>
@@ -163,7 +163,7 @@ const authStore = useAuthStore()
 const cartStore = useCartStore()
 
 onMounted(() => {
-  // Load cart count for badge
+  // 배지 표시용 장바구니 개수 로드
   if (authStore.isAuthenticated) {
     cartStore.loadSummary()
   }
@@ -184,7 +184,7 @@ onMounted(() => {
   padding: 0 1.5rem;
 }
 
-/* Page Header */
+/* 페이지 헤더 */
 .page-header {
   margin-bottom: 3rem;
 }
@@ -213,7 +213,7 @@ onMounted(() => {
   font-weight: 600;
 }
 
-/* MyPage Content */
+/* 마이페이지 콘텐츠 */
 .mypage-content {
   display: grid;
   grid-template-columns: 280px 1fr;
@@ -221,7 +221,7 @@ onMounted(() => {
   align-items: start;
 }
 
-/* Sidebar */
+/* 사이드바 */
 .mypage-sidebar {
   background: white;
   border-radius: 12px;
@@ -325,7 +325,7 @@ onMounted(() => {
   line-height: 1.4;
 }
 
-/* Seller CTA */
+/* 판매자 CTA */
 .seller-cta {
   padding: 1.75rem 1.5rem;
   background: linear-gradient(135deg, #5f0080 0%, #4c0066 100%);
@@ -399,7 +399,7 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-/* Main Content */
+/* 메인 콘텐츠 */
 .mypage-main {
   background: white;
   border-radius: 12px;
@@ -409,7 +409,7 @@ onMounted(() => {
   border: 1px solid rgba(0, 0, 0, 0.04);
 }
 
-/* Responsive */
+/* 반응형 */
 @media (max-width: 1024px) {
   .mypage-content {
     grid-template-columns: 260px 1fr;

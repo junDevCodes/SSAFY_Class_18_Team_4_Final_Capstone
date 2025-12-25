@@ -54,13 +54,6 @@
             @click="goProduct(product)"
             @keydown.enter.prevent="goProduct(product)"
           >
-            <!-- 재료 태그 (ML 추천일 때만) -->
-            <div
-              v-if="getIngredient(product) && isMLRecommendation"
-              class="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.5 bg-brand-500/90 text-white text-[10px] font-medium rounded"
-            >
-              {{ getIngredient(product) }}
-            </div>
             <div class="aspect-square overflow-hidden bg-white">
               <img
                 :src="getProductImageUrl(product)"
@@ -163,14 +156,6 @@ const getProductId = (product: CartRecommendedProduct | Product): number => {
     return product.product_id
   }
   return product.id
-}
-
-// 재료 정보 추출 (ML 추천 상품에만 존재)
-const getIngredient = (product: CartRecommendedProduct | Product): string | null => {
-  if ('ingredient' in product) {
-    return product.ingredient
-  }
-  return null
 }
 
 // 상품 이미지 URL 추출 (ML 추천 / 기존 Product 호환)

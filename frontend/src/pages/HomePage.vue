@@ -6,6 +6,7 @@
     <QuickCategories />
     <TimeDeal />
     <ProductList />
+    <OnboardingProductList />
     <RecentProductsBar
       placement-class="fixed right-10 top-44"
       :placement-style="{
@@ -25,6 +26,7 @@ import QuickCategories from '@/components/sections/QuickCategories.vue'
 import BrandPromise from '@/components/sections/BrandPromise.vue'
 import TimeDeal from '@/components/sections/TimeDeal.vue'
 import ProductList from '@/components/sections/ProductList.vue'
+import OnboardingProductList from '@/components/sections/OnboardingProductList.vue'
 import RecentProductsBar from '@/components/ui/RecentProductsBar.vue'
 import { useAuthStore } from '@/stores/auth'
 

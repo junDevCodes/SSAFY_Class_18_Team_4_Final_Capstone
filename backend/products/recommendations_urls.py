@@ -11,6 +11,7 @@ from .recommendations_views import (
     RecentViewedProductsView,
     TimeDealProductsView,
     PriceHistoryView,
+    OnboardingRecommendationsView,
 )
 
 urlpatterns = [
@@ -24,4 +25,6 @@ urlpatterns = [
     path('time-deal/', TimeDealProductsView.as_view(), name='time-deal-products'),
     # 가격 히스토리 (비회원 허용) - 폴센트 스타일 가격 추적 그래프
     path('price-history/<int:product_id>/', PriceHistoryView.as_view(), name='price-history'),
+    # 온보딩 기반 추천 (로그인 필수) - 사용자 선호 카테고리 기반
+    path('onboarding/', OnboardingRecommendationsView.as_view(), name='onboarding-recommendations'),
 ]

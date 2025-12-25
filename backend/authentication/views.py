@@ -59,6 +59,7 @@ from .models import (
     AuthGoogleAccount,
     AuthKakaoAccount,
     AuthEmailCredential,
+    UserCategoryPreference,
 )
 from .serializers import (
     LoginSerializer,
@@ -79,6 +80,8 @@ from .services import (
     finalize_pending_registration,
     issue_tokens_with_claims,
     revoke_all_refresh_tokens,
+    generate_temp_password,
+    send_temp_password_email,
 )
 
 logger = logging.getLogger(__name__)
@@ -309,6 +312,7 @@ class LoginView(APIView):
 - `access`: JWT 액세스 토큰 (API 요청 시 Authorization 헤더에 사용)
 - `refresh`: JWT 리프레시 토큰 (액세스 토큰 갱신 시 사용)
 - `user`: 사용자 정보
+- `must_change_password`: 임시 비밀번호로 로그인 시 true (비밀번호 변경 필요)
 ''',
     )
     def post(self, request: Request):
@@ -324,11 +328,18 @@ class LoginView(APIView):
 
         tokens = issue_tokens_with_claims(user)
 
+        # 비밀번호 변경 필요 여부 확인 (임시 비밀번호로 로그인한 경우)
+        must_change_password = False
+        cred = getattr(user, "email_credential", None)
+        if cred and cred.must_change_password:
+            must_change_password = True
+
         return Response(
             {
                 "access": tokens["access"],
                 "refresh": tokens["refresh"],
                 "user": UserSerializer(user).data,
+                "must_change_password": must_change_password,
             }
         )
 
@@ -417,16 +428,61 @@ class PasswordChangeView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['인증'],
+        summary='비밀번호 변경',
+        description='''현재 비밀번호를 확인하고 새 비밀번호로 변경합니다.
+
+### 주의사항
+- 임시 비밀번호로 로그인한 경우, 기존 비밀번호 대신 아무 값이나 입력해도 됩니다.
+- 비밀번호 변경 후 must_change_password 플래그가 해제됩니다.
+''',
+    )
     def post(self, request: Request):
+        user = request.user
+        cred = getattr(user, "email_credential", None)
+
+        # 임시 비밀번호로 로그인한 경우 (must_change_password=True) 기존 비밀번호 검증 스킵
+        if cred and cred.must_change_password:
+            # 강제 비밀번호 변경 모드: new_password만 검증
+            new_password = request.data.get("new_password")
+            if not new_password or len(new_password) < 8:
+                return error_response(
+                    "새 비밀번호는 8자 이상이어야 합니다.",
+                    "invalid_password",
+                    status.HTTP_400_BAD_REQUEST
+                )
+
+            # 비밀번호 유효성 검사
+            from django.contrib.auth.password_validation import validate_password
+            from django.core import exceptions
+            try:
+                validate_password(new_password, user)
+            except exceptions.ValidationError as e:
+                return error_response(
+                    str(e.messages[0]),
+                    "invalid_password",
+                    status.HTTP_400_BAD_REQUEST
+                )
+
+            cred.password_hash = make_password(new_password)
+            cred.must_change_password = False  # 플래그 해제
+            cred.save(update_fields=["password_hash", "must_change_password", "last_changed_at"])
+
+            user.set_unusable_password()
+            user.save(update_fields=["password"])
+
+            return Response({"detail": "비밀번호가 변경되었습니다."})
+
+        # 일반 비밀번호 변경: 기존 비밀번호 확인 필요
         serializer = PasswordChangeSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
-        user = request.user
         new_password = serializer.validated_data["new_password"]
 
-        cred = getattr(user, "email_credential", None)
         if cred is None:
             cred = AuthEmailCredential(user=user, is_email_verified=True)
         cred.password_hash = make_password(new_password)
+        cred.must_change_password = False  # 혹시 플래그가 있다면 해제
         cred.save()
 
         user.set_unusable_password()
@@ -653,39 +709,97 @@ class AccountDeleteView(APIView):
 
 
 class PasswordResetRequestView(APIView):
-    """POST /auth/password/reset/ - 비밀번호 재설정 요청"""
+    """POST /auth/password/reset/ - 비밀번호 찾기 (임시 비밀번호 발급)
+
+    일반 이메일 가입자에게만 임시 비밀번호를 발급합니다.
+    OAuth 가입자(Google, Kakao)는 해당 서비스에서 비밀번호를 관리합니다.
+    """
 
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['인증'],
+        summary='비밀번호 찾기',
+        description='''이메일로 임시 비밀번호를 발송합니다.
+
+### 동작 방식
+1. 이메일 가입자의 경우 임시 비밀번호를 생성하여 이메일로 발송
+2. 임시 비밀번호로 로그인 시 비밀번호 변경 필수
+3. 기존 비밀번호로 로그인하면 임시 비밀번호 무효화 (오발급 대응)
+
+### 주의사항
+- OAuth 가입자(Google, Kakao)는 사용 불가
+- 보안상 존재하지 않는 이메일도 동일한 응답 반환
+''',
+    )
     def post(self, request: Request):
         serializer = PasswordResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
         User = get_user_model()
+
+        # 성공 메시지
+        success_message = "입력하신 이메일로 임시 비밀번호를 발송했습니다."
+
         try:
-            user = User.objects.get(email=email)
+            user = User.objects.get(email=email, is_active=True)
         except User.DoesNotExist:
-            # 존재하지 않는 이메일도 보안상 동일 응답
-            return Response({"detail": "비밀번호 재설정 안내를 발송했습니다."})
+            # 존재하지 않는 이메일 - 보안상 동일 응답
+            return Response({"detail": success_message})
 
-        token_gen = PasswordResetTokenGenerator()
-        uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
-        token = token_gen.make_token(user)
+        # OAuth 계정 여부 확인 (Google/Kakao)
+        has_google = hasattr(user, 'google_accounts') and user.google_accounts.exists()
+        has_kakao = hasattr(user, 'kakao_accounts') and user.kakao_accounts.exists()
 
-        reset_url = request.build_absolute_uri(f"/auth/password/reset/confirm/?uid={uidb64}&token={token}")
+        # 이메일 자격 정보 확인
+        cred = getattr(user, "email_credential", None)
 
-        # 메일 발송 (환경에 따라 설정)
-        subject = "비밀번호 재설정 안내"
-        message = f"아래 링크를 통해 비밀번호를 재설정하세요:\n{reset_url}"
+        if cred is None:
+            # OAuth 전용 계정 - 소셜 로그인으로 안내
+            logger.info(f"비밀번호 찾기 시도 - OAuth 전용 계정: {email}")
+            if has_google:
+                return Response({
+                    "detail": "Google 계정으로 가입된 이메일입니다. Google 로그인을 이용해주세요.",
+                    "oauth_provider": "google"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            elif has_kakao:
+                return Response({
+                    "detail": "카카오 계정으로 가입된 이메일입니다. 카카오 로그인을 이용해주세요.",
+                    "oauth_provider": "kakao"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                # 알 수 없는 OAuth 계정
+                return Response({
+                    "detail": "소셜 계정으로 가입된 이메일입니다. 해당 소셜 로그인을 이용해주세요.",
+                    "oauth_provider": "unknown"
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 임시 비밀번호 생성 및 저장 (30분 유효)
+        from datetime import timedelta
+        temp_password = generate_temp_password()
+        cred.temp_password_hash = make_password(temp_password)
+        cred.temp_password_expires_at = timezone.now() + timedelta(minutes=30)
+        # must_change_password는 임시 비밀번호로 로그인할 때 True로 설정됨
+        cred.save(update_fields=["temp_password_hash", "temp_password_expires_at"])
+
+        # 이메일 발송
         try:
-            send_mail(subject, message, getattr(settings, "DEFAULT_FROM_EMAIL", None), [email], fail_silently=True)
-        except Exception as e:  # pragma: no cover - 발송 실패는 무시하고 로그만
-            logger.debug("비밀번호 재설정 메일 발송 실패: %s", e)
+            logger.info(f"임시 비밀번호 이메일 발송 시도: {email}")
+            send_temp_password_email(email, temp_password)
+            logger.info(f"임시 비밀번호 발급 완료: {email}")
+        except Exception as e:
+            logger.error(f"임시 비밀번호 이메일 발송 실패: {email} - {type(e).__name__}: {e}")
+            # 발송 실패해도 보안상 동일 응답 (실패를 노출하지 않음)
+            pass
 
-        resp: Dict[str, Any] = {"detail": "비밀번호 재설정 안내를 발송했습니다."}
-        if AUTH_CONFIG.get("PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE"):
-            # 개발 환경용: 토큰을 응답으로도 전달 (운영 비권장)
-            resp.update({"uid": uidb64, "token": token, "reset_url": reset_url})
+        resp: Dict[str, Any] = {"detail": success_message}
+
+        # 개발 환경용: 임시 비밀번호를 응답에 포함 (콘솔 백엔드 사용 시)
+        from django.conf import settings as django_settings
+        email_backend = getattr(django_settings, "EMAIL_BACKEND", "")
+        if email_backend == "django.core.mail.backends.console.EmailBackend":
+            resp["temp_password"] = temp_password
+
         return Response(resp)
 
 
@@ -1102,3 +1216,129 @@ class AdminUserSummaryView(APIView):
         }
         serializer = AdminUserSummarySerializer(payload)
         return Response(serializer.data)
+
+
+# ----- 온보딩 (튜토리얼) -----
+
+
+class TutorialCompleteView(APIView):
+    """온보딩 완료 API
+
+    POST /api/users/tutorial/complete
+
+    사용자가 온보딩을 완료하면 카테고리별 선호도를 저장합니다.
+
+    Request Body:
+        {
+            "scores": {
+                "GRAIN": 4,
+                "VEGETABLE": -1,  # 제외
+                "MEAT": 7,
+                ...
+            },
+            "overwrite": false  # true면 기존 데이터 덮어쓰기
+        }
+
+    Returns:
+        201: { "message": "선호도가 저장되었습니다." }
+        200: { "message": "선호도가 업데이트되었습니다." }
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    # 프론트엔드 카테고리 키 → DB 필드명 매핑
+    CATEGORY_MAP = {
+        'GRAIN': 'grain',
+        'NOODLE_FLOUR': 'noodle_flour',
+        'VEGETABLE': 'vegetable',
+        'FRUIT': 'fruit',
+        'BEAN_EGG': 'bean_egg',
+        'MEAT': 'meat',
+        'SEAFOOD': 'seafood',
+        'DAIRY': 'dairy',
+        'KIMCHI_SIDE': 'kimchi_side',
+        'SEASONING_SAUCE_OIL': 'seasoning_sauce_oil',
+        'NUT_DRY_ETC': 'nut_dry_etc',
+        'DRINK': 'drink',
+        'INSTANT_FOOD': 'instant_food',
+    }
+
+    @extend_schema(
+        tags=['온보딩'],
+        summary='온보딩 완료',
+        description='온보딩 과정에서 선택한 카테고리별 선호도를 저장합니다.',
+    )
+    def post(self, request: Request):
+        scores = request.data.get('scores', {})
+        overwrite = request.data.get('overwrite', False)
+
+        if not scores:
+            return error_response(
+                "선호도 데이터가 필요합니다.",
+                "missing_scores",
+                status.HTTP_400_BAD_REQUEST
+            )
+
+        # 기존 데이터 확인
+        preference, created = UserCategoryPreference.objects.get_or_create(
+            user=request.user
+        )
+
+        if not created and not overwrite:
+            return Response(
+                {'message': '이미 온보딩을 완료했습니다.', 'already_completed': True},
+                status=status.HTTP_200_OK
+            )
+
+        # 점수 저장
+        for category_key, score in scores.items():
+            field_name = self.CATEGORY_MAP.get(category_key)
+            if field_name:
+                # 점수 범위 검증 (-1 ~ 10)
+                try:
+                    score_int = int(score)
+                    if score_int < -1:
+                        score_int = -1
+                    elif score_int > 10:
+                        score_int = 10
+                    setattr(preference, field_name, score_int)
+                except (ValueError, TypeError):
+                    continue
+
+        preference.save()
+
+        logger.info(f"온보딩 완료: user_id={request.user.id}, overwrite={overwrite}")
+
+        return Response(
+            {
+                'message': '선호도가 저장되었습니다.' if created else '선호도가 업데이트되었습니다.',
+                'completed_at': preference.completed_at.isoformat()
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        )
+
+    @extend_schema(
+        tags=['온보딩'],
+        summary='온보딩 상태 조회',
+        description='사용자의 온보딩 완료 여부와 저장된 선호도를 조회합니다.',
+    )
+    def get(self, request: Request):
+        """온보딩 상태 조회"""
+        try:
+            preference = request.user.category_preference
+            # 저장된 선호도를 프론트엔드 키로 변환
+            scores = {}
+            for frontend_key, db_field in self.CATEGORY_MAP.items():
+                scores[frontend_key] = getattr(preference, db_field, 0)
+
+            return Response({
+                'completed': True,
+                'completed_at': preference.completed_at.isoformat(),
+                'scores': scores
+            })
+        except UserCategoryPreference.DoesNotExist:
+            return Response({
+                'completed': False,
+                'completed_at': None,
+                'scores': None
+            })

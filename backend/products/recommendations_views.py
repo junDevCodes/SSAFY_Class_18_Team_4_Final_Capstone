@@ -9,8 +9,11 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import UserProductStats
+from django.db.models import F
+
+from .models import UserProductStats, Product, Category, ProductStatus
 from .serializers import ProductListSerializerV2
+from .constants import CATEGORY_FIELD_TO_NAME
 from .pred_client import (
     request_cart_recommendations,
     request_personalized_recommendations,
@@ -367,3 +370,189 @@ class PriceHistoryView(APIView):
                 {'error': f'가격 히스토리 서비스에 연결할 수 없습니다: {error_msg}'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+
+
+class OnboardingRecommendationsView(APIView):
+    """온보딩 기반 추천 API
+
+    GET /api/recommendations/onboarding/
+
+    사용자의 온보딩 선호도를 기반으로 추천 상품을 반환합니다.
+    - 가중치 높은 카테고리에서 인기 상품 우선
+    - 제외(-1) 카테고리는 완전 배제
+    - 온보딩 미완료 시 빈 배열 반환
+
+    Query Parameters:
+        limit (int): 추천 개수 (기본: 8, 최대: 20)
+
+    Returns:
+        200: {
+            "products": [...],
+            "total_count": 8,
+            "source": "onboarding"
+        }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        # 쿼리 파라미터 추출
+        try:
+            limit = int(request.query_params.get('limit', 8))
+            limit = max(1, min(limit, 20))
+        except (ValueError, TypeError):
+            limit = 8
+
+        # 온보딩 선호도 조회
+        try:
+            preference = request.user.category_preference
+        except Exception:
+            # 온보딩 미완료
+            return Response({
+                'products': [],
+                'total_count': 0,
+                'source': 'onboarding',
+                'message': '온보딩을 완료해주세요.'
+            })
+
+        # 카테고리별 가중치 추출 (양수만, 내림차순)
+        weighted_categories = preference.get_weighted_categories()
+        excluded_categories = preference.get_excluded_categories()
+
+        if not weighted_categories:
+            return Response({
+                'products': [],
+                'total_count': 0,
+                'source': 'onboarding',
+                'message': '선호하는 카테고리가 없습니다.'
+            })
+
+        # DB 카테고리 이름 → ID 매핑
+        category_name_to_id = self._get_category_name_to_id_map()
+
+        # 제외 카테고리 ID 목록
+        excluded_category_ids = []
+        for field_name in excluded_categories:
+            category_name = CATEGORY_FIELD_TO_NAME.get(field_name)
+            if category_name and category_name in category_name_to_id:
+                excluded_category_ids.append(category_name_to_id[category_name])
+
+        # 가중치 기반 상품 조회
+        products = self._fetch_weighted_products(
+            weighted_categories,
+            category_name_to_id,
+            excluded_category_ids,
+            limit
+        )
+
+        serializer = ProductListSerializerV2(products, many=True)
+        return Response({
+            'products': serializer.data,
+            'total_count': len(products),
+            'source': 'onboarding'
+        })
+
+    def _get_category_name_to_id_map(self) -> dict:
+        """카테고리 이름 → ID 매핑 딕셔너리 반환"""
+        categories = Category.objects.filter(parent__isnull=True).values('id', 'name')
+        return {cat['name']: cat['id'] for cat in categories}
+
+    def _fetch_weighted_products(
+        self,
+        weighted_categories: list,
+        category_name_to_id: dict,
+        excluded_category_ids: list,
+        limit: int
+    ) -> list:
+        """가중치 비례로 각 카테고리에서 인기 상품 조회
+
+        Args:
+            weighted_categories: [(필드명, 점수), ...] 내림차순 정렬된 리스트
+            category_name_to_id: 카테고리 이름 → ID 매핑
+            excluded_category_ids: 제외할 카테고리 ID 목록
+            limit: 총 상품 개수
+
+        Returns:
+            상품 리스트
+        """
+        # 총 가중치 합계 계산
+        total_weight = sum(score for _, score in weighted_categories)
+        if total_weight == 0:
+            return []
+
+        products = []
+        remaining = limit
+
+        for field_name, score in weighted_categories:
+            if remaining <= 0:
+                break
+
+            # 이 카테고리에서 가져올 상품 수 계산
+            category_name = CATEGORY_FIELD_TO_NAME.get(field_name)
+            if not category_name or category_name not in category_name_to_id:
+                continue
+
+            category_id = category_name_to_id[category_name]
+
+            # 비율 계산 (최소 1개)
+            count = max(1, round(score / total_weight * limit))
+            count = min(count, remaining)
+
+            # 해당 카테고리에서 인기 상품 조회
+            category_products = Product.objects.filter(
+                category_id=category_id,
+                status=ProductStatus.ACTIVE,
+            ).exclude(
+                category_id__in=excluded_category_ids
+            ).select_related(
+                'category',
+                'stats',
+                'inventory',
+            ).prefetch_related(
+                'images'
+            ).annotate(
+                popularity_score=F('stats__view_count') + F('stats__wishlist_count') * 2
+            ).order_by('-popularity_score')[:count]
+
+            products.extend(list(category_products))
+            remaining -= len(category_products)
+
+        # 부족하면 가중치 순서대로 추가 상품 가져오기
+        if len(products) < limit:
+            existing_ids = [p.id for p in products]
+            additional_needed = limit - len(products)
+
+            # 가중치 카테고리들에서 추가 상품
+            for field_name, _ in weighted_categories:
+                if additional_needed <= 0:
+                    break
+
+                category_name = CATEGORY_FIELD_TO_NAME.get(field_name)
+                if not category_name or category_name not in category_name_to_id:
+                    continue
+
+                category_id = category_name_to_id[category_name]
+
+                additional_products = Product.objects.filter(
+                    category_id=category_id,
+                    status=ProductStatus.ACTIVE,
+                ).exclude(
+                    id__in=existing_ids
+                ).exclude(
+                    category_id__in=excluded_category_ids
+                ).select_related(
+                    'category',
+                    'stats',
+                    'inventory',
+                ).prefetch_related(
+                    'images'
+                ).annotate(
+                    popularity_score=F('stats__view_count') + F('stats__wishlist_count') * 2
+                ).order_by('-popularity_score')[:additional_needed]
+
+                for p in additional_products:
+                    if p.id not in existing_ids:
+                        products.append(p)
+                        existing_ids.append(p.id)
+                        additional_needed -= 1
+
+        return products[:limit]
