@@ -1,5 +1,8 @@
 """
 pred_recipes 테이블에 테스트 데이터 50개 삽입하는 스크립트
+
+NOTE: 테이블은 Alembic migrations로 생성됩니다.
+      먼저 'cd pred && alembic upgrade head'를 실행하세요.
 """
 
 import asyncio
@@ -18,36 +21,9 @@ DB_CONFIG = {
     "password": "selfpass",
 }
 
-# 테이블 생성 SQL
-CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS pred_recipes (
-    id BIGSERIAL PRIMARY KEY,
-    source_site VARCHAR(50) DEFAULT '10000recipe',
-    source_id VARCHAR(50),
-    source_url VARCHAR(500),
-    name VARCHAR(200) NOT NULL,
-    name_normalized VARCHAR(200),
-    description TEXT,
-    thumbnail_url VARCHAR(500),
-    cooking_time_min INT,
-    servings INT,
-    difficulty VARCHAR(50),
-    view_count INT DEFAULT 0,
-    like_count INT DEFAULT 0,
-    rating DECIMAL(3,2) DEFAULT 0,
-    rating_count INT DEFAULT 0,
-    category_main VARCHAR(50),
-    category_sub VARCHAR(50),
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(source_site, source_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_pred_recipes_name ON pred_recipes(name);
-CREATE INDEX IF NOT EXISTS idx_pred_recipes_name_normalized ON pred_recipes(name_normalized);
-CREATE INDEX IF NOT EXISTS idx_pred_recipes_category ON pred_recipes(category_main, category_sub);
-"""
+# NOTE: 테이블 생성은 Alembic 마이그레이션으로 관리됩니다.
+# 아래 명령어로 테이블을 생성하세요:
+# cd pred && alembic upgrade head
 
 
 def parse_cooking_time(time_str: str) -> int | None:
@@ -133,9 +109,21 @@ async def main():
         return
 
     try:
-        # 테이블 생성
-        await conn.execute(CREATE_TABLE_SQL)
-        print("[INFO] pred_recipes 테이블 생성/확인 완료")
+        # 테이블 존재 여부 확인
+        table_exists = await conn.fetchval("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_name = 'pred_recipes'
+            )
+        """)
+
+        if not table_exists:
+            print("[ERROR] pred_recipes 테이블이 없습니다.")
+            print("먼저 Alembic 마이그레이션을 실행하세요:")
+            print("  cd pred && alembic upgrade head")
+            return
+
+        print("[INFO] pred_recipes 테이블 확인 완료")
 
         # 기존 데이터 삭제 (테스트용)
         deleted = await conn.execute("DELETE FROM pred_recipes WHERE source_site = '10000recipe'")

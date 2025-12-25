@@ -12,3 +12,4 @@ redis==5.0.1
 psycopg2-binary==2.9.9
 asyncpg==0.29.0
 httpx==0.25.2
+alembic==1.13.1

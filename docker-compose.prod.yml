@@ -87,6 +87,8 @@ services:
         condition: service_healthy
     ports:
       - "8001:8001"
+    volumes:
+      - ./pred/models:/app/models
     # 마이그레이션 완료 대기 후 서버 시작 (products 테이블 = Django 커스텀 테이블명)
     command: >
       sh -c "echo '[PRED] Backend 마이그레이션 대기 중...' &&
@@ -156,6 +158,9 @@ services:
       DB_ENGINE: django.db.backends.postgresql
       DB_HOST: db
       DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-selfdb}
+      DB_USER: ${DB_USER:-selfuser}
+      DB_PASSWORD: ${DB_PASSWORD}
       REDIS_URL: redis://redis:6379/0
       ML_API_URL: http://pred:8001
       CELERY_CONCURRENCY: "${CELERY_CONCURRENCY:-4}"
@@ -190,6 +195,9 @@ services:
       DB_ENGINE: django.db.backends.postgresql
       DB_HOST: db
       DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-selfdb}
+      DB_USER: ${DB_USER:-selfuser}
+      DB_PASSWORD: ${DB_PASSWORD}
       REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
