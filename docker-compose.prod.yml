@@ -92,6 +92,8 @@ services:
       - ./pred/models/runtime:/app/models/runtime
       # 백업 디렉토리도 마운트 (컨테이너 재시작 후에도 백업 유지)
       - ./pred/models/backups:/app/models/backups
+      # AIRScout 모델 (HuggingFace 임베딩) - gitignore 되어있어 이미지에 미포함
+      - ./pred/models/AIRScout_model:/app/models/AIRScout_model
     # 마이그레이션 완료 대기 후 서버 시작 (products 테이블 = Django 커스텀 테이블명)
     command: >
       sh -c "echo '[PRED] Backend 마이그레이션 대기 중...' &&
