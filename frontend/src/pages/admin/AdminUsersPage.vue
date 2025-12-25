@@ -178,6 +178,19 @@ const lastUpdated = ref<string | null>(null)
 const editingUserId = ref<number | null>(null)
 const editUsername = ref('')
 
+// 저장 확인 모달 및 변경 사항 추적
+const showConfirmModal = ref(false)
+
+type UserChange = {
+  userId: number
+  field: 'username' | 'role' | 'is_active'
+  value: string | boolean
+}
+
+const pendingChanges = ref<UserChange[]>([])
+
+const hasChanges = computed(() => pendingChanges.value.length > 0)
+
 const appliedSummary = computed(() => {
   const parts: string[] = []
   if (search.value.trim()) {
@@ -261,21 +274,25 @@ const cancelEdit = () => {
 
 const saveUsername = async (user: AdminUser) => {
   if (!editUsername.value.trim() || saving.value) return
-  saving.value = true
-  errorMessage.value = null
-  try {
-    const updated = await adminUserAPI.update(user.id, { username: editUsername.value.trim() })
-    const idx = users.value.findIndex((u) => u.id === user.id)
-    if (idx !== -1) {
-      users.value[idx] = updated
-    }
-    cancelEdit()
-  } catch (err: any) {
-    console.error('닉네임 업데이트 실패', err)
-    errorMessage.value = err?.response?.data?.detail || '닉네임을 수정하지 못했습니다.'
-  } finally {
-    saving.value = false
+
+  // 기존 변경사항 제거 후 새로 추가
+  pendingChanges.value = pendingChanges.value.filter(
+    (c) => !(c.userId === user.id && c.field === 'username')
+  )
+
+  pendingChanges.value.push({
+    userId: user.id,
+    field: 'username',
+    value: editUsername.value.trim(),
+  })
+
+  // 로컬에서 미리 보여주기
+  const idx = users.value.findIndex((u) => u.id === user.id)
+  if (idx !== -1) {
+    users.value[idx].username = editUsername.value.trim()
   }
+
+  cancelEdit()
 }
 
 const onRoleChange = async (user: AdminUser) => {

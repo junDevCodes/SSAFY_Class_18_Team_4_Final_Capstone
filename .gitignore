@@ -445,5 +445,7 @@ storage/
 plan/
 .claude-workspace/
 
+ssl/
+
 pred/models/AIRScout_model/
 backend/selfdb
