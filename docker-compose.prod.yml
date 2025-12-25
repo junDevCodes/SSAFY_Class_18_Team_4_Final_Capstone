@@ -87,6 +87,8 @@ services:
         condition: service_healthy
     ports:
       - "8001:8001"
+    volumes:
+      - ./pred/models:/app/models
     # 마이그레이션 완료 대기 후 서버 시작 (products 테이블 = Django 커스텀 테이블명)
     command: >
       sh -c "echo '[PRED] Backend 마이그레이션 대기 중...' &&
