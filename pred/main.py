@@ -388,22 +388,39 @@ async def lifespan(app: FastAPI):
         await db.connect()
         print("[DB] ✓ 연결 완료")
 
-        await model_loader.load_all_models()
+        # 런타임 모델이 없으면 베이스 모델에서 복사 또는 초기 학습
+        # ⚠️ 중요: 모델 로드 전에 먼저 수행해야 runtime에서만 로드됨
+        import shutil
+        model_loader.runtime_dir.mkdir(parents=True, exist_ok=True)
+        runtime_model_path = model_loader.runtime_dir / "self_personalized_v2.pkl"
+        base_model_path = model_loader.base_dir / "self_personalized_v2.pkl"
 
-        # 모델 파일 없으면 초기 학습 (블로킹)
-        model_path = model_loader.models_dir / "self_personalized_v2.pkl"
-        if not model_path.exists():
-            print("[Training] 모델 파일 없음 - 초기 학습 실행...")
-            logger.warning("모델 파일 없음 - 초기 학습 실행 (블로킹)")
-            from ml.trainer import get_trainer
-            trainer = get_trainer(db)
-            success = await trainer.train_and_save("self_personalized_v2")
-            if success:
-                print("[Training] ✓ 초기 학습 완료")
-                logger.info("초기 학습 완료")
+        if not runtime_model_path.exists():
+            # 베이스 모델이 있으면 복사 (Atomic Copy 패턴)
+            if base_model_path.exists():
+                print("[Model] 베이스 모델을 런타임으로 복사 중...")
+                logger.info("베이스 모델을 런타임 디렉토리로 복사")
+                # 임시 파일에 먼저 복사 후 rename (원자적 이동)
+                temp_path = runtime_model_path.with_suffix(".pkl.tmp")
+                shutil.copy2(base_model_path, temp_path)
+                temp_path.replace(runtime_model_path)
+                print("[Model] ✓ 베이스 모델 복사 완료")
             else:
-                print("[Training] ✗ 초기 학습 실패 - 폴백 모드")
-                logger.error("초기 학습 실패 - 폴백 모드로 시작")
+                # 베이스 모델도 없으면 초기 학습 실행
+                print("[Training] 모델 파일 없음 - 초기 학습 실행...")
+                logger.warning("모델 파일 없음 - 초기 학습 실행 (블로킹)")
+                from ml.trainer import get_trainer
+                trainer = get_trainer(db)
+                success = await trainer.train_and_save("self_personalized_v2")
+                if success:
+                    print("[Training] ✓ 초기 학습 완료")
+                    logger.info("초기 학습 완료")
+                else:
+                    print("[Training] ✗ 초기 학습 실패 - 폴백 모드")
+                    logger.error("초기 학습 실패 - 폴백 모드로 시작")
+
+        # 모든 모델 로드 (runtime 디렉토리에 파일이 있는 상태에서 수행)
+        await model_loader.load_all_models()
 
         # 레시피 모델 미리 초기화
         print("[RecipeModel] 초기화 중...")

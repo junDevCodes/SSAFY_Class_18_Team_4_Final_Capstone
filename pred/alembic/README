@@ -1,0 +1,191 @@
+Alembic Migrations for pred Service
+====================================
+
+This directory contains database migrations for the pred service using Alembic.
+
+## Overview
+
+The pred service uses Alembic to manage PostgreSQL database schema migrations.
+Unlike the main Django backend, pred uses asyncpg directly for database access,
+so we use Alembic (not Django migrations) for schema management.
+
+## Current Migrations
+
+1. 20251225_0001 - Create pred_ingredients table
+   - Ingredient master table with normalization support
+   - Indexes: name_normalized, category, is_processed
+
+2. 20251225_0002 - Create pred_recipes table
+   - Main recipes table used by AIRScout model
+   - Indexes: name, name_normalized, category, popularity, active status
+   - Unique constraint on (source_site, source_id)
+
+3. 20251225_0003 - Create pred_recipe_ingredients table
+   - Many-to-many relationship between recipes and ingredients
+   - Foreign keys to pred_recipes and pred_ingredients (CASCADE)
+   - Indexes optimized for recipe lookup and ingredient matching
+
+4. 20251225_0004 - Create pred_ingredient_products table
+   - Maps ingredients to products for gap-filling recommendations
+   - Foreign key to pred_ingredients only (products table is external)
+   - Indexes for ingredient-to-product lookup with priority
+
+## Quick Start
+
+### Apply All Migrations
+
+```bash
+cd pred
+alembic upgrade head
+```
+
+### Check Current Version
+
+```bash
+alembic current
+```
+
+### View Migration History
+
+```bash
+alembic history --verbose
+```
+
+### Rollback One Migration
+
+```bash
+alembic downgrade -1
+```
+
+### Rollback All Migrations
+
+```bash
+alembic downgrade base
+```
+
+## Creating New Migrations
+
+### Manual Migration Creation
+
+```bash
+alembic revision -m "description_of_changes"
+```
+
+This creates a new migration file in `versions/` directory.
+Edit the file to add your SQL changes in `upgrade()` and `downgrade()` functions.
+
+### Example Migration
+
+```python
+def upgrade() -> None:
+    """Add new column to pred_recipes."""
+    op.execute("""
+        ALTER TABLE pred_recipes
+        ADD COLUMN new_field VARCHAR(100)
+    """)
+
+def downgrade() -> None:
+    """Remove new column from pred_recipes."""
+    op.execute("""
+        ALTER TABLE pred_recipes
+        DROP COLUMN IF EXISTS new_field
+    """)
+```
+
+## Configuration
+
+### Database Connection
+
+Database URL is configured in `env.py` and loaded from `core/config.py`:
+
+```python
+from core.config import settings
+config.set_main_option("sqlalchemy.url", settings.database_url_async)
+```
+
+Connection string format: `postgresql+asyncpg://user:pass@host:port/dbname`
+
+Default settings (from environment variables):
+- DB_HOST: localhost
+- DB_PORT: 5432
+- DB_NAME: selfdb
+- DB_USER: selfuser
+- DB_PASSWORD: selfpass
+
+### Async Support
+
+The environment is configured for asyncpg compatibility using:
+- `async_engine_from_config()` for async engine creation
+- `run_sync()` to execute migrations in async context
+
+## Troubleshooting
+
+### "alembic: command not found"
+
+Install alembic:
+```bash
+pip install alembic==1.13.1
+```
+
+### "Can't locate revision identified by 'xxxx'"
+
+Your database's alembic_version table may be out of sync.
+Check current version:
+```bash
+psql -U selfuser -d selfdb -c "SELECT * FROM alembic_version;"
+```
+
+Reset to base (WARNING: drops all tables):
+```bash
+alembic downgrade base
+alembic upgrade head
+```
+
+### "relation 'pred_recipes' does not exist"
+
+Run migrations first:
+```bash
+alembic upgrade head
+```
+
+Then run data insertion scripts:
+```bash
+python scripts/insert_test_recipes.py
+```
+
+## Best Practices
+
+1. **Always test migrations locally first** before applying to production
+2. **Create backups** before running migrations on production data
+3. **Write idempotent migrations** where possible (use IF EXISTS, IF NOT EXISTS)
+4. **Include both upgrade and downgrade** for all migrations
+5. **Use descriptive migration messages** that explain what changes are made
+6. **Keep migrations small and focused** - one logical change per migration
+
+## Production Deployment
+
+```bash
+# 1. Backup database
+pg_dump -U selfuser selfdb > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# 2. Check current version
+alembic current
+
+# 3. Preview pending migrations
+alembic history
+
+# 4. Apply migrations
+alembic upgrade head
+
+# 5. Verify tables
+psql -U selfuser -d selfdb -c "\dt pred_*"
+
+# 6. If issues occur, rollback
+alembic downgrade <previous_revision>
+```
+
+## Additional Resources
+
+- Alembic Documentation: https://alembic.sqlalchemy.org/
+- pred/docs/MIGRATIONS.md - Detailed developer guide
+- core/config.py - Database configuration settings
