@@ -49,18 +49,32 @@ const skipRefreshEndpoints = [
 // 동시 401 대응: 단일 refresh 요청만 진행
 let refreshPromise: Promise<string | null> | null = null;
 
+// 토큰 갱신 응답 타입 (SimpleJWT ROTATE_REFRESH_TOKENS 설정 시 새 refresh 토큰도 반환)
+interface TokenRefreshResponse {
+  access?: string;
+  refresh?: string;
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   if (!refreshPromise) {
     const refreshToken = localStorage.getItem("refresh_token");
 
     refreshPromise = (
       refreshToken
-        ? axios.post<{ access?: string }>(`${baseURL}/auth/token/refresh/`, {
-            refresh: refreshToken,
-          })
-        : Promise.resolve({ data: { access: null } })
+        ? axios.post<TokenRefreshResponse>(
+            `${baseURL}/auth/token/refresh/`,
+            { refresh: refreshToken }
+          )
+        : Promise.resolve({ data: { access: null, refresh: null } })
     )
-      .then((response) => response.data?.access ?? null)
+      .then((response) => {
+        // ROTATE_REFRESH_TOKENS 설정으로 새 리프레시 토큰이 발급되면 저장
+        // 저장하지 않으면 기존 토큰이 블랙리스트되어 다음 갱신 시 실패
+        if (response.data?.refresh) {
+          localStorage.setItem("refresh_token", response.data.refresh);
+        }
+        return response.data?.access ?? null;
+      })
       .catch((refreshError: AxiosError<any>) => {
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");
@@ -103,7 +117,7 @@ apiClient.interceptors.response.use(
       const newAccessToken = await refreshAccessToken();
 
       if (newAccessToken) {
-        localStorage.setItem("access_token", newAccessToken);
+        // 토큰은 refreshAccessToken() 내부에서 이미 저장됨
         const headers = new AxiosHeaders(originalRequest.headers);
         headers.set("Authorization", `Bearer ${newAccessToken}`);
         originalRequest.headers = headers;
