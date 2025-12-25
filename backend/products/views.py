@@ -22,12 +22,12 @@ from django.utils.encoding import iri_to_uri
 from django.conf import settings
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
+from rest_framework.parsers import MultiPartParser, FormParser
 from .models import (
     Category, Product, ProductImage, Wishlist, Cart,
     ProductDetail as ProductDetailModel, ProductStats, UserProductStats,
-    Review, ReviewImage, ReviewStatus, DailySalesStats
+    Review, ReviewImage, ReviewStatus, DailySalesStats, ProductViewLog
 )
-from rest_framework.parsers import MultiPartParser, FormParser
 from .serializers import (
     CategorySerializer, ProductSerializer, ProductDetailSerializer,
     ProductListSerializer, ProductImageSerializer, WishlistSerializer, CartSerializer,
@@ -37,7 +37,7 @@ from .serializers import (
     SellerProductCreateSerializer, SellerProductListSerializer,
     ProductImageUploadSerializer, ProductDetailImageUploadSerializer
 )
-from .services.s3_upload import S3ImageUploader, S3UploadError
+from .services import ViewCountService, S3ImageUploader, S3UploadError
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -174,9 +174,14 @@ class ProductListView(generics.ListAPIView):
 
         include_inactive = self.request.query_params.get('include_inactive')
 
-        queryset = Product.objects.select_related('category', 'stats', 'inventory')
+        queryset = Product.objects.select_related('category', 'stats', 'inventory', 'seller')
         if not (include_inactive and include_inactive.lower() in ('true', '1', 'yes')):
             queryset = queryset.filter(status='active')
+
+        # 브랜드 슬러그 필터 (브랜드 상세 페이지용)
+        brand_slug = self.request.query_params.get('brand_slug')
+        if brand_slug:
+            queryset = queryset.filter(seller__brand_slug=brand_slug)
 
         # 커스텀 필터: is_featured (추천 상품 - quality_score 기준)
         is_featured = self.request.query_params.get('is_featured')
@@ -268,36 +273,24 @@ class ProductDetailView(generics.RetrieveAPIView):
     serializer_class = ProductDetailSerializerV2
 
     def retrieve(self, request, *args, **kwargs):
-        """조회수 증가 (ERD V2.1: ProductStats 테이블 사용)"""
+        """조회수 증가 (ERD V2.1: ProductStats 테이블 사용)
+
+        2분 쿨타임 적용으로 어뷰징 방지:
+        - 회원: user_id 기반 쿨타임 체크
+        - 비회원: IP + User-Agent 해시 기반 쿨타임 체크
+        - 쿨타임 내 재조회 시 조회수 증가 없이 상품 정보만 반환
+        """
         instance = self.get_object()
 
-        # ERD V2.1: ProductStats 테이블의 view_count 증가 (전체 조회수)
-        ProductStats.objects.filter(product_id=instance.id).update(
-            view_count=F('view_count') + 1
+        # 조회수 증가 (쿨타임 서비스 사용)
+        incremented, result_msg = ViewCountService.increment_view_count(
+            request=request,
+            product=instance,
         )
 
-        # REC-005: 로그인 사용자일 경우 UserProductStats 업데이트
-        if request.user.is_authenticated:
-            # UPDATE 먼저 시도 (기존 레코드가 있는 경우)
-            rows_updated = UserProductStats.objects.filter(
-                user=request.user,
-                product=instance
-            ).update(
-                view_count=F('view_count') + 1,
-                last_interacted_at=timezone.now()
-            )
-
-            # 기존 레코드가 없으면 생성 (최초 조회)
-            if rows_updated == 0:
-                # get_or_create로 race condition 방지
-                UserProductStats.objects.get_or_create(
-                    user=request.user,
-                    product=instance,
-                    defaults={'view_count': 1}
-                )
-
-        # instance를 다시 가져와서 업데이트된 view_count 반영
-        instance.refresh_from_db()
+        # 조회수가 증가된 경우에만 refresh_from_db 호출 (최적화)
+        if incremented:
+            instance.refresh_from_db()
 
         return super().retrieve(request, *args, **kwargs)
 
