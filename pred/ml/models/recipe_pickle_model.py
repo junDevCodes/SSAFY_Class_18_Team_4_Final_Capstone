@@ -129,6 +129,7 @@ class RecipePickleModel(HybridModel):
 
         # === 일식 ===
         '돈까스': ['돈까스', '치즈돈까스', '등심돈까스'],
+        '돈카츠': ['돈카츠', '치즈돈카츠', '히레카츠', '로스카츠'],
         '카츠': ['카츠동', '치킨카츠'],
         '카레': ['카레', '카레라이스', '일본카레', '카츠카레'],
         '우동': ['우동', '볶음우동', '냉우동'],
@@ -158,25 +159,57 @@ class RecipePickleModel(HybridModel):
 
     # 요리 타입에 따른 기본 재료 (요리명 검출 시 재료로도 인식)
     DISH_NAME_TO_MAIN_INGREDIENT = {
+        # 닭고기 요리
         '삼계탕': '닭고기',
         '닭갈비': '닭고기',
         '닭볶음탕': '닭고기',
         '찜닭': '닭고기',
+        '치킨': '닭고기',
+        '닭강정': '닭고기',
+        '닭튀김': '닭고기',
+        # 소고기 요리
         '불고기': '소고기',
+        '육회': '소고기',
+        '스테이크': '소고기',
+        # 갈비 요리
         '갈비탕': '갈비',
         '갈비': '갈비',
         '소갈비찜': '갈비',
+        '갈비찜': '갈비',
+        # 돼지고기 요리
         '제육': '돼지고기',
         '두루치기': '돼지고기',
         '삼겹살': '삼겹살',
         '목살': '목살',
         '족발': '족발',
         '보쌈': '돼지고기',
+        '돈카츠': '돼지고기',
+        '돈까스': '돼지고기',
+        '탕수육': '돼지고기',
+        '수육': '돼지고기',
+        # 해산물 요리
         '낙지볶음': '낙지',
         '오삼불고기': '오징어',
+        '회': '생선',
+        '초밥': '생선',
+        '생선구이': '생선',
+        '생선조림': '생선',
+        # 국/찌개 요리
         '미역국': '미역',
         '김치찌개': '김치',
         '된장찌개': '된장',
+        '순두부찌개': '순두부',
+        '부대찌개': '소시지',
+        '육개장': '소고기',
+        # 면/밥 요리
+        '비빔밥': '밥',
+        '볶음밥': '밥',
+        '김밥': '밥',
+        '짜장면': '면',
+        '짬뽕': '면',
+        '냉면': '면',
+        '칼국수': '면',
+        '라면': '면',
     }
 
     # =======================================================================
@@ -2337,7 +2370,8 @@ class RecipePickleModel(HybridModel):
                     p.original_price,
                     (SELECT pi.image_url FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.display_order ASC, pi.id LIMIT 1) AS main_image,
                     COALESCE(ps.order_event_count, 0) AS order_count,
-                    p.category_id
+                    p.category_id,
+                    p.parsed_ingredients
                 FROM products p
                 LEFT JOIN product_stats ps ON p.id = ps.product_id
                 WHERE p.status = 'active'
@@ -2348,8 +2382,15 @@ class RecipePickleModel(HybridModel):
 
             records = await self.db.fetch_all(query, *params)
 
-            return [
-                {
+            results = []
+            for r in records:
+                # parsed_ingredients에서 main_ingredient 추출
+                parsed = r.get("parsed_ingredients")
+                ingredient = ""
+                if parsed and isinstance(parsed, dict):
+                    ingredient = parsed.get("main_ingredient", "")
+
+                results.append({
                     "product_id": r["product_id"],
                     "name": r["name"],
                     "slug": r["slug"],
@@ -2358,9 +2399,9 @@ class RecipePickleModel(HybridModel):
                     "main_image": r["main_image"],
                     "order_count": r["order_count"],
                     "category_id": r["category_id"],
-                }
-                for r in records
-            ]
+                    "ingredient": ingredient,  # 상품 자체의 재료 정보
+                })
+            return results
 
         except Exception as e:
             logger.warning(f"후보 상품 조회 실패: {e}")
