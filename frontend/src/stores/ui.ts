@@ -7,10 +7,12 @@ export const useUIStore = defineStore('ui', () => {
   const isCartOpen = ref(false)
   const isLoginOpen = ref(false)
   const isRecentOpen = ref(false)
+  const isMobileMenuOpen = ref(false)
   const headerState = ref<'hero' | 'light' | 'green'>('hero')
   const activeTab = ref('추천')
-  const authMode = ref<'login' | 'signup'>('login')
+  const authMode = ref<'login' | 'signup' | 'forgot-password'>('login')
   const showVerification = ref(false)
+  const showForgotPassword = ref(false)  // 비밀번호 찾기 모달 표시
   const toast = ref({ show: false, message: '' })
   const redirectPath = ref<string | null>(null)
 
@@ -44,6 +46,15 @@ export const useUIStore = defineStore('ui', () => {
     isRecentOpen.value = false
   }
 
+  // 모바일 메뉴 열기/닫기
+  const openMobileMenu = () => {
+    isMobileMenuOpen.value = true
+  }
+
+  const closeMobileMenu = () => {
+    isMobileMenuOpen.value = false
+  }
+
   // 로그인 모달 열기/닫기
   const openLogin = () => {
     isLoginOpen.value = true
@@ -61,13 +72,25 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   // 인증 모드 변경
-  const setAuthMode = (mode: 'login' | 'signup') => {
+  const setAuthMode = (mode: 'login' | 'signup' | 'forgot-password') => {
     authMode.value = mode
+    // 비밀번호 찾기 모드일 때 플래그 설정
+    showForgotPassword.value = mode === 'forgot-password'
   }
 
   // 인증번호 입력 표시
   const setShowVerification = (value: boolean) => {
     showVerification.value = value
+  }
+
+  // 비밀번호 찾기 모달 표시/숨기기
+  const setShowForgotPassword = (value: boolean) => {
+    showForgotPassword.value = value
+    if (value) {
+      authMode.value = 'forgot-password'
+    } else {
+      authMode.value = 'login'
+    }
   }
 
   // 토스트 표시
@@ -92,10 +115,12 @@ export const useUIStore = defineStore('ui', () => {
     isCartOpen,
     isLoginOpen,
     isRecentOpen,
+    isMobileMenuOpen,
     headerState,
     activeTab,
     authMode,
     showVerification,
+    showForgotPassword,
     toast,
     redirectPath,
     setScrolled,
@@ -104,10 +129,13 @@ export const useUIStore = defineStore('ui', () => {
     closeCart,
     openRecent,
     closeRecent,
+    openMobileMenu,
+    closeMobileMenu,
     openLogin,
     closeLogin,
     setAuthMode,
     setShowVerification,
+    setShowForgotPassword,
     showToast,
     setActiveTab,
     setRedirectPath

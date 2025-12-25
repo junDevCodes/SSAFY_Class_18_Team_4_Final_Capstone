@@ -51,6 +51,7 @@ export interface AuthResponse {
   access: string
   refresh: string
   user: User
+  must_change_password?: boolean  // 임시 비밀번호로 로그인 시 true
 }
 
 // 별칭 추가 (환형)
@@ -61,6 +62,7 @@ export interface LoginResponse {
   user: User
   verification_code?: string
   message?: string
+  must_change_password?: boolean  // 임시 비밀번호로 로그인 시 true
 }
 
 // ==================== 배송지 타입(ERD V2.1) ====================

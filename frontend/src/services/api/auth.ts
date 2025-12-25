@@ -49,17 +49,22 @@ export const authApi = {
     localStorage.removeItem('refresh_token')
   },
 
-  // 토큰 갱신
-  refreshToken: async (): Promise<{ access: string }> => {
+  // 토큰 갱신 (ROTATE_REFRESH_TOKENS 설정 시 새 리프레시 토큰도 저장)
+  refreshToken: async (): Promise<{ access: string; refresh?: string }> => {
     const refreshToken = localStorage.getItem('refresh_token')
     if (!refreshToken) {
       throw new Error('리프레시 토큰이 없습니다.')
     }
-    const response = await apiClient.post<{ access: string }>('/auth/token/refresh/', {
-      refresh: refreshToken,
-    })
+    const response = await apiClient.post<{ access: string; refresh?: string }>(
+      '/auth/token/refresh/',
+      { refresh: refreshToken }
+    )
     if (response.data.access) {
       localStorage.setItem('access_token', response.data.access)
+    }
+    // ROTATE_REFRESH_TOKENS 설정으로 새 리프레시 토큰이 발급되면 저장
+    if (response.data.refresh) {
+      localStorage.setItem('refresh_token', response.data.refresh)
     }
     return response.data
   },
