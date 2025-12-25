@@ -2,7 +2,7 @@
 
 > 소비자가 원하는 상품을 추천하고, 가장 저렴하게 찾을 수 있는 전자상거래 플랫폼.
 
-<img src="https://i.postimg.cc/FsR1X5cv/Self_로고.png" alt="SelF-Logo" width="200">
+<img src="https://i.postimg.cc/k5NcQ5rw/Chat-GPT-Image-2025nyeon-12wol-26il-ojeon-04-11-12.png" alt="SelF-Logo" width="200">
 
 ## 📌 프로젝트 소개
 
