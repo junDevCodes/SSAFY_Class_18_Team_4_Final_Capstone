@@ -203,8 +203,9 @@ class ProductsConfig(AppConfig):
         try:
             from products.tasks import process_pending_extractions
 
-            # 최대 발행 수 제한 (서버 시작 시 과부하 방지)
-            batch_size = min(null_count, 200)
+            # 서버 시작 시 최대 발행 수 (환경변수로 조정 가능, 기본값 1000)
+            max_startup_batch = int(os.getenv('GMS_STARTUP_BATCH_SIZE', 1000))
+            batch_size = min(null_count, max_startup_batch)
 
             print(f"\n[GMS 추출] 미처리 상품 {batch_size}개에 대해 태스크 발행")
 

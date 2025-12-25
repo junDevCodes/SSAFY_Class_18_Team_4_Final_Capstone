@@ -390,9 +390,9 @@ class ALSTrainer:
                 },
             }
 
-            # 저장
-            model_path = model_loader.models_dir / f"{model_name}.pkl"
-            model_loader.models_dir.mkdir(parents=True, exist_ok=True)
+            # 저장 (런타임 모델은 runtime 디렉토리에 저장)
+            model_path = model_loader.runtime_dir / f"{model_name}.pkl"
+            model_loader.runtime_dir.mkdir(parents=True, exist_ok=True)
 
             with open(model_path, "wb") as f:
                 pickle.dump(model_data, f)

@@ -446,4 +446,11 @@ plan/
 .claude-workspace/
 
 pred/models/AIRScout_model/
+
+# pred 런타임 모델 (연속 학습으로 지속 변경됨)
+pred/models/runtime/
+pred/models/backups/
+!pred/models/runtime/.gitkeep
+!pred/models/backups/.gitkeep
+
 backend/selfdb
