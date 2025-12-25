@@ -120,52 +120,45 @@ jobs:
             ${{ env.ECR_REPO_PRED }}:latest
             ${{ env.ECR_REPO_PRED }}:${{ github.sha }}
 
-  deploy-dev:
-    needs: [backend-image, frontend-image, pred-image]
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+            deploy-dev:
+              needs: [backend-image, frontend-image, pred-image]
+              if: github.ref == 'refs/heads/main'
+              runs-on: ubuntu-latest
+              steps:
+                - name: Checkout code
+                  uses: actions/checkout@v4
 
-      - name: docker-compose.prod.yml 동기화 (EC2)
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_SSH_PORT }}
-          source: "docker-compose.prod.yml"
-          target: "/home/ubuntu/self-app/"
+                - name: docker-compose.prod.yml 동기화 (EC2)
+                  uses: appleboy/scp-action@v0.1.7
+                  with:
+                    host: ${{ secrets.EC2_HOST }}
+                    username: ${{ secrets.EC2_USERNAME }}
+                    key: ${{ secrets.EC2_SSH_KEY }}
+                    port: ${{ secrets.EC2_SSH_PORT }}
+                    source: "docker-compose.prod.yml"
+                    target: "/home/ubuntu/self-app/"
 
-      - name: EC2로 배포 (SSH + Docker Compose)
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_SSH_PORT }}
-          script: |
-            # 작업 디렉토리 이동
-            cd ~/self-app
+                - name: EC2로 배포 (SSH + Docker Compose)
+                  uses: appleboy/ssh-action@v1.0.0
+                  with:
+                    host: ${{ secrets.EC2_HOST }}
+                    username: ${{ secrets.EC2_USERNAME }}
+                    key: ${{ secrets.EC2_SSH_KEY }}
+                    port: ${{ secrets.EC2_SSH_PORT }}
+                    script: |
+                      cd ~/self-app
 
-            # ECR 로그인
-            aws ecr get-login-password --region ap-northeast-2 | \
-              docker login --username AWS --password-stdin \
-              733002311297.dkr.ecr.ap-northeast-2.amazonaws.com
+                      aws ecr get-login-password --region ap-northeast-2 | \
+                        docker login --username AWS --password-stdin \
+                        733002311297.dkr.ecr.ap-northeast-2.amazonaws.com
 
-            # 기존 컨테이너 정지 (docker-compose 관리)
-            docker compose -f docker-compose.prod.yml down
+                      docker compose -f docker-compose.prod.yml down
 
-            # 최신 이미지 Pull
-            docker compose -f docker-compose.prod.yml pull
+                      docker compose -f docker-compose.prod.yml pull backend frontend pred
 
-            # 컨테이너 시작 (DB, Redis, Backend, Frontend 모두)
-            docker compose -f docker-compose.prod.yml up -d
+                      docker compose -f docker-compose.prod.yml up -d
 
-            # 사용하지 않는 이미지 정리
-            docker image prune -f
+                      docker image prune -f
 
-            # 상태 확인
-            echo "=== 컨테이너 상태 ==="
-            docker compose -f docker-compose.prod.yml ps
+                      echo "=== 컨테이너 상태 ==="
+                      docker compose -f docker-compose.prod.yml ps
