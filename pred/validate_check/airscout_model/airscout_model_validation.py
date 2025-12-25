@@ -73,8 +73,7 @@ class _HFEncoder:
         self.model.eval()
         self.batch_size = batch_size
         self.max_len = max_len
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model.to(self.device)
+        self.device = "cpu"
 
     def _mean_pooling(self, model_output, attention_mask):
         token_embeddings = model_output.last_hidden_state

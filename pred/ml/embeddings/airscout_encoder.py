@@ -106,17 +106,15 @@ class AIRScoutEncoder:
 
         # 2) HuggingFace Transformers 폴백
         try:
-            import torch
             from transformers import AutoModel, AutoTokenizer
 
             self._tokenizer = AutoTokenizer.from_pretrained(str(self.model_dir))
             self._hf_model = AutoModel.from_pretrained(str(self.model_dir))
             self._hf_model.eval()
-            self._device = "cuda" if torch.cuda.is_available() else "cpu"
-            self._hf_model.to(self._device)
+            self._device = "cpu"
             self._use_hf_fallback = True
 
-            logger.info(f"HuggingFace Transformers 로드 성공 (device={self._device})")
+            logger.info("HuggingFace Transformers 로드 성공 (CPU)")
         except Exception as e:
             logger.error(f"모델 로드 완전 실패: {e}")
             raise RuntimeError(f"AIRScout 모델 로드 실패: {e}")
